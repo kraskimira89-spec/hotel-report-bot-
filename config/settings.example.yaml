@@ -87,7 +87,7 @@ email:
 
 # Google Sheets — таблица «Апарт отель для Сергея»
 sheets:
-  spreadsheet_id: ""                    # ID таблицы (из URL); если пусто — открытие по title
+  spreadsheet_id: "1tCPA1HeT5y48zvP3Gj9VG0Gpj9an0BG37Zn1_X69ehQ"  # из URL Google Sheets
   spreadsheet_title: "Апарт отель для Сергея"
   occupancy_sheet: "Заселяемость"
   occupancy_sheet_gid: 343939684        # gid листа заселяемости
