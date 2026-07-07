@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Логи ошибок — hotel-report-bot{% endblock %}
+{% block content %}
+<h1>Логи ошибок</h1>
+<div class="card">
+    {% if errors %}
+    <table>
+        <thead><tr><th>Время</th><th>Источник</th><th>Тип</th><th>Сообщение</th></tr></thead>
+        <tbody>
+        {% for e in errors %}
+        <tr>
+            <td>{{ e.created_at }}</td>
+            <td>{{ e.source }}</td>
+            <td>{{ e.error_type }}</td>
+            <td>{{ e.message }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>Ошибок нет.</p>
+    {% endif %}
+</div>
+{% endblock %}

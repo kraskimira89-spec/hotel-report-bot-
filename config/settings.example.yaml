@@ -1,0 +1,98 @@
+# Скопируйте в config/settings.yaml и настройте под объект.
+# Секреты (токены, пароли) — только в .env
+
+# Режим dry-run: расчёт полный, отправка в тестовый чат/себе
+dry_run: true
+
+# Объект
+property:
+  total_units: 44          # квартир
+  categories: 6          # категорий
+  timezone: Europe/Moscow
+
+# Расписание (Europe/Moscow)
+scheduler:
+  price_snapshot_cron: "0 9 * * *"       # ежедневно 09:00 — snapshot цен
+  daily_summary_cron: "5 9 * * *"          # ежедневно 09:05 — сводка в Max
+  weekly_email_cron: "0 8 * * 1"           # понедельник 08:00 — email-отчёт
+
+# Хранение истории
+storage:
+  db_path: data/hotel_report.db
+  retention_days: 90
+
+# Пороги светофора (ежедневная сводка)
+traffic_light:
+  occupancy_green_min: 70    # % загрузки — зелёный от
+  occupancy_yellow_min: 50   # % загрузки — жёлтый от
+  price_change_yellow_pct: 5 # % отклонения цены — жёлтый
+  price_change_red_pct: 10   # % отклонения цены — красный
+  new_bookings_green_min: 3  # новых броней — зелёный от
+  new_bookings_yellow_min: 1 # новых броней — жёлтый от
+
+# Классификация каналов бронирования
+channels_map:
+  direct:
+    - "1apart.ru"
+    - "Сайт"
+    - "Звонок"
+    - "Телефон"
+    - "WhatsApp"
+    - "Telegram"
+    - "Max"
+  aggregator:
+    - "Островок"
+    - "Яндекс Путешествия"
+    - "Авито"
+    - "Суточно.ру"
+    - "Booking.com"
+    - "Ostrovok"
+
+# Сбор цен с сайта 1apart.ru (статический HTML)
+site_prices:
+  base_url: https://1apart.ru
+  category_urls:
+    - /apartments/studio
+    - /apartments/comfort
+    - /apartments/business
+    - /apartments/premium
+    - /apartments/luxury
+    - /apartments/penthouse
+  request_delay_min_sec: 2
+  request_delay_max_sec: 3
+  user_agent: "Mozilla/5.0 (compatible; HotelReportBot/1.0; +https://1apart.ru)"
+  backoff_initial_sec: 5
+  backoff_max_sec: 60
+  max_retries: 3
+
+# TravelLine API
+travelline:
+  webpms_base_url: https://api.travelline.ru
+  reservation_base_url: https://api.travelline.ru
+  property_id: ""  # ID объекта в TravelLine
+
+# Max Bot API (секрет — см. .env MAX_TOKEN)
+max_bot:
+  api_url: https://platform-api2.max.ru
+  chat_id: ""           # основной chat_id для отправки
+  test_chat_id: ""      # chat_id для dry_run
+  max_message_length: 4000  # лимит Max API
+
+# Email (еженедельный отчёт)
+email:
+  from_address: reports@1apart.ru
+  to_addresses:
+    - manager@1apart.ru
+  subject_prefix: "[1apart] Еженедельный отчёт"
+
+# Google Sheets
+sheets:
+  spreadsheet_id: ""
+  occupancy_sheet: "Заселяемость"
+  bookings_sheet: "Брони статистика"
+
+# Веб-админка
+web:
+  host: 0.0.0.0
+  port: 8000
+  admin_username: admin

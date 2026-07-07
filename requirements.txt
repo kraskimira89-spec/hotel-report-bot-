@@ -1,0 +1,17 @@
+gspread
+google-auth
+httpx
+beautifulsoup4
+lxml
+fastapi
+uvicorn
+jinja2
+apscheduler
+pydantic-settings
+python-dotenv
+pyyaml
+pytest
+ruff
+# runtime-зависимости FastAPI (сессии, формы) — не Playwright
+python-multipart
+itsdangerous

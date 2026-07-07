@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}hotel-report-bot{% endblock %}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #333; }
+        nav { background: #1a1a2e; padding: 1rem 2rem; display: flex; gap: 1.5rem; align-items: center; }
+        nav a { color: #eee; text-decoration: none; }
+        nav a:hover, nav a.active { color: #4fc3f7; }
+        nav .brand { font-weight: bold; margin-right: auto; }
+        main { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
+        .card { background: #fff; border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); margin-bottom: 1rem; }
+        h1 { margin-bottom: 1rem; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: .5rem .75rem; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #fafafa; }
+        .badge { display: inline-block; padding: .2rem .6rem; border-radius: 4px; font-size: .85rem; }
+        .badge-green { background: #e8f5e9; color: #2e7d32; }
+        .badge-yellow { background: #fff8e1; color: #f57f17; }
+        .error { color: #c62828; margin-bottom: 1rem; }
+        form label { display: block; margin-bottom: .5rem; }
+        form input, form button { padding: .5rem; margin-bottom: 1rem; }
+        form button { background: #1a1a2e; color: #fff; border: none; border-radius: 4px; cursor: pointer; padding: .5rem 1.5rem; }
+    </style>
+</head>
+<body>
+    {% if page %}
+    <nav>
+        <span class="brand">🏨 hotel-report-bot</span>
+        <a href="/" class="{% if page == 'dashboard' %}active{% endif %}">Дашборд</a>
+        <a href="/snapshots" class="{% if page == 'snapshots' %}active{% endif %}">Цены</a>
+        <a href="/metrics" class="{% if page == 'metrics' %}active{% endif %}">Метрики</a>
+        <a href="/channels" class="{% if page == 'channels' %}active{% endif %}">Каналы</a>
+        <a href="/reports" class="{% if page == 'reports' %}active{% endif %}">Отчёты</a>
+        <a href="/logs" class="{% if page == 'logs' %}active{% endif %}">Логи</a>
+        <a href="/settings" class="{% if page == 'settings' %}active{% endif %}">Настройки</a>
+        <a href="/logout">Выход</a>
+    </nav>
+    {% endif %}
+    <main>{% block content %}{% endblock %}</main>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Отчёты — hotel-report-bot{% endblock %}
+{% block content %}
+<h1>Журнал отчётов</h1>
+<div class="card">
+    {% if reports %}
+    <table>
+        <thead><tr><th>Время</th><th>Тип</th><th>Дата отчёта</th><th>Период</th><th>Статус</th></tr></thead>
+        <tbody>
+        {% for r in reports %}
+        <tr>
+            <td>{{ r.created_at }}</td>
+            <td>{{ r.report_type }}</td>
+            <td>{{ r.report_date }}</td>
+            <td>{{ r.period_start or "—" }} — {{ r.period_end or "—" }}</td>
+            <td>{{ r.status }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>Отчётов пока нет.</p>
+    {% endif %}
+</div>
+{% endblock %}

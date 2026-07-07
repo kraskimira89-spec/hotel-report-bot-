@@ -1,0 +1,39 @@
+---
+description: Общий контекст hotel-report-bot — действует на всех этапах
+alwaysApply: true
+---
+
+# hotel-report-bot — общий контекст
+
+Автономный сервис отчётности для апарт-отеля (44 квартиры, 6 категорий). Объект: 1apart.ru.
+
+## Стек и ограничения
+
+- **Python 3.11+**
+- **Таймзона:** `Europe/Moscow` (расписание, даты отчётов)
+- **Конфигурация:** всё в `config/settings.yaml` + `.env` — без хардкода токенов, порогов, chat_id, email, лимитов
+- **Секреты:** только в `.env`, файлы в `.gitignore`
+- **История:** SQLite (`src/storage/`), retention ≥ 90 дней
+- **Админка:** FastAPI + Jinja2
+- **Деплой:** Docker (`docker/`)
+
+## Источники данных
+
+| Что | Как |
+|-----|-----|
+| Базовые цены категорий | `httpx` + `BeautifulSoup` (статический HTML 1apart.ru). **Playwright запрещён** |
+| Цены на конкретные даты | TravelLine API (Price Optimizer). **Не парсить виджет** |
+| Брони, доход, каналы | TravelLine API (WebPMS + Read Reservation) |
+| Заселяемость, статистика | Google Sheets (`gspread` + service account) |
+
+## Принципы разработки
+
+- Минимальный diff, без лишнего рефакторинга
+- Заглушки с `# TODO:` по этапам 0–11 из README
+- Комментарии и докстринги — на русском
+- При недоступности источника — fallback на последний snapshot + пометка
+- `dry_run` в config + переключатель в админке
+
+## Структура
+
+Код в `hotel-report-bot/src/`. Тесты в `tests/`. Каждый этап — отдельный PR.

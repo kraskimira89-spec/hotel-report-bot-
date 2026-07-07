@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Настройки — hotel-report-bot{% endblock %}
+{% block content %}
+<h1>Настройки</h1>
+<div class="card">
+    <h2>Dry-run</h2>
+    <p>Текущее значение: <strong>{{ "включён" if config.dry_run else "выключен" }}</strong></p>
+    <form method="post" action="/settings/dry-run">
+        <label>
+            <input type="hidden" name="dry_run" value="{{ 'false' if config.dry_run else 'true' }}">
+            <button type="submit">{{ "Выключить" if config.dry_run else "Включить" }} dry-run</button>
+        </label>
+    </form>
+    <p style="color:#888;margin-top:1rem;">Полное сохранение в settings.yaml — этап 8.</p>
+</div>
+{% endblock %}

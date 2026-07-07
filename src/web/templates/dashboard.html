@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Дашборд — hotel-report-bot{% endblock %}
+{% block content %}
+<h1>Дашборд</h1>
+<div class="card">
+    <p>Объект: <strong>{{ config.property.total_units }}</strong> квартир, <strong>{{ config.property.categories }}</strong> категорий</p>
+    <p>Режим dry-run: <span class="badge {% if config.dry_run %}badge-yellow{% else %}badge-green{% endif %}">
+        {{ "включён" if config.dry_run else "выключен" }}
+    </span></p>
+    <p>Таймзона: {{ config.property.timezone }}</p>
+</div>
+<div class="card">
+    <h2>Расписание</h2>
+    <ul>
+        <li>Snapshot цен: {{ config.scheduler.price_snapshot_cron }} MSK</li>
+        <li>Сводка Max: {{ config.scheduler.daily_summary_cron }} MSK</li>
+        <li>Email-отчёт: {{ config.scheduler.weekly_email_cron }} MSK (пн)</li>
+    </ul>
+</div>
+<p style="color:#888;">Данные появятся после этапов 3–7 реализации.</p>
+{% endblock %}

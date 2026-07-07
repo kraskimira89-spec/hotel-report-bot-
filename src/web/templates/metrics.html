@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Метрики — hotel-report-bot{% endblock %}
+{% block content %}
+<h1>Ежедневные метрики</h1>
+<div class="card">
+    {% if metrics %}
+    <table>
+        <thead><tr><th>Дата</th><th>Occupancy %</th><th>ADR</th><th>RevPAR</th><th>ALS</th><th>Доход</th></tr></thead>
+        <tbody>
+        {% for m in metrics %}
+        <tr>
+            <td>{{ m.report_date }}</td>
+            <td>{{ m.occupancy_pct or "—" }}</td>
+            <td>{{ m.adr or "—" }}</td>
+            <td>{{ m.revpar or "—" }}</td>
+            <td>{{ m.als or "—" }}</td>
+            <td>{{ m.revenue or "—" }}{% if m.is_estimated %} *{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>Нет данных. Метрики появятся после этапов 2–7.</p>
+    {% endif %}
+</div>
+{% endblock %}

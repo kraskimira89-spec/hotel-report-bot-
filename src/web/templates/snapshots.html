@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Snapshot цен — hotel-report-bot{% endblock %}
+{% block content %}
+<h1>История snapshot цен</h1>
+<div class="card">
+    {% if snapshots %}
+    <table>
+        <thead><tr><th>Дата</th><th>Категория</th><th>Цена</th><th>Источник</th><th>Оценочная</th></tr></thead>
+        <tbody>
+        {% for s in snapshots %}
+        <tr>
+            <td>{{ s.snapshot_date }}</td>
+            <td>{{ s.category }}</td>
+            <td>{{ s.price }} ₽</td>
+            <td>{{ s.source }}</td>
+            <td>{{ "да" if s.is_estimated else "нет" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>Нет данных. Snapshot появятся после этапа 3.</p>
+    {% endif %}
+</div>
+{% endblock %}

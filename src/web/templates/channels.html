@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Каналы — hotel-report-bot{% endblock %}
+{% block content %}
+<h1>Каналы бронирования</h1>
+<div class="card">
+    <h2>Классификация (config)</h2>
+    <p><strong>Прямые:</strong> {{ channels_map.direct | join(", ") }}</p>
+    <p><strong>Агрегаторы:</strong> {{ channels_map.aggregator | join(", ") }}</p>
+</div>
+<div class="card">
+    {% if bookings %}
+    <table>
+        <thead><tr><th>Дата</th><th>Канал</th><th>Тип</th><th>Броней</th><th>Новых</th></tr></thead>
+        <tbody>
+        {% for b in bookings %}
+        <tr>
+            <td>{{ b.report_date }}</td>
+            <td>{{ b.channel }}</td>
+            <td>{{ b.channel_type }}</td>
+            <td>{{ b.bookings_count }}</td>
+            <td>{{ b.new_bookings_count }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>Нет данных по каналам.</p>
+    {% endif %}
+</div>
+{% endblock %}
