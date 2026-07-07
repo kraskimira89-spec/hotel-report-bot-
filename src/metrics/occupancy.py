@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from src.config import TrafficLightThresholds
 
+TRAFFIC_LIGHT_EMOJI = {
+    "green": "🟢",
+    "yellow": "🟡",
+    "red": "🔴",
+}
+
 
 def calc_occupancy(sold_unit_nights: int, available_unit_nights: int) -> float:
     """Occupancy = продано unit-nights / доступно unit-nights × 100%.
@@ -51,4 +57,14 @@ def traffic_light_status(
 
 def traffic_light_emoji(status: str) -> str:
     """Эмодзи для статуса светофора."""
-    return {"green": "🟢", "yellow": "🟡", "red": "🔴"}.get(status, "🟡")
+    return TRAFFIC_LIGHT_EMOJI.get(status, "🟡")
+
+
+def traffic_light(
+    value: float,
+    thresholds: TrafficLightThresholds,
+    metric: str = "occupancy",
+) -> str:
+    """Светофор: пороги из config → 🟢 / 🟡 / 🔴."""
+    status = traffic_light_status(value, thresholds, metric)
+    return traffic_light_emoji(status)

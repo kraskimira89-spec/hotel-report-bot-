@@ -1,7 +1,7 @@
 """Тесты классификации каналов."""
 
 from src.config import ChannelsMap
-from src.metrics.guests import classify_channel
+from src.metrics.guests import classify_channel, classify_channels
 
 
 def test_direct_site() -> None:
@@ -28,3 +28,31 @@ def test_aggregator() -> None:
 def test_unknown() -> None:
     cm = ChannelsMap(direct=["1apart.ru"], aggregator=["Островок"])
     assert classify_channel("Неизвестный канал", cm) == "unknown"
+
+
+def test_empty_channel() -> None:
+    cm = ChannelsMap(direct=["1apart.ru"], aggregator=["Островок"])
+    assert classify_channel("", cm) == "unknown"
+    assert classify_channel("   ", cm) == "unknown"
+
+
+def test_classify_channels_batch() -> None:
+    cm = ChannelsMap(
+        direct=["1apart.ru"],
+        aggregator=["Островок"],
+    )
+    result = classify_channels(["1apart.ru", "Островок", "Другое"], cm)
+    assert result == {
+        "1apart.ru": "direct",
+        "Островок": "aggregator",
+        "Другое": "unknown",
+    }
+
+
+def test_direct_priority_over_aggregator() -> None:
+    """Прямой канал проверяется первым."""
+    cm = ChannelsMap(
+        direct=["Сайт"],
+        aggregator=["Сайт партнёра"],
+    )
+    assert classify_channel("Сайт 1apart.ru", cm) == "direct"
