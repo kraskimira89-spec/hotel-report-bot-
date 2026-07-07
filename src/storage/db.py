@@ -454,6 +454,35 @@ def get_guest(guest_id: str) -> GuestRecord | None:
     )
 
 
+def get_guests_in_period(
+    start_date: date,
+    end_date: date,
+) -> list[GuestRecord]:
+    """Гости с last_seen в указанном периоде."""
+    with db_session() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM guests
+            WHERE last_seen >= ? AND last_seen <= ?
+            ORDER BY last_seen DESC
+            """,
+            (_date_str(start_date), _date_str(end_date)),
+        ).fetchall()
+    return [
+        GuestRecord(
+            guest_id=row["guest_id"],
+            phone_hash=row["phone_hash"],
+            email_hash=row["email_hash"],
+            fio_hash=row["fio_hash"],
+            first_seen=_parse_date(row["first_seen"]),
+            last_seen=_parse_date(row["last_seen"]),
+            visits_count=row["visits_count"],
+            is_returning=bool(row["is_returning"]),
+        )
+        for row in rows
+    ]
+
+
 def save_report_log(
     record: ReportLogRecord,
     conn: sqlite3.Connection | None = None,

@@ -114,6 +114,7 @@ class EmailConfig(BaseModel):
 
     from_address: str = ""
     to_addresses: list[str] = Field(default_factory=list)
+    test_addresses: list[str] = Field(default_factory=list)
     subject_prefix: str = "[1apart] Еженедельный отчёт"
 
 
