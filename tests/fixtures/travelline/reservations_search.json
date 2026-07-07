@@ -1,0 +1,15 @@
+{
+  "reservations": [
+    {
+      "number": "20260707-7291-100",
+      "status": "Confirmed",
+      "createdDateTime": "2026-07-07T06:30:00Z",
+      "modifiedDateTime": "2026-07-07T06:30:00Z",
+      "source": {
+        "type": "Channel",
+        "code": "1apart.ru"
+      }
+    }
+  ],
+  "hasNextPage": false
+}

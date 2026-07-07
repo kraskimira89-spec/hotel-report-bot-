@@ -73,11 +73,20 @@ site_prices:
     price_value: ".price-value"
     price_from_regex: 'от\s*([\d\s\u00a0]+)\s*(?:руб|₽|Р|р\.?)'
 
-# TravelLine API
+# TravelLine API (секреты — см. .env TL_API_KEY / TL_CLIENT_ID / TL_CLIENT_SECRET)
 travelline:
-  webpms_base_url: https://api.travelline.ru
-  reservation_base_url: https://api.travelline.ru
+  partner_base_url: https://partner.tlintegration.com
+  auth_url: https://partner.tlintegration.com/auth/token
+  webpms_base_url: https://partner.tlintegration.com/api/webpms
+  reservation_base_url: https://partner.tlintegration.com/api/read-reservation
+  search_base_url: https://partner.tlintegration.com/api/search
   property_id: ""  # ID объекта в TravelLine
+  max_date_window_days: 31
+  max_retries: 3
+  backoff_initial_sec: 1
+  backoff_max_sec: 60
+  sheets_reconcile_threshold_pct: 10  # % расхождения с Sheets → предупреждение
+  reservation_page_size: 100
 
 # Max Bot API (секрет — см. .env MAX_TOKEN)
 max_bot:
