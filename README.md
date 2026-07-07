@@ -51,7 +51,7 @@ docker compose -f docker/docker-compose.yml up --build
 - [x] **Этап 1** — Google Sheets (`gspread`)
 - [x] **Этап 2** — метрики + тесты формул
 - [x] **Этап 3** — snapshot цен (BeautifulSoup) + анти-блок
-- [ ] **Этап 4** — SQLite, миграции, retention 90 дней
+- [x] **Этап 4** — SQLite, миграции, retention 90 дней
 - [ ] **Этап 5** — Max Bot + dry-run
 - [ ] **Этап 6** — email-отчёт (HTML)
 - [ ] **Этап 7** — TravelLine API (цены, доход, каналы, гости)

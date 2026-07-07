@@ -10,10 +10,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from src.config import get_config
-from src.data_sources.site_prices import fetch_category_prices
+from src.data_sources.site_prices import collect_price_snapshots
 from src.notifiers.email_sender import send_html_report
 from src.notifiers.max_bot import send_message
-from src.storage.db import init_db
+from src.storage.db import init_db, save_price_snapshots
+from src.storage.models import PriceSnapshotRecord
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +40,26 @@ def job_price_snapshot(
         report_date,
         run_date,
     )
-    # TODO: этап 4 — сохранить в price_snapshots (SQLite)
-    prices = fetch_category_prices()
-    logger.info("Собрано %s цен (snapshot)", len(prices))
+    result = collect_price_snapshots()
+    records = [
+        PriceSnapshotRecord(
+            snapshot_at=s.snapshot_at,
+            category=s.category,
+            price=s.price,
+            source=s.source,
+            is_estimated=False,
+            is_fallback=s.is_fallback,
+            url=s.url or None,
+        )
+        for s in result.snapshots
+    ]
+    saved = save_price_snapshots(records)
+    logger.info(
+        "Snapshot цен: собрано %s, сохранено в БД %s, fallback=%s",
+        len(result.snapshots),
+        saved,
+        result.used_fallback,
+    )
 
 
 def job_daily_summary(
