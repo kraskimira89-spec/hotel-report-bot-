@@ -104,8 +104,11 @@ class SheetsConfig(BaseModel):
     """Параметры Google Sheets."""
 
     spreadsheet_id: str = ""
+    spreadsheet_title: str = "Апарт отель для Сергея"
     occupancy_sheet: str = "Заселяемость"
+    occupancy_sheet_gid: int = 343939684
     bookings_sheet: str = "Брони статистика"
+    bookings_sheet_gid: int = 1469944608
 
 
 class WebConfig(BaseModel):

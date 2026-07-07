@@ -85,11 +85,14 @@ email:
     - manager@1apart.ru
   subject_prefix: "[1apart] Еженедельный отчёт"
 
-# Google Sheets
+# Google Sheets — таблица «Апарт отель для Сергея»
 sheets:
-  spreadsheet_id: ""
+  spreadsheet_id: ""                    # ID таблицы (из URL); если пусто — открытие по title
+  spreadsheet_title: "Апарт отель для Сергея"
   occupancy_sheet: "Заселяемость"
+  occupancy_sheet_gid: 343939684        # gid листа заселяемости
   bookings_sheet: "Брони статистика"
+  bookings_sheet_gid: 1469944608       # gid листа броней
 
 # Веб-админка
 web:

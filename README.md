@@ -48,7 +48,7 @@ docker compose -f docker/docker-compose.yml up --build
 ## Этапы реализации (каждый = отдельный PR)
 
 - [x] **Этап 0** — среда, CI, каркас
-- [ ] **Этап 1** — Google Sheets (`gspread`)
+- [x] **Этап 1** — Google Sheets (`gspread`)
 - [ ] **Этап 2** — метрики + тесты формул
 - [ ] **Этап 3** — snapshot цен (BeautifulSoup) + анти-блок
 - [ ] **Этап 4** — SQLite, миграции, retention 90 дней
