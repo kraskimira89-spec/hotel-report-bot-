@@ -12,7 +12,7 @@ from apscheduler.triggers.cron import CronTrigger
 from src.config import get_config
 from src.data_sources.site_prices import collect_price_snapshots
 from src.notifiers.email_sender import send_html_report
-from src.notifiers.max_bot import send_message
+from src.notifiers.max_bot import send_daily_summary
 from src.storage.db import init_db, save_price_snapshots
 from src.storage.models import PriceSnapshotRecord
 
@@ -69,21 +69,12 @@ def job_daily_summary(
     """Ежедневная сводка в Max (09:05 MSK)."""
     run_date = run_date or _msk_now().date()
     report_date = report_date or run_date
-    cfg = get_config()
     logger.info(
         "Задача daily_summary: report_date=%s, run_date=%s",
         report_date,
         run_date,
     )
-    # TODO: этап 5 — полный расчёт метрик и светофор
-    text = (
-        f"📊 Сводка за {report_date}\n"
-        f"🟢 Загрузка: —\n"
-        f"🟡 Цены: —\n"
-        f"🟢 Новые брони: —\n"
-        f"(каркас, dry_run={cfg.dry_run})"
-    )
-    send_message(text)
+    send_daily_summary(report_date=report_date, run_date=run_date)
 
 
 def job_weekly_email(

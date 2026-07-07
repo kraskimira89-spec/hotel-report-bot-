@@ -85,6 +85,9 @@ max_bot:
   chat_id: ""           # основной chat_id для отправки
   test_chat_id: ""      # chat_id для dry_run
   max_message_length: 4000  # лимит Max API
+  max_retries: 3
+  backoff_initial_sec: 1
+  backoff_max_sec: 60
 
 # Email (еженедельный отчёт)
 email:
