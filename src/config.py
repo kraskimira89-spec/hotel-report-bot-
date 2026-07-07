@@ -62,6 +62,14 @@ class ChannelsMap(BaseModel):
     aggregator: list[str] = Field(default_factory=list)
 
 
+class SitePricesSelectors(BaseModel):
+    """CSS-селекторы и паттерн для парсинга цен."""
+
+    data_price: str = "[data-price]"
+    price_value: str = ".price-value"
+    price_from_regex: str = r"от\s*([\d\s\u00a0]+)\s*(?:руб|₽|Р|р\.?)"
+
+
 class SitePricesConfig(BaseModel):
     """Анти-блок и URL для сбора статических цен с 1apart.ru."""
 
@@ -69,10 +77,16 @@ class SitePricesConfig(BaseModel):
     category_urls: list[str] = Field(default_factory=list)
     request_delay_min_sec: float = 2.0
     request_delay_max_sec: float = 3.0
-    user_agent: str = "Mozilla/5.0 (compatible; HotelReportBot/1.0)"
+    user_agent: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
     backoff_initial_sec: float = 5.0
     backoff_max_sec: float = 60.0
     max_retries: int = 3
+    selectors: SitePricesSelectors = Field(default_factory=SitePricesSelectors)
+    robots_disallow_paths: list[str] = Field(default_factory=lambda: ["/manager/"])
+    snapshot_cache_path: str = "data/last_price_snapshots.json"
 
 
 class TravelLineConfig(BaseModel):

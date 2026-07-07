@@ -48,22 +48,30 @@ channels_map:
     - "Booking.com"
     - "Ostrovok"
 
-# Сбор цен с сайта 1apart.ru (статический HTML)
+# Сбор цен с сайта 1apart.ru (статический HTML, БЕЗ Playwright)
+# Цены на конкретные даты — TravelLine API (этап 7), здесь не собираются
 site_prices:
   base_url: https://1apart.ru
   category_urls:
-    - /apartments/studio
-    - /apartments/comfort
-    - /apartments/business
-    - /apartments/premium
-    - /apartments/luxury
-    - /apartments/penthouse
+    - /1room23
+    - /1room
+    - /uluchshennyie-odnokomnatnyie-kvartiryi
+    - /odnokomnatnye-kvartiry-s-divanom
+    - /2room
+    - /luxe-kvartiry
   request_delay_min_sec: 2
   request_delay_max_sec: 3
-  user_agent: "Mozilla/5.0 (compatible; HotelReportBot/1.0; +https://1apart.ru)"
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
   backoff_initial_sec: 5
   backoff_max_sec: 60
   max_retries: 3
+  robots_disallow_paths:
+    - /manager/
+  snapshot_cache_path: data/last_price_snapshots.json
+  selectors:
+    data_price: "[data-price]"
+    price_value: ".price-value"
+    price_from_regex: 'от\s*([\d\s\u00a0]+)\s*(?:руб|₽|Р|р\.?)'
 
 # TravelLine API
 travelline:
