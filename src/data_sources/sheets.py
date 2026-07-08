@@ -14,6 +14,8 @@ from gspread.exceptions import APIError, SpreadsheetNotFound, WorksheetNotFound
 from pydantic import BaseModel, Field
 
 from src.config import AppConfig, EnvSettings, get_config, get_env_settings
+from src.storage.db import save_error_log
+from src.storage.models import ErrorLogRecord
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +76,8 @@ class OccupancySheetData(BaseModel):
 
     room_types: list[RoomTypeOccupancy] = Field(default_factory=list)
     units: list[RoomUnit] = Field(default_factory=list)
+    is_available: bool = True
+    errors: list[str] = Field(default_factory=list)
 
 
 class BookingRecord(BaseModel):
@@ -88,6 +92,8 @@ class BookingsSheetData(BaseModel):
     """Данные листа «Брони статистика»."""
 
     records: list[BookingRecord] = Field(default_factory=list)
+    is_available: bool = True
+    errors: list[str] = Field(default_factory=list)
 
 
 class SheetsReadError(Exception):
@@ -390,11 +396,30 @@ class GoogleSheetsClient:
                 len(data.units),
             )
             return data
-        except SheetsReadError:
-            return OccupancySheetData()
+        except SheetsReadError as exc:
+            save_error_log(
+                ErrorLogRecord(
+                    error_date=date.today(),
+                    source="sheets",
+                    error_type="read_occupancy",
+                    message=str(exc),
+                )
+            )
+            return OccupancySheetData(is_available=False, errors=[str(exc)])
         except Exception as exc:
             logger.exception("Неожиданная ошибка read_occupancy: %s", exc)
-            return OccupancySheetData()
+            save_error_log(
+                ErrorLogRecord(
+                    error_date=date.today(),
+                    source="sheets",
+                    error_type="read_occupancy",
+                    message=str(exc),
+                )
+            )
+            return OccupancySheetData(
+                is_available=False,
+                errors=[f"Неожиданная ошибка Google Sheets: {exc}"],
+            )
 
     def read_bookings_stats(self) -> BookingsSheetData:
         """Прочитать лист «Брони статистика»."""
@@ -407,8 +432,27 @@ class GoogleSheetsClient:
             data = parse_bookings_rows(rows)
             logger.info("Брони статистика: %s записей", len(data.records))
             return data
-        except SheetsReadError:
-            return BookingsSheetData()
+        except SheetsReadError as exc:
+            save_error_log(
+                ErrorLogRecord(
+                    error_date=date.today(),
+                    source="sheets",
+                    error_type="read_bookings",
+                    message=str(exc),
+                )
+            )
+            return BookingsSheetData(is_available=False, errors=[str(exc)])
         except Exception as exc:
             logger.exception("Неожиданная ошибка read_bookings_stats: %s", exc)
-            return BookingsSheetData()
+            save_error_log(
+                ErrorLogRecord(
+                    error_date=date.today(),
+                    source="sheets",
+                    error_type="read_bookings",
+                    message=str(exc),
+                )
+            )
+            return BookingsSheetData(
+                is_available=False,
+                errors=[f"Неожиданная ошибка Google Sheets: {exc}"],
+            )

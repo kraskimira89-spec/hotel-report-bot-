@@ -172,7 +172,8 @@ def test_read_occupancy_spreadsheet_not_found() -> None:
         spreadsheet_error=SpreadsheetNotFound("nf"),
     )
     data = client.read_occupancy()
-    assert data == OccupancySheetData()
+    assert data.is_available is False
+    assert data.errors
 
 
 def test_read_bookings_worksheet_not_found() -> None:
@@ -184,13 +185,15 @@ def test_read_bookings_worksheet_not_found() -> None:
     mock_spreadsheet.worksheet.side_effect = WorksheetNotFound("nf")
 
     data = client.read_bookings_stats()
-    assert data == BookingsSheetData()
+    assert data.is_available is False
+    assert data.errors
 
 
 def test_read_occupancy_api_error_on_read() -> None:
     client = _make_client(api_error_on_read=True)
     data = client.read_occupancy()
-    assert data == OccupancySheetData()
+    assert data.is_available is False
+    assert data.errors
 
 
 def test_get_client_without_sa_path() -> None:

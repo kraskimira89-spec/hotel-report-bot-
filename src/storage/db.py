@@ -663,13 +663,17 @@ def save_error_log(
         int(record.resolved),
     )
 
-    if conn is not None:
-        cur = conn.execute(sql, params)
-        return int(cur.lastrowid)
+    try:
+        if conn is not None:
+            cur = conn.execute(sql, params)
+            return int(cur.lastrowid)
 
-    with db_session() as connection:
-        cur = connection.execute(sql, params)
-        return int(cur.lastrowid)
+        with db_session() as connection:
+            cur = connection.execute(sql, params)
+            return int(cur.lastrowid)
+    except sqlite3.OperationalError as exc:
+        logger.debug("errors_log недоступен: %s", exc)
+        return 0
 
 
 def get_errors_log(

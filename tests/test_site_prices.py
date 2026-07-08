@@ -162,6 +162,40 @@ def test_collect_snapshots_fallback_to_cache(tmp_path: Path) -> None:
     assert result.snapshots[0].price == 4500.0
 
 
+def test_collect_snapshots_fallback_warning(tmp_path: Path) -> None:
+    cache_file = tmp_path / "cache.json"
+    cached = [
+        {
+            "snapshot_at": "2026-07-06T09:00:00+03:00",
+            "category": "1room23",
+            "price": 4500.0,
+            "source": "site",
+            "currency": "RUB",
+            "url": "https://1apart.ru/1room23",
+            "is_fallback": False,
+        }
+    ]
+    cache_file.write_text(json.dumps(cached), encoding="utf-8")
+
+    client = MagicMock()
+    client.get.side_effect = [
+        _mock_response(ROBOTS_FIXTURE),
+        httpx.HTTPError("403"),
+    ]
+
+    cfg = AppConfig(
+        site_prices=_site_config(
+            category_urls=["/1room23"],
+            snapshot_cache_path=str(cache_file),
+            max_retries=1,
+        )
+    )
+
+    result = collect_price_snapshots(config=cfg, client=client)
+    assert result.used_fallback is True
+    assert any("последнего снимка" in w for w in result.warnings)
+
+
 def test_collect_skips_robots_disallowed_path(tmp_path: Path) -> None:
     client = MagicMock()
     client.get.return_value = _mock_response(

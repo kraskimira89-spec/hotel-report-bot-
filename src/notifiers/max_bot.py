@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from datetime import date
 from typing import Any, Protocol
 
@@ -20,8 +19,14 @@ from src.data_sources.sheets import (
 )
 from src.metrics.guests import classify_channel
 from src.metrics.occupancy import calc_occupancy, traffic_light
-from src.storage.db import compare_prices_yesterday, save_report_log
-from src.storage.models import ReportLogRecord
+from src.storage.db import (
+    compare_prices_yesterday,
+    get_price_snapshots_by_date,
+    save_error_log,
+    save_report_log,
+)
+from src.storage.models import ErrorLogRecord, ReportLogRecord
+from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +75,9 @@ class DailySummaryData(BaseModel):
     new_bookings_light: str = "🟡"
     bookings_by_channel: list[ChannelBookingLine] = Field(default_factory=list)
     prices: list[CategoryPriceLine] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    is_partial: bool = False
+    critical_error: bool = False
 
 
 class HttpPoster(Protocol):
@@ -136,6 +144,15 @@ def prepare_daily_summary_data(
     if bookings is None:
         bookings = sheets_client.read_bookings_stats()
 
+    warnings: list[str] = []
+    critical = False
+    if not occupancy.is_available:
+        critical = True
+        warnings.append("Google Sheets недоступен: лист «Заселяемость».")
+    if not bookings.is_available:
+        critical = True
+        warnings.append("Google Sheets недоступен: лист «Брони статистика».")
+
     room_types, totals = aggregate_room_status(occupancy)
     sold = totals.occupied + totals.booked
     available = totals.total or cfg.property.total_units
@@ -184,6 +201,10 @@ def prepare_daily_summary_data(
             )
         )
 
+    snapshots = get_price_snapshots_by_date(report_date)
+    if any(s.is_fallback for s in snapshots):
+        warnings.append("Часть данных по ценам из последнего снимка.")
+
     return DailySummaryData(
         report_date=report_date,
         room_types=room_types,
@@ -194,6 +215,9 @@ def prepare_daily_summary_data(
         new_bookings_light=new_bookings_light,
         bookings_by_channel=bookings_by_channel,
         prices=price_lines,
+        warnings=warnings,
+        is_partial=bool(warnings),
+        critical_error=critical,
     )
 
 
@@ -245,6 +269,9 @@ def build_daily_summary_text(data: DailySummaryData) -> str:
     else:
         lines.append("  - нет snapshot")
 
+    if data.warnings:
+        lines.extend(["", "*Примечания:*"])
+        lines.extend(f"- {note}" for note in data.warnings)
     return "\n".join(lines)
 
 
@@ -310,64 +337,44 @@ def send_message(
     headers = {"Authorization": env.max_token}
     payload = {"chat_id": chat_id, "text": text, "format": "markdown"}
 
-    delay = cfg.max_bot.backoff_initial_sec
-    last_response: httpx.Response | None = None
+    try:
+        resp = retry_with_backoff(
+            lambda: (client or httpx).post(
+                url, json=payload, headers=headers, timeout=30.0
+            ),
+            retries=cfg.max_bot.max_retries,
+            backoff_initial=cfg.max_bot.backoff_initial_sec,
+            backoff_max=cfg.max_bot.backoff_max_sec,
+            retry_statuses=RETRYABLE_STATUS,
+            log_prefix="max_bot",
+        )
+    except httpx.HTTPError as exc:
+        logger.error("Ошибка Max API: %s", exc)
+        save_error_log(
+            ErrorLogRecord(
+                error_date=date.today(),
+                source="max_bot",
+                error_type="send_message",
+                message=str(exc),
+            )
+        )
+        return {
+            "status": "error",
+            "chat_id": chat_id,
+            "dry_run": is_dry,
+            "error": str(exc),
+        }
 
-    for attempt in range(cfg.max_bot.max_retries):
-        try:
-            poster = client or httpx
-            resp = poster.post(url, json=payload, headers=headers, timeout=30.0)
-            last_response = resp
-
-            if resp.status_code in RETRYABLE_STATUS:
-                logger.warning(
-                    "Max API %s, retry %s/%s",
-                    resp.status_code,
-                    attempt + 1,
-                    cfg.max_bot.max_retries,
-                )
-                if attempt >= cfg.max_bot.max_retries - 1:
-                    return {
-                        "status": "error",
-                        "http_status": resp.status_code,
-                        "chat_id": chat_id,
-                        "dry_run": is_dry,
-                    }
-                time.sleep(min(delay, cfg.max_bot.backoff_max_sec))
-                delay *= 2
-                continue
-
-            resp.raise_for_status()
-            body: dict[str, Any] = {
-                "status": "sent",
-                "chat_id": chat_id,
-                "dry_run": is_dry,
-            }
-            try:
-                body["response"] = resp.json()
-            except ValueError:
-                body["response"] = resp.text
-            return body
-
-        except httpx.HTTPError as exc:
-            logger.error("Ошибка Max API: %s", exc)
-            if attempt < cfg.max_bot.max_retries - 1:
-                time.sleep(min(delay, cfg.max_bot.backoff_max_sec))
-                delay *= 2
-            else:
-                return {
-                    "status": "error",
-                    "chat_id": chat_id,
-                    "dry_run": is_dry,
-                    "error": str(exc),
-                }
-
-    return {
-        "status": "error",
-        "http_status": last_response.status_code if last_response else None,
+    body: dict[str, Any] = {
+        "status": "sent",
         "chat_id": chat_id,
         "dry_run": is_dry,
     }
+    try:
+        body["response"] = resp.json()
+    except ValueError:
+        body["response"] = resp.text
+    return body
 
 
 def send_daily_summary(
@@ -383,8 +390,45 @@ def send_daily_summary(
     report_date = report_date or run_date
 
     data = summary_data or prepare_daily_summary_data(report_date, config=cfg)
+    if data.critical_error:
+        from src.notifiers.incidents import send_incident
+
+        send_incident(
+            "Критическая ошибка источника",
+            "\n".join(data.warnings) or "Google Sheets недоступен.",
+            config=cfg,
+            source="max_bot",
+        )
+        save_report_log(
+            ReportLogRecord(
+                report_type="max",
+                report_date=report_date,
+                run_date=run_date,
+                status="skipped",
+                dry_run=cfg.dry_run,
+                preview="; ".join(data.warnings)[:200],
+                message="critical_error",
+            )
+        )
+        return {
+            "status": "skipped",
+            "reason": "critical_error",
+            "dry_run": cfg.dry_run,
+            "warnings": data.warnings,
+        }
+
     text = build_daily_summary_text(data)
     parts = split_message(text, cfg.max_bot.max_message_length)
+
+    if data.warnings:
+        from src.notifiers.incidents import send_incident
+
+        send_incident(
+            "Неполные данные сводки",
+            "\n".join(data.warnings),
+            config=cfg,
+            source="max_bot",
+        )
 
     results: list[dict[str, Any]] = []
     for index, part in enumerate(parts, start=1):
