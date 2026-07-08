@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta
+from typing import Callable
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -11,10 +12,17 @@ from apscheduler.triggers.cron import CronTrigger
 
 from src.config import get_config
 from src.data_sources.site_prices import collect_price_snapshots
+from src.data_sources.travelline import run_daily_reconciliation
 from src.notifiers.email_sender import send_weekly_report
 from src.notifiers.max_bot import send_daily_summary
-from src.storage.db import init_db, save_price_snapshots
-from src.storage.models import PriceSnapshotRecord
+from src.storage.db import (
+    init_db,
+    price_snapshot_exists,
+    report_log_exists,
+    save_error_log,
+    save_price_snapshots,
+)
+from src.storage.models import ErrorLogRecord, PriceSnapshotRecord
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +48,24 @@ def job_price_snapshot(
         report_date,
         run_date,
     )
+    if price_snapshot_exists(report_date):
+        logger.info("Snapshot цен уже есть за %s, пропуск", report_date)
+        return
+    _run_job(
+        "price_snapshot",
+        run_date,
+        report_date,
+        _collect_price_snapshot,
+    )
+    _run_job(
+        "sheets_reconcile",
+        run_date,
+        report_date,
+        lambda: run_daily_reconciliation(report_date),
+    )
+
+
+def _collect_price_snapshot() -> None:
     result = collect_price_snapshots()
     records = [
         PriceSnapshotRecord(
@@ -74,7 +100,15 @@ def job_daily_summary(
         report_date,
         run_date,
     )
-    send_daily_summary(report_date=report_date, run_date=run_date)
+    if report_log_exists("max", report_date):
+        logger.info("Сводка Max за %s уже отправлена, пропуск", report_date)
+        return
+    _run_job(
+        "daily_summary",
+        run_date,
+        report_date,
+        lambda: send_daily_summary(report_date=report_date, run_date=run_date),
+    )
 
 
 def job_weekly_email(
@@ -95,12 +129,43 @@ def job_weekly_email(
         period_start,
         period_end,
     )
-    send_weekly_report(
-        report_date=report_date,
-        run_date=run_date,
-        period_start=period_start,
-        period_end=period_end,
+    if report_log_exists(
+        "email", report_date, period_start=period_start, period_end=period_end
+    ):
+        logger.info("Email-отчёт за %s..%s уже отправлен, пропуск", period_start, period_end)
+        return
+    _run_job(
+        "weekly_email",
+        run_date,
+        report_date,
+        lambda: send_weekly_report(
+            report_date=report_date,
+            run_date=run_date,
+            period_start=period_start,
+            period_end=period_end,
+        ),
     )
+
+
+def _run_job(
+    job_name: str,
+    run_date: date,
+    report_date: date,
+    func: Callable[[], None],
+) -> None:
+    try:
+        func()
+    except Exception as exc:
+        logger.exception("Ошибка задачи %s: %s", job_name, exc)
+        save_error_log(
+            ErrorLogRecord(
+                error_date=run_date,
+                source="scheduler",
+                error_type=job_name,
+                message=str(exc),
+                details=f"report_date={report_date}",
+            )
+        )
 
 
 def _parse_cron(cron_expr: str) -> dict[str, str]:

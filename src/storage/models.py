@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 TABLES: list[str] = [
     """
@@ -132,6 +132,16 @@ MIGRATIONS_V2: list[str] = [
     "ALTER TABLE reports_log ADD COLUMN preview TEXT",
     "ALTER TABLE errors_log ADD COLUMN error_date TEXT",
     "ALTER TABLE errors_log ADD COLUMN resolved INTEGER NOT NULL DEFAULT 0",
+]
+
+MIGRATIONS_V3: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS runtime_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
 ]
 
 
