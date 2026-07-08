@@ -219,6 +219,11 @@ def test_run_daily_reconciliation_mocked(
     tl_config: AppConfig,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "src.data_sources.travelline.save_error_log",
+        lambda record: 1,
+    )
+
     class FakeTL:
         def get_reservations(self, start: date, end: date, date_kind: int = 2) -> list:
             return [object(), object(), object()]

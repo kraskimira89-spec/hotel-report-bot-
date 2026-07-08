@@ -2,15 +2,42 @@
 {% block title %}Настройки — hotel-report-bot{% endblock %}
 {% block content %}
 <h1>Настройки</h1>
+
 <div class="card">
     <h2>Dry-run</h2>
-    <p>Текущее значение: <strong>{{ "включён" if config.dry_run else "выключен" }}</strong></p>
+    <p>Текущее: <strong>{{ "включён" if config.dry_run else "выключен" }}</strong></p>
     <form method="post" action="/settings/dry-run">
-        <label>
-            <input type="hidden" name="dry_run" value="{{ 'false' if config.dry_run else 'true' }}">
-            <button type="submit">{{ "Выключить" if config.dry_run else "Включить" }} dry-run</button>
-        </label>
+        <input type="hidden" name="dry_run" value="{{ 'false' if config.dry_run else 'true' }}">
+        <button type="submit">{{ "Выключить" if config.dry_run else "Включить" }} dry-run</button>
     </form>
-    <p style="color:#888;margin-top:1rem;">Полное сохранение в settings.yaml — этап 8.</p>
+    <p class="muted">Сохраняется в SQLite и settings.yaml без перезапуска.</p>
+</div>
+
+<div class="card">
+    <h2>Пороги светофора и расписание</h2>
+    <form method="post" action="/settings/save" class="settings-form">
+        <fieldset>
+            <legend>Светофор</legend>
+            <label>Загрузка зелёный от % <input name="occupancy_green_min" type="number" step="0.1" value="{{ config.traffic_light.occupancy_green_min }}"></label>
+            <label>Загрузка жёлтый от % <input name="occupancy_yellow_min" type="number" step="0.1" value="{{ config.traffic_light.occupancy_yellow_min }}"></label>
+            <label>Цена жёлтый от % <input name="price_change_yellow_pct" type="number" step="0.1" value="{{ config.traffic_light.price_change_yellow_pct }}"></label>
+            <label>Цена красный от % <input name="price_change_red_pct" type="number" step="0.1" value="{{ config.traffic_light.price_change_red_pct }}"></label>
+            <label>Брони зелёный от <input name="new_bookings_green_min" type="number" value="{{ config.traffic_light.new_bookings_green_min }}"></label>
+            <label>Брони жёлтый от <input name="new_bookings_yellow_min" type="number" value="{{ config.traffic_light.new_bookings_yellow_min }}"></label>
+        </fieldset>
+        <fieldset>
+            <legend>Расписание (cron MSK)</legend>
+            <label>Snapshot цен <input name="price_snapshot_cron" value="{{ config.scheduler.price_snapshot_cron }}"></label>
+            <label>Сводка Max <input name="daily_summary_cron" value="{{ config.scheduler.daily_summary_cron }}"></label>
+            <label>Email <input name="weekly_email_cron" value="{{ config.scheduler.weekly_email_cron }}"></label>
+        </fieldset>
+        <fieldset>
+            <legend>Лимиты сбора цен с сайта</legend>
+            <label>Задержка мин, сек <input name="request_delay_min_sec" type="number" step="0.1" value="{{ config.site_prices.request_delay_min_sec }}"></label>
+            <label>Задержка макс, сек <input name="request_delay_max_sec" type="number" step="0.1" value="{{ config.site_prices.request_delay_max_sec }}"></label>
+            <label>Макс. ретраев <input name="max_retries" type="number" value="{{ config.site_prices.max_retries }}"></label>
+        </fieldset>
+        <button type="submit">Сохранить</button>
+    </form>
 </div>
 {% endblock %}

@@ -1,8 +1,47 @@
 {% extends "base.html" %}
 {% block title %}Метрики — hotel-report-bot{% endblock %}
 {% block content %}
-<h1>Ежедневные метрики</h1>
+<h1>Метрики</h1>
+
+{% if comparison %}
 <div class="card">
+    <h2>Сравнение с прошлой неделей ({{ comparison.report_date }})</h2>
+    <table>
+        <thead><tr><th>Показатель</th><th>Сейчас</th><th>Неделю назад</th></tr></thead>
+        <tbody>
+        <tr><td>Occupancy</td><td>{{ comparison.occupancy_pct or "—" }}%</td><td>{{ comparison.prev_occupancy_pct or "—" }}%</td></tr>
+        <tr><td>ADR</td><td>{{ comparison.adr or "—" }}{% if comparison.is_estimated %} *{% endif %}</td><td>{{ comparison.prev_adr or "—" }}</td></tr>
+        <tr><td>RevPAR</td><td>{{ comparison.revpar or "—" }}</td><td>{{ comparison.prev_revpar or "—" }}</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>По неделям</h2>
+    {% if weekly %}
+    <table>
+        <thead><tr><th>Неделя</th><th>Occ %</th><th>ADR</th><th>RevPAR</th><th>ALS</th><th>Доход</th></tr></thead>
+        <tbody>
+        {% for w in weekly %}
+        <tr>
+            <td>{{ w.week }}</td>
+            <td>{{ w.occupancy_pct or "—" }}</td>
+            <td>{{ w.adr or "—" }}</td>
+            <td>{{ w.revpar or "—" }}</td>
+            <td>{{ w.als or "—" }}</td>
+            <td>{{ w.revenue or "—" }}{% if w.is_estimated %} *{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Нет недельных агрегатов.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>По дням</h2>
     {% if metrics %}
     <table>
         <thead><tr><th>Дата</th><th>Occupancy %</th><th>ADR</th><th>RevPAR</th><th>ALS</th><th>Доход</th></tr></thead>
@@ -20,7 +59,7 @@
         </tbody>
     </table>
     {% else %}
-    <p>Нет данных. Метрики появятся после этапов 2–7.</p>
+    <p class="muted">Нет дневных метрик.</p>
     {% endif %}
 </div>
 {% endblock %}
