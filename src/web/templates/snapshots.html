@@ -2,6 +2,21 @@
 {% block title %}Snapshot цен — hotel-report-bot{% endblock %}
 {% block content %}
 <h1>История snapshot цен</h1>
+
+{% if chart %}
+<div class="card">
+    <h2>Динамика (последние точки)</h2>
+    <div class="chart-bars">
+    {% for row in chart[:28] %}
+        <div class="bar-wrap" title="{{ row.category }} {{ row.snapshot_date }}: {{ row.avg_price }}">
+            <div class="bar" style="height: {{ (row.avg_price / 10000 * 100)|int }}%"></div>
+            <span class="bar-label">{{ row.category[:6] }}</span>
+        </div>
+    {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <div class="card">
     {% if snapshots %}
     <table>
@@ -19,7 +34,7 @@
         </tbody>
     </table>
     {% else %}
-    <p>Нет данных. Snapshot появятся после этапа 3.</p>
+    <p class="muted">Нет данных snapshot.</p>
     {% endif %}
 </div>
 {% endblock %}

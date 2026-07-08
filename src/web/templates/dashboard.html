@@ -2,20 +2,54 @@
 {% block title %}Дашборд — hotel-report-bot{% endblock %}
 {% block content %}
 <h1>Дашборд</h1>
+
+<div class="grid-2">
 <div class="card">
-    <p>Объект: <strong>{{ config.property.total_units }}</strong> квартир, <strong>{{ config.property.categories }}</strong> категорий</p>
-    <p>Режим dry-run: <span class="badge {% if config.dry_run %}badge-yellow{% else %}badge-green{% endif %}">
+    <h2>Объект</h2>
+    <p>{{ config.property.total_units }} квартир · {{ config.property.categories }} категорий</p>
+    <p>Dry-run: <span class="badge {% if config.dry_run %}badge-yellow{% else %}badge-green{% endif %}">
         {{ "включён" if config.dry_run else "выключен" }}
     </span></p>
-    <p>Таймзона: {{ config.property.timezone }}</p>
+</div>
+
+<div class="card">
+    <h2>Текущая загрузка</h2>
+    {% if data.latest_metrics %}
+    <p class="big">{{ data.latest_metrics.occupancy_pct or "—" }}%</p>
+    <p>ADR: {{ data.latest_metrics.adr or "—" }} · RevPAR: {{ data.latest_metrics.revpar or "—" }}</p>
+    {% else %}
+    <p class="muted">Нет метрик в БД</p>
+    {% endif %}
+</div>
+</div>
+
+<div class="grid-2">
+<div class="card">
+    <h2>Последняя отправка Max</h2>
+    {% if data.last_reports.max %}
+    <p>Статус: <span class="badge badge-green">{{ data.last_reports.max.status }}</span></p>
+    <p>Дата: {{ data.last_reports.max.report_date }}{% if data.last_reports.max.dry_run %} (dry-run){% endif %}</p>
+    {% else %}
+    <p class="muted">Ещё не отправлялось</p>
+    {% endif %}
 </div>
 <div class="card">
-    <h2>Расписание</h2>
+    <h2>Последний email</h2>
+    {% if data.last_reports.email %}
+    <p>Статус: <span class="badge badge-green">{{ data.last_reports.email.status }}</span></p>
+    <p>Дата: {{ data.last_reports.email.report_date }}{% if data.last_reports.email.dry_run %} (dry-run){% endif %}</p>
+    {% else %}
+    <p class="muted">Ещё не отправлялось</p>
+    {% endif %}
+</div>
+</div>
+
+<div class="card">
+    <h2>Агрегаты</h2>
     <ul>
-        <li>Snapshot цен: {{ config.scheduler.price_snapshot_cron }} MSK</li>
-        <li>Сводка Max: {{ config.scheduler.daily_summary_cron }} MSK</li>
-        <li>Email-отчёт: {{ config.scheduler.weekly_email_cron }} MSK (пн)</li>
+        <li>Snapshot цен в БД: <strong>{{ data.snapshot_count }}</strong></li>
+        <li>Записей бронирований: <strong>{{ data.booking_count }}</strong></li>
+        <li>Гостей (хеши): <strong>{{ data.guest_stats.total }}</strong>, повторных: <strong>{{ data.guest_stats.returning }}</strong></li>
     </ul>
 </div>
-<p style="color:#888;">Данные появятся после этапов 3–7 реализации.</p>
 {% endblock %}

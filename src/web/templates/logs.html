@@ -1,13 +1,35 @@
 {% extends "base.html" %}
-{% block title %}Логи ошибок — hotel-report-bot{% endblock %}
+{% block title %}Логи — hotel-report-bot{% endblock %}
 {% block content %}
-<h1>Логи ошибок</h1>
+<h1>Логи</h1>
+
 <div class="card">
-    {% if errors %}
+    <h2>Расхождения TL ↔ Sheets</h2>
+    {% if bundle.reconcile %}
+    <table>
+        <thead><tr><th>Дата</th><th>Источник</th><th>Сообщение</th></tr></thead>
+        <tbody>
+        {% for e in bundle.reconcile %}
+        <tr>
+            <td>{{ e.created_at }}</td>
+            <td>{{ e.source }}</td>
+            <td>{{ e.message }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Расхождений нет.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Ошибки</h2>
+    {% if bundle.errors %}
     <table>
         <thead><tr><th>Время</th><th>Источник</th><th>Тип</th><th>Сообщение</th></tr></thead>
         <tbody>
-        {% for e in errors %}
+        {% for e in bundle.errors %}
         <tr>
             <td>{{ e.created_at }}</td>
             <td>{{ e.source }}</td>
@@ -18,7 +40,28 @@
         </tbody>
     </table>
     {% else %}
-    <p>Ошибок нет.</p>
+    <p class="muted">Ошибок нет.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Запуски отчётов</h2>
+    {% if bundle.reports %}
+    <table>
+        <thead><tr><th>Дата</th><th>Тип</th><th>Статус</th><th>Dry-run</th></tr></thead>
+        <tbody>
+        {% for r in bundle.reports %}
+        <tr>
+            <td>{{ r.created_at }}</td>
+            <td>{{ r.report_type }}</td>
+            <td>{{ r.status }}</td>
+            <td>{{ "да" if r.dry_run else "нет" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Запусков пока нет.</p>
     {% endif %}
 </div>
 {% endblock %}

@@ -483,6 +483,47 @@ def get_guests_in_period(
     ]
 
 
+def get_guest_stats() -> dict[str, int]:
+    """Агрегаты по гостям (без PII)."""
+    with db_session() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN is_returning = 1 THEN 1 ELSE 0 END) AS returning_count
+            FROM guests
+            """
+        ).fetchone()
+    total = int(row["total"] or 0) if row else 0
+    returning = int(row["returning_count"] or 0) if row else 0
+    return {"total": total, "returning": returning}
+
+
+def get_runtime_setting(key: str) -> str | None:
+    """Прочитать runtime-настройку."""
+    with db_session() as conn:
+        row = conn.execute(
+            "SELECT value FROM runtime_settings WHERE key = ?",
+            (key,),
+        ).fetchone()
+    return row["value"] if row else None
+
+
+def set_runtime_setting(key: str, value: str) -> None:
+    """Сохранить runtime-настройку."""
+    with db_session() as conn:
+        conn.execute(
+            """
+            INSERT INTO runtime_settings (key, value, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = datetime('now')
+            """,
+            (key, value),
+        )
+
+
 def save_report_log(
     record: ReportLogRecord,
     conn: sqlite3.Connection | None = None,
@@ -513,6 +554,53 @@ def save_report_log(
     with db_session() as connection:
         cur = connection.execute(sql, params)
         return int(cur.lastrowid)
+
+
+def get_report_log(report_id: int) -> ReportLogRecord | None:
+    """Получить запись журнала отчётов по id."""
+    with db_session() as conn:
+        row = conn.execute(
+            "SELECT * FROM reports_log WHERE id = ?",
+            (report_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return ReportLogRecord(
+        id=row["id"],
+        report_type=row["report_type"],
+        report_date=_parse_date(row["report_date"]),
+        run_date=_parse_date(row["run_date"]),
+        period_start=_parse_date(row["period_start"]) if row["period_start"] else None,
+        period_end=_parse_date(row["period_end"]) if row["period_end"] else None,
+        status=row["status"],
+        dry_run=bool(row["dry_run"]),
+        preview=row["preview"],
+        message=row["message"],
+    )
+
+
+def get_reports_log(limit: int = 50) -> list[ReportLogRecord]:
+    """Список отправленных отчётов."""
+    with db_session() as conn:
+        rows = conn.execute(
+            "SELECT * FROM reports_log ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [
+        ReportLogRecord(
+            id=row["id"],
+            report_type=row["report_type"],
+            report_date=_parse_date(row["report_date"]),
+            run_date=_parse_date(row["run_date"]),
+            period_start=_parse_date(row["period_start"]) if row["period_start"] else None,
+            period_end=_parse_date(row["period_end"]) if row["period_end"] else None,
+            status=row["status"],
+            dry_run=bool(row["dry_run"]),
+            preview=row["preview"],
+            message=row["message"],
+        )
+        for row in rows
+    ]
 
 
 def save_error_log(

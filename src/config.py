@@ -186,6 +186,7 @@ class EnvSettings(BaseSettings):
     admin_password: str = "admin"
     admin_token: str = ""
     secret_key: str = "change-me"
+    web_force_https: bool = False
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -207,17 +208,20 @@ def get_env_settings() -> EnvSettings:
 
 @lru_cache
 def get_config() -> AppConfig:
-    """Загрузить полную конфигурацию: YAML + .env (кэш — один раз на процесс)."""
-    env = get_env_settings()
-    yaml_path = _project_root() / env.settings_path
-    data = _load_yaml(yaml_path)
-    return AppConfig(**data)
+    """Загрузить полную конфигурацию: YAML + runtime overrides (кэш)."""
+    from src.config_runtime import build_config_from_sources
+
+    return build_config_from_sources()
 
 
 def get_db_path() -> Path:
-    """Абсолютный путь к файлу SQLite."""
-    cfg = get_config()
-    path = Path(cfg.storage.db_path)
+    """Абсолютный путь к файлу SQLite (без get_config — избегаем рекурсии)."""
+    env = get_env_settings()
+    yaml_path = _project_root() / env.settings_path
+    data = _load_yaml(yaml_path)
+    storage = data.get("storage") or {}
+    db_rel = storage.get("db_path", "data/hotel_report.db")
+    path = Path(db_rel)
     if not path.is_absolute():
         path = _project_root() / path
     path.parent.mkdir(parents=True, exist_ok=True)

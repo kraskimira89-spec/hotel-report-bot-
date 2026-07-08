@@ -1,30 +1,42 @@
 {% extends "base.html" %}
 {% block title %}Каналы — hotel-report-bot{% endblock %}
 {% block content %}
-<h1>Каналы бронирования</h1>
+<h1>Бронирования и каналы</h1>
+
+<div class="grid-2">
+<div class="card">
+    <h2>Доли каналов (30 дней)</h2>
+    <p>Прямые: <strong>{{ aggregates.direct_pct }}%</strong> ({{ aggregates.direct }})</p>
+    <p>Агрегаторы: <strong>{{ aggregates.aggregator_pct }}%</strong> ({{ aggregates.aggregator }})</p>
+    <p>Прочие: {{ aggregates.other }}</p>
+</div>
+<div class="card">
+    <h2>Повторные гости</h2>
+    <p>Всего профилей (хеши): <strong>{{ aggregates.guest_stats.total }}</strong></p>
+    <p>Повторных: <strong>{{ aggregates.guest_stats.returning }}</strong>
+    {% if aggregates.returning_pct is not none %}({{ aggregates.returning_pct }}%){% endif %}</p>
+</div>
+</div>
+
 <div class="card">
     <h2>Классификация (config)</h2>
     <p><strong>Прямые:</strong> {{ channels_map.direct | join(", ") }}</p>
     <p><strong>Агрегаторы:</strong> {{ channels_map.aggregator | join(", ") }}</p>
 </div>
+
 <div class="card">
-    {% if bookings %}
+    <h2>По каналам</h2>
+    {% if aggregates.by_channel %}
     <table>
-        <thead><tr><th>Дата</th><th>Канал</th><th>Тип</th><th>Броней</th><th>Новых</th></tr></thead>
+        <thead><tr><th>Канал</th><th>Броней</th></tr></thead>
         <tbody>
-        {% for b in bookings %}
-        <tr>
-            <td>{{ b.report_date }}</td>
-            <td>{{ b.channel }}</td>
-            <td>{{ b.channel_type }}</td>
-            <td>{{ b.bookings_count }}</td>
-            <td>{{ b.new_bookings_count }}</td>
-        </tr>
+        {% for row in aggregates.by_channel %}
+        <tr><td>{{ row.channel }}</td><td>{{ row.bookings_count }}</td></tr>
         {% endfor %}
         </tbody>
     </table>
     {% else %}
-    <p>Нет данных по каналам.</p>
+    <p class="muted">Нет данных по каналам.</p>
     {% endif %}
 </div>
 {% endblock %}
