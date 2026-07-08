@@ -304,7 +304,13 @@ def build_weekly_report_html(data: WeeklyReportData) -> str:
             )
         competitor_html = f"""
         <table>
-          <thead><tr><th>Конкурент</th><th>Тип</th><th>URL</th><th>Цена от</th><th>Доступно</th></tr></thead>
+          <thead><tr>
+            <th>Конкурент</th>
+            <th>Тип</th>
+            <th>URL</th>
+            <th>Цена от</th>
+            <th>Доступно</th>
+          </tr></thead>
           <tbody>{body}</tbody>
         </table>
         """

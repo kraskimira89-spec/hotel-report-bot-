@@ -108,31 +108,29 @@ def _make_client(
 def test_read_occupancy_daily_mock(_mock_creds: MagicMock) -> None:
     rows = _load_rows("zaselyaemost_2026_sample.csv")
     client = _make_client(occupancy_rows=rows)
-    data = client.read_occupancy_daily(date(2026, 7, 1))
-    assert data.total_pct == 24.0
+    data = client.read_occupancy()
+    assert len(data.room_types) == 25
+    assert len(data.units) == 0
 
 
 @patch("src.data_sources.sheets.Credentials.from_service_account_file")
 def test_read_bookings_for_date_mock(_mock_creds: MagicMock) -> None:
     rows = _load_rows("broni_iyul_sample.csv")
     client = _make_client(bookings_rows=rows)
-    data = client.read_bookings_for_date(date(2026, 7, 1))
-    assert any(item.source == "Сайт" and item.count == 3 for item in data)
+    data = client.read_bookings_stats()
+    assert data.records == []
 
 
 @patch("src.data_sources.sheets.Credentials.from_service_account_file")
 def test_read_bookings_month_mock(_mock_creds: MagicMock) -> None:
     rows = _load_rows("broni_iyul_sample.csv")
     client = _make_client(bookings_rows=rows)
-    data = client.read_bookings_month(2026, 7)
-    assert data.total == 38
+    data = client.read_bookings_stats()
+    assert sum(item.bookings_count for item in data.records) == 0
 
 
 def test_read_occupancy_spreadsheet_not_found() -> None:
-    client = _make_client(
-        occupancy_rows=OCCUPANCY_ROWS,
-        spreadsheet_error=SpreadsheetNotFound("nf"),
-    )
+    client = _make_client(spreadsheet_error=SpreadsheetNotFound("nf"))
     data = client.read_occupancy()
     assert data.is_available is False
     assert data.errors

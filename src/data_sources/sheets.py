@@ -58,6 +58,11 @@ class RoomTypeOccupancy(BaseModel):
     room_type: str
     units: int | None = None
     occupancy_pct: float | None = None
+    # Для совместимости с более ранними версиями логики (некоторые этапы
+    # передавали вместо `units/occupancy_pct` явные статусы).
+    free_count: int | None = None
+    occupied_count: int | None = None
+    booked_count: int | None = None
 
 
 class RoomUnit(BaseModel):
@@ -439,7 +444,11 @@ def parse_occupancy_daily_rows(
         if "traveline" in label_norm or "travelline" in label_norm:
             travelline_pct = _cell_float(row, day_col)
             continue
-        if "за день" in label_norm or "общее кол-во" in label_norm or "общее количество" in label_norm:
+        if (
+            "за день" in label_norm
+            or "общее кол-во" in label_norm
+            or "общее количество" in label_norm
+        ):
             total_pct = _cell_float(row, day_col)
             continue
 

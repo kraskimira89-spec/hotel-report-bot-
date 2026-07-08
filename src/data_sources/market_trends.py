@@ -24,12 +24,10 @@ from collections import defaultdict
 from datetime import date
 from statistics import mean
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from src.config import get_config
 from src.storage.db import get_price_snapshots
-
-from src.config import AppConfig, get_config
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +67,7 @@ def fetch_competitor_prices(
     return [
         CompetitorPriceInfo(
             name=item.name,
-            kind=item.kind,
+            kind=item.type,
             url=item.url,
             price_from=None,
             available=False,
