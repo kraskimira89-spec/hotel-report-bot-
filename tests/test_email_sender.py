@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from src.config import AppConfig, EmailConfig, EnvSettings, StorageConfig, get_config
-from src.data_sources.market_trends import CompetitorPriceSeries
+from src.data_sources.market_trends import CompetitorPriceInfo
 from src.notifiers.email_sender import (
     MetricsSummary,
     OccupancyTypeRow,
@@ -72,10 +72,12 @@ def _sample_report(*, estimated: bool = False) -> WeeklyReportData:
         returning_guests_pct=20.0,
         market_trends=["Спрос стабилен", "Доля прямых растёт"],
         competitor_prices=[
-            CompetitorPriceSeries(
-                name="1apart.ru",
-                category="1room",
-                prices={"2026-07-01": 5000.0, "2026-07-06": 5200.0},
+            CompetitorPriceInfo(
+                name="Апартаменты Петровские",
+                kind="direct",
+                url="https://petrovskie.example.ru/",
+                price_from=4500.0,
+                available=True,
             )
         ],
     )
@@ -89,7 +91,7 @@ def test_build_weekly_report_html_sections() -> None:
     assert "Тренды рынка" in html
     assert "Конкуренты" in html
     assert "1-комн. 23" in html
-    assert "1room" in html
+    assert "Апартаменты Петровские" in html
 
 
 def test_build_weekly_report_html_estimated_marker() -> None:
