@@ -75,6 +75,21 @@ class SitePricesConfig(BaseModel):
     max_retries: int = 3
 
 
+class CompetitorConfig(BaseModel):
+    """Конкурент для сбора цен в еженедельный email-отчёт (справочно)."""
+
+    name: str
+    type: str = "direct"  # direct | indirect
+    url: str
+
+
+class MarketNewsConfig(BaseModel):
+    """Сбор новостей/трендов рынка для email-отчёта."""
+
+    enabled: bool = True
+    max_items: int = 5
+
+
 class TravelLineConfig(BaseModel):
     """Параметры TravelLine API."""
 
@@ -129,6 +144,8 @@ class AppConfig(BaseModel):
     traffic_light: TrafficLightThresholds = Field(default_factory=TrafficLightThresholds)
     channels_map: ChannelsMap = Field(default_factory=ChannelsMap)
     site_prices: SitePricesConfig = Field(default_factory=SitePricesConfig)
+    competitors: list[CompetitorConfig] = Field(default_factory=list)
+    market_news: MarketNewsConfig = Field(default_factory=MarketNewsConfig)
     travelline: TravelLineConfig = Field(default_factory=TravelLineConfig)
     max_bot: MaxBotConfig = Field(default_factory=MaxBotConfig)
     email: EmailConfig = Field(default_factory=EmailConfig)
