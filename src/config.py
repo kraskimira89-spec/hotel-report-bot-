@@ -121,6 +121,9 @@ class MaxBotConfig(BaseModel):
     chat_id: str = ""
     test_chat_id: str = ""
     max_message_length: int = 4000
+    max_retries: int = 3
+    backoff_initial_sec: float = 1.0
+    backoff_max_sec: float = 60.0
 
 
 class EmailConfig(BaseModel):
