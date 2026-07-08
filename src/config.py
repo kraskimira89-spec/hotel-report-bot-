@@ -81,7 +81,7 @@ class CompetitorConfig(BaseModel):
     name: str
     type: str = "direct"  # direct | indirect
     url: str
-    parser: str = "widget"  # static (BeautifulSoup) | widget (JS, available=false)
+    parser: str = "widget"  # static | tl_widget | wubook_widget | widget(fallback)
     selectors: dict[str, str] = Field(default_factory=dict)
 
 

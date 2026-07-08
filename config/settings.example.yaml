@@ -78,8 +78,10 @@ site_prices:
 # type: direct — прямые конкуренты (гость выбирает между нами и ими),
 #       indirect — классические отели на ту же аудиторию.
 # Селекторы по каждому сайту уточняются на этапе 6/7 (см. market_trends.py).
-# parser: static — цены в HTML (BeautifulSoup); widget — цены в JS-виджете
-# (не парсить: available=false / ручной ввод). Аудит: docs/Этап_6-7_Аудит_конкурентов.md
+# parser: static — цены в HTML (BeautifulSoup);
+#         tl_widget — виджет TravelLine, автосбор через Playwright (context из HTML);
+#         wubook_widget — виджет WuBook, автосбор через Playwright.
+# Аудит и автосбор: docs/Этап_6-7_Аудит_конкурентов.md, docs/Этап_6-7_Автосбор_виджетов.md
 competitors:
   # Прямые конкуренты
   - name: "Апартаменты Петровские"
@@ -89,11 +91,11 @@ competitors:
   - name: "Bon Apart (Банапарт)"
     type: direct
     url: "https://www.bon-apart.ru/"
-    parser: widget        # виджет TravelLine
+    parser: tl_widget        # виджет TravelLine
   - name: "Центральный"
     type: direct
     url: "http://centraltomsk.ru/"   # работает только по http
-    parser: widget        # виджет TravelLine
+    parser: tl_widget        # виджет TravelLine
   - name: "Гоголь"
     type: direct
     url: "https://gogolhotel.ru/"
@@ -102,7 +104,7 @@ competitors:
   - name: "Xander Hotel"
     type: indirect
     url: "https://xanderhotel.ru/ru/"
-    parser: widget        # iframe-виджет
+    parser: wubook_widget    # виджет WuBook (book.net), id 1706600472
   - name: "Кухтерин"
     type: indirect
     url: "https://kuhterinhotel.ru/catalog/catalog/"
@@ -110,15 +112,15 @@ competitors:
   - name: "Скандинавия"
     type: indirect
     url: "https://www.scandinaviahotel.ru/"
-    parser: widget        # виджет TravelLine
+    parser: tl_widget        # виджет TravelLine
   - name: "Парад Парк"
     type: indirect
     url: "https://www.paradpark.ru/"
-    parser: widget        # виджет TravelLine/Bnovo
+    parser: tl_widget        # виджет TravelLine/Bnovo
   - name: "Элегант"
     type: indirect
     url: "https://elegant-otel.ru/"
-    parser: widget        # виджет TravelLine; robots запрещает *.html
+    parser: tl_widget        # виджет TravelLine; robots запрещает *.html
 
 # Сбор новостей/трендов рынка для email-отчёта (3–5 пунктов/неделю)
 market_news:
