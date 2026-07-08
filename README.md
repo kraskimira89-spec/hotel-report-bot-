@@ -45,6 +45,30 @@ docker compose -f docker/docker-compose.yml up --build
 
 См. [`config/.env.example`](config/.env.example). Секреты только в `.env`, пороги и расписание — в `settings.yaml`.
 
+Ключевые переменные:
+- `MAX_TOKEN` — токен Max Bot
+- `GOOGLE_SA_JSON_PATH` — путь к сервисному аккаунту Google Sheets
+- `TL_API_KEY` или `TL_CLIENT_ID`/`TL_CLIENT_SECRET` — TravelLine API
+- `SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD`
+- `ADMIN_PASSWORD` или `ADMIN_TOKEN` — доступ в админку
+- `SECRET_KEY` — сессии FastAPI
+- `WEB_FORCE_HTTPS` — редирект на HTTPS за reverse proxy
+
+## Чек-лист приёмки (этап 11)
+
+1. **Dry-run 1–2 недели**: `dry_run=true`, сводки → тестовый чат/почта.
+2. **Сверка цифр**: Occupancy/ADR/RevPAR/каналы vs отчёт TravelLine «Доходность и загрузка».
+3. **Пороги светофора**: скорректировать `traffic_light.*` по факту.
+4. **Сценарии отказа**:
+   - расхождение источников → предупреждение и запись в `errors_log`;
+   - недоступность Sheets → отчёт не считается полным, отправляется инцидент;
+   - повторная отправка из админки;
+   - переключение dry-run без рестарта.
+5. **Финальные проверки**:
+   - `ruff check src tests`
+   - `pytest -q`
+6. **Переход в бой**: после подтверждения заказчика → `dry_run=false`.
+
 ## Этапы реализации (каждый = отдельный PR)
 
 - [x] **Этап 0** — среда, CI, каркас
@@ -52,12 +76,12 @@ docker compose -f docker/docker-compose.yml up --build
 - [x] **Этап 2** — метрики + тесты формул
 - [x] **Этап 3** — snapshot цен (BeautifulSoup) + анти-блок
 - [x] **Этап 4** — SQLite, миграции, retention 90 дней
-- [ ] **Этап 5** — Max Bot + dry-run
-- [ ] **Этап 6** — email-отчёт (HTML)
-- [ ] **Этап 7** — TravelLine API (цены, доход, каналы, гости)
-- [ ] **Этап 8** — веб-админка (полный функционал)
-- [ ] **Этап 9** — планировщик + Docker
-- [ ] **Этап 10** — обработка ошибок, fallback на snapshot
+- [x] **Этап 5** — Max Bot + dry-run
+- [x] **Этап 6** — email-отчёт (HTML)
+- [x] **Этап 7** — TravelLine API (цены, доход, каналы, гости)
+- [x] **Этап 8** — веб-админка (полный функционал)
+- [x] **Этап 9** — планировщик + Docker
+- [x] **Этап 10** — обработка ошибок, fallback на snapshot
 - [ ] **Этап 11** — тестовый прогон 1–2 недели, приёмка
 
 ## Структура
