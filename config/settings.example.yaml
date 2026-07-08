@@ -49,21 +49,71 @@ channels_map:
     - "Ostrovok"
 
 # Сбор цен с сайта 1apart.ru (статический HTML)
+# ВАЖНО: цены отдаются ТОЛЬКО на главной странице (карточки-слайдер),
+# на страницах категорий цен в HTML нет. Собирать одним запросом на base_url.
+# Селекторы и эталонная таблица: docs/Этап_3_Селекторы_1apart.md
 site_prices:
   base_url: https://1apart.ru
+  # Реальные slug категорий (ключ карточки = href). Цена берётся с главной,
+  # эти slug нужны для сопоставления карточек с бизнес-категориями.
   category_urls:
-    - /apartments/studio
-    - /apartments/comfort
-    - /apartments/business
-    - /apartments/premium
-    - /apartments/luxury
-    - /apartments/penthouse
+    - /family-30                                # Однокомнатные с диванчиком, 30 м²
+    - /1room23                                  # Однокомнатные, 23 м²
+    - /1room                                    # Однокомнатные, 27 м²
+    - /uluchshennyie-odnokomnatnyie-kvartiryi   # Улучшенные однокомнатные, 30 м²
+    - /dvuxkomnatnyie-kvartiryi-(2-krovati)     # Двухкомнатные (2 кровати), 60 м²
+    - /dvuxkomnatnyie-kvartiryi-3               # Двухкомнатные (3 кровати), 60 м²
+    - /80m2-apartamentyi                        # Двухкомнатные люкс, 80 м²
   request_delay_min_sec: 2
   request_delay_max_sec: 3
   user_agent: "Mozilla/5.0 (compatible; HotelReportBot/1.0; +https://1apart.ru)"
   backoff_initial_sec: 5
   backoff_max_sec: 60
   max_retries: 3
+
+# Конкуренты — цены собираются ТОЛЬКО для еженедельного email-отчёта (справочно).
+# Собираются те же анти-блок правила, что и для site_prices.
+# Загрузку конкурентов из открытых источников надёжно получить нельзя — только цены,
+# где они доступны публично на сайте/виджете бронирования.
+# type: direct — прямые конкуренты (гость выбирает между нами и ими),
+#       indirect — классические отели на ту же аудиторию.
+# Селекторы по каждому сайту уточняются на этапе 6/7 (см. market_trends.py).
+competitors:
+  # Прямые конкуренты
+  - name: "Апартаменты Петровские"
+    type: direct
+    url: "https://apartment.tomsk.ru/?tab=tomsk"
+  - name: "Bon Apart (Банапарт)"
+    type: direct
+    url: "https://www.bon-apart.ru"
+  - name: "Центральный"
+    type: direct
+    url: "https://centraltomsk.ru"
+  - name: "Гоголь"
+    type: direct
+    url: "https://gogolhotel.ru"
+  # Косвенные конкуренты (отели на ту же аудиторию)
+  - name: "Xander Hotel"
+    type: indirect
+    url: "https://xanderhotel.ru/ru/"
+  - name: "Кухтерин"
+    type: indirect
+    url: "https://kuhterinhotel.ru"
+  - name: "Скандинавия"
+    type: indirect
+    url: "https://www.scandinaviahotel.ru"
+  - name: "Парад Парк"
+    type: indirect
+    url: "https://www.paradpark.ru"
+  - name: "Элегант"
+    type: indirect
+    url: "https://elegant-otel.ru/"
+
+# Сбор новостей/трендов рынка для email-отчёта (3–5 пунктов/неделю)
+market_news:
+  enabled: true
+  max_items: 5
+  # источники (RSS/сайты) уточняются на этапе 6/7
 
 # TravelLine API
 travelline:
