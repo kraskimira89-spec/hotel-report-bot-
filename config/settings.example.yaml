@@ -153,6 +153,8 @@ email:
   from_address: reports@1apart.ru
   to_addresses:
     - manager@1apart.ru
+  test_addresses:
+    - test@1apart.ru
   subject_prefix: "[1apart] Еженедельный отчёт"
 
 # Google Sheets — таблица «Апарт отель для Сергея»

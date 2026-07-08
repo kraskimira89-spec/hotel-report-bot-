@@ -11,7 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from src.config import get_config
 from src.data_sources.site_prices import collect_price_snapshots
-from src.notifiers.email_sender import send_html_report
+from src.notifiers.email_sender import send_weekly_report
 from src.notifiers.max_bot import send_daily_summary
 from src.storage.db import init_db, save_price_snapshots
 from src.storage.models import PriceSnapshotRecord
@@ -95,13 +95,11 @@ def job_weekly_email(
         period_start,
         period_end,
     )
-    # TODO: этап 6 — полный HTML-отчёт
-    html = f"<h1>Отчёт {period_start} — {period_end}</h1><p>Каркас проекта.</p>"
-    plain = f"Отчёт {period_start} — {period_end}. Каркас проекта."
-    send_html_report(
-        subject=f"{period_start} — {period_end}",
-        html_body=html,
-        text_plain=plain,
+    send_weekly_report(
+        report_date=report_date,
+        run_date=run_date,
+        period_start=period_start,
+        period_end=period_end,
     )
 
 
