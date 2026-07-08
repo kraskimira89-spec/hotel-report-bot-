@@ -9,6 +9,7 @@ from statistics import mean
 
 from pydantic import BaseModel, Field
 
+from src.config import get_config
 from src.storage.db import get_price_snapshots
 
 logger = logging.getLogger(__name__)
@@ -20,37 +21,42 @@ DEFAULT_MARKET_TRENDS: list[str] = [
 ]
 
 
-class CompetitorPriceSeries(BaseModel):
-    """Цены конкурента/источника за период (по дням)."""
+class CompetitorPriceInfo(BaseModel):
+    """Публичные цены конкурента (если доступны)."""
 
     name: str
-    category: str
-    prices: dict[str, float] = Field(default_factory=dict)
+    kind: str
+    url: str
+    price_from: float | None = None
+    available: bool = False
 
 
 def fetch_competitor_prices(
     period_start: date,
     period_end: date,
-) -> list[CompetitorPriceSeries]:
-    """Публичные цены за период (из snapshot БД, где доступно)."""
-    snapshots = get_price_snapshots(period_start, period_end)
-    if not snapshots:
-        logger.info("fetch_competitor_prices: нет snapshot за период")
+) -> list[CompetitorPriceInfo]:
+    """Список конкурентов и минимальные публичные цены (если доступны).
+
+    Правила:
+    - цены конкурентов идут только в еженедельный email (справочно);
+    - используется тот же анти-блок, что и для 1apart (этап 6/7);
+    - часть цен может быть только в JS-виджете — тогда available=False.
+    """
+    _ = (period_start, period_end)
+    cfg = get_config()
+    if not cfg.competitors:
+        logger.info("fetch_competitor_prices: список конкурентов пуст")
         return []
-
-    grouped: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
-    for item in snapshots:
-        day = item.snapshot_at.date().isoformat()
-        key = (item.source or "site", item.category)
-        grouped[key][day] = item.price
-
-    result: list[CompetitorPriceSeries] = []
-    for (source, category), prices in sorted(grouped.items()):
-        name = "1apart.ru" if source == "site" else source
-        result.append(
-            CompetitorPriceSeries(name=name, category=category, prices=prices)
+    return [
+        CompetitorPriceInfo(
+            name=item.name,
+            kind=item.kind,
+            url=item.url,
+            price_from=None,
+            available=False,
         )
-    return result
+        for item in cfg.competitors
+    ]
 
 
 def build_market_trends(
@@ -108,5 +114,9 @@ def build_market_trends(
 
 def fetch_market_news() -> list[dict[str, str]]:
     """Заглушка RSS/API — возвращает типовые тренды до подключения источника."""
+    cfg = get_config()
+    if not cfg.market_news.enabled:
+        return []
     logger.info("fetch_market_news: используется встроенный список трендов")
-    return [{"title": title} for title in DEFAULT_MARKET_TRENDS]
+    sources = cfg.market_news.sources or ["default"]
+    return [{"title": title, "source": sources[0]} for title in DEFAULT_MARKET_TRENDS]

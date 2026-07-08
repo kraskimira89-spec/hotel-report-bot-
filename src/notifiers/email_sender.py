@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from src.config import AppConfig, get_config, get_env_settings
 from src.data_sources.market_trends import (
-    CompetitorPriceSeries,
+    CompetitorPriceInfo,
     build_market_trends,
     fetch_competitor_prices,
 )
@@ -71,7 +71,7 @@ class WeeklyReportData(BaseModel):
     aggregator_share_pct: float | None = None
     returning_guests_pct: float | None = None
     market_trends: list[str] = Field(default_factory=list)
-    competitor_prices: list[CompetitorPriceSeries] = Field(default_factory=list)
+    competitor_prices: list[CompetitorPriceInfo] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     is_partial: bool = False
     critical_error: bool = False
@@ -290,27 +290,26 @@ def build_weekly_report_html(data: WeeklyReportData) -> str:
 
     competitor_html = ""
     if data.competitor_prices:
-        dates = sorted(
-            {day for item in data.competitor_prices for day in item.prices}
-        )
-        header = "".join(f"<th>{html.escape(d[5:])}</th>" for d in dates)
         body = ""
         for item in data.competitor_prices:
-            cells = "".join(
-                f"<td>{_fmt_num(item.prices.get(d), ' ₽')}</td>" for d in dates
-            )
+            price = _fmt_num(item.price_from, " ₽") if item.available else "—"
             body += (
-                f"<tr><td>{html.escape(item.name)}</td>"
-                f"<td>{html.escape(item.category)}</td>{cells}</tr>"
+                "<tr>"
+                f"<td>{html.escape(item.name)}</td>"
+                f"<td>{html.escape(item.kind)}</td>"
+                f"<td>{html.escape(item.url)}</td>"
+                f"<td>{price}</td>"
+                f"<td>{'да' if item.available else 'нет'}</td>"
+                "</tr>"
             )
         competitor_html = f"""
         <table>
-          <thead><tr><th>Источник</th><th>Категория</th>{header}</tr></thead>
+          <thead><tr><th>Конкурент</th><th>Тип</th><th>URL</th><th>Цена от</th><th>Доступно</th></tr></thead>
           <tbody>{body}</tbody>
         </table>
         """
     else:
-        competitor_html = "<p>Нет публичных данных за период.</p>"
+        competitor_html = "<p>Нет данных по конкурентам.</p>"
 
     notes_html = ""
     if data.warnings:
@@ -412,6 +411,11 @@ def build_weekly_report_plain(data: WeeklyReportData) -> str:
         ]
     )
     lines.extend(f"  - {t}" for t in data.market_trends)
+    if data.competitor_prices:
+        lines.extend(["", "Конкуренты:"])
+        for item in data.competitor_prices:
+            price = _fmt_num(item.price_from, " руб.") if item.available else "—"
+            lines.append(f"  - {item.name}: {price} ({item.url})")
     if data.warnings:
         lines.extend(["", "Примечания:"])
         lines.extend(f"- {t}" for t in data.warnings)

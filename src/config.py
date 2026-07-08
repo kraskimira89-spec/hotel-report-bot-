@@ -89,6 +89,21 @@ class SitePricesConfig(BaseModel):
     snapshot_cache_path: str = "data/last_price_snapshots.json"
 
 
+class CompetitorConfig(BaseModel):
+    """Конкурент для мониторинга цен."""
+
+    name: str
+    kind: str
+    url: str
+
+
+class MarketNewsConfig(BaseModel):
+    """Настройки новостей/трендов."""
+
+    enabled: bool = True
+    sources: list[str] = Field(default_factory=list)
+
+
 class TravelLineConfig(BaseModel):
     """Параметры TravelLine API."""
 
@@ -156,6 +171,8 @@ class AppConfig(BaseModel):
     traffic_light: TrafficLightThresholds = Field(default_factory=TrafficLightThresholds)
     channels_map: ChannelsMap = Field(default_factory=ChannelsMap)
     site_prices: SitePricesConfig = Field(default_factory=SitePricesConfig)
+    competitors: list[CompetitorConfig] = Field(default_factory=list)
+    market_news: MarketNewsConfig = Field(default_factory=MarketNewsConfig)
     travelline: TravelLineConfig = Field(default_factory=TravelLineConfig)
     max_bot: MaxBotConfig = Field(default_factory=MaxBotConfig)
     email: EmailConfig = Field(default_factory=EmailConfig)
