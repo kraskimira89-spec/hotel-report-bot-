@@ -109,9 +109,18 @@ class MarketNewsConfig(BaseModel):
 class TravelLineConfig(BaseModel):
     """Параметры TravelLine API."""
 
-    webpms_base_url: str = "https://api.travelline.ru"
-    reservation_base_url: str = "https://api.travelline.ru"
+    partner_base_url: str = "https://partner.tlintegration.com"
+    auth_url: str = "https://partner.tlintegration.com/auth/token"
+    webpms_base_url: str = "https://partner.tlintegration.com/api/webpms"
+    reservation_base_url: str = "https://partner.tlintegration.com/api/read-reservation"
+    search_base_url: str = "https://partner.tlintegration.com/api/search"
     property_id: str = ""
+    max_date_window_days: int = 31
+    max_retries: int = 3
+    backoff_initial_sec: float = 1.0
+    backoff_max_sec: float = 60.0
+    sheets_reconcile_threshold_pct: float = 10.0
+    reservation_page_size: int = 100
 
 
 class MaxBotConfig(BaseModel):
@@ -186,6 +195,8 @@ class EnvSettings(BaseSettings):
     max_token: str = ""
     google_sa_json_path: str = ""
     tl_api_key: str = ""
+    tl_client_id: str = ""
+    tl_client_secret: str = ""
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""
