@@ -203,7 +203,7 @@ def test_send_message_production_uses_main_chat(
 def test_send_message_retries_on_429(
     max_config: AppConfig, env_token: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("src.notifiers.max_bot.time.sleep", lambda _: None)
+    monkeypatch.setattr("src.utils.retry.time.sleep", lambda _: None)
     client = _FakeClient(
         [_FakeResponse(429), _FakeResponse(429), _FakeResponse(200)]
     )

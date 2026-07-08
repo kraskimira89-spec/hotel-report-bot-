@@ -14,6 +14,8 @@ from gspread.exceptions import APIError, SpreadsheetNotFound, WorksheetNotFound
 from pydantic import BaseModel, Field
 
 from src.config import AppConfig, EnvSettings, get_config, get_env_settings
+from src.storage.db import save_error_log
+from src.storage.models import ErrorLogRecord
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,8 @@ class OccupancySheetData(BaseModel):
 
     room_types: list[RoomTypeOccupancy] = Field(default_factory=list)
     units: list[RoomUnit] = Field(default_factory=list)
+    is_available: bool = True
+    errors: list[str] = Field(default_factory=list)
 
 
 class OccupancyDay(BaseModel):
@@ -101,6 +105,8 @@ class BookingsSheetData(BaseModel):
     """Данные листа «Брони статистика»."""
 
     records: list[BookingRecord] = Field(default_factory=list)
+    is_available: bool = True
+    errors: list[str] = Field(default_factory=list)
 
 
 class BookingsMonth(BaseModel):
@@ -651,11 +657,30 @@ class GoogleSheetsClient:
                 len(data.units),
             )
             return data
-        except SheetsReadError:
-            return OccupancySheetData()
+        except SheetsReadError as exc:
+            save_error_log(
+                ErrorLogRecord(
+                    error_date=date.today(),
+                    source="sheets",
+                    error_type="read_occupancy",
+                    message=str(exc),
+                )
+            )
+            return OccupancySheetData(is_available=False, errors=[str(exc)])
         except Exception as exc:
             logger.exception("Неожиданная ошибка read_occupancy: %s", exc)
-            return OccupancySheetData()
+            save_error_log(
+                ErrorLogRecord(
+                    error_date=date.today(),
+                    source="sheets",
+                    error_type="read_occupancy",
+                    message=str(exc),
+                )
+            )
+            return OccupancySheetData(
+                is_available=False,
+                errors=[f"Неожиданная ошибка Google Sheets: {exc}"],
+            )
 
     def read_bookings_stats(self) -> BookingsSheetData:
         """Прочитать лист «Брони статистика»."""
@@ -668,53 +693,27 @@ class GoogleSheetsClient:
             data = parse_bookings_rows(rows)
             logger.info("Брони статистика: %s записей", len(data.records))
             return data
-        except SheetsReadError:
-            return BookingsSheetData()
+        except SheetsReadError as exc:
+            save_error_log(
+                ErrorLogRecord(
+                    error_date=date.today(),
+                    source="sheets",
+                    error_type="read_bookings",
+                    message=str(exc),
+                )
+            )
+            return BookingsSheetData(is_available=False, errors=[str(exc)])
         except Exception as exc:
             logger.exception("Неожиданная ошибка read_bookings_stats: %s", exc)
-            return BookingsSheetData()
-
-    def read_occupancy_daily(self, target_date: date) -> OccupancyDay:
-        """Суточная заселяемость на дату (блоки 2026)."""
-        sheets_cfg = self.config.sheets
-        try:
-            rows = self._fetch_rows(
-                sheets_cfg.occupancy_sheet_gid,
-                sheets_cfg.occupancy_sheet,
+            save_error_log(
+                ErrorLogRecord(
+                    error_date=date.today(),
+                    source="sheets",
+                    error_type="read_bookings",
+                    message=str(exc),
+                )
             )
-            return parse_occupancy_daily_rows(rows, target_date)
-        except SheetsReadError:
-            return OccupancyDay(date=target_date)
-        except Exception as exc:
-            logger.exception("Неожиданная ошибка read_occupancy_daily: %s", exc)
-            return OccupancyDay(date=target_date)
-
-    def read_bookings_for_date(self, target_date: date) -> list[BookingSourceDay]:
-        """Брони по источникам за день (из месячного блока)."""
-        sheets_cfg = self.config.sheets
-        try:
-            rows = self._fetch_rows(
-                sheets_cfg.bookings_sheet_gid,
-                sheets_cfg.bookings_sheet,
+            return BookingsSheetData(
+                is_available=False,
+                errors=[f"Неожиданная ошибка Google Sheets: {exc}"],
             )
-            return parse_bookings_day_rows(rows, target_date)
-        except SheetsReadError:
-            return []
-        except Exception as exc:
-            logger.exception("Неожиданная ошибка read_bookings_for_date: %s", exc)
-            return []
-
-    def read_bookings_month(self, year: int, month: int) -> BookingsMonth:
-        """Итоги броней по источникам за месяц."""
-        sheets_cfg = self.config.sheets
-        try:
-            rows = self._fetch_rows(
-                sheets_cfg.bookings_sheet_gid,
-                sheets_cfg.bookings_sheet,
-            )
-            return parse_bookings_month_rows(rows, year, month)
-        except SheetsReadError:
-            return BookingsMonth(year=year, month=month)
-        except Exception as exc:
-            logger.exception("Неожиданная ошибка read_bookings_month: %s", exc)
-            return BookingsMonth(year=year, month=month)

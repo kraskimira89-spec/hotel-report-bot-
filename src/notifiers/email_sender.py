@@ -27,9 +27,10 @@ from src.storage.db import (
     get_bookings_daily,
     get_guests_in_period,
     get_metrics_daily,
+    save_error_log,
     save_report_log,
 )
-from src.storage.models import MetricsDailyRecord, ReportLogRecord
+from src.storage.models import ErrorLogRecord, MetricsDailyRecord, ReportLogRecord
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,9 @@ class WeeklyReportData(BaseModel):
     returning_guests_pct: float | None = None
     market_trends: list[str] = Field(default_factory=list)
     competitor_prices: list[CompetitorPriceSeries] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    is_partial: bool = False
+    critical_error: bool = False
 
 
 def _average_metrics(records: list[MetricsDailyRecord]) -> MetricsSummary | None:
@@ -175,6 +179,12 @@ def prepare_weekly_report_data(
     if occupancy is None:
         occupancy = sheets.read_occupancy()
 
+    warnings: list[str] = []
+    critical = False
+    if not occupancy.is_available:
+        critical = True
+        warnings.append("Google Sheets недоступен: лист «Заселяемость».")
+
     occupancy_by_type = _occupancy_from_sheets(occupancy)
     current_records = get_metrics_daily(period_start, period_end)
     prev_start = period_start - timedelta(days=7)
@@ -209,6 +219,9 @@ def prepare_weekly_report_data(
         returning_guests_pct=returning_pct,
         market_trends=trends,
         competitor_prices=competitors,
+        warnings=warnings,
+        is_partial=bool(warnings),
+        critical_error=critical,
     )
 
 
@@ -299,6 +312,12 @@ def build_weekly_report_html(data: WeeklyReportData) -> str:
     else:
         competitor_html = "<p>Нет публичных данных за период.</p>"
 
+    notes_html = ""
+    if data.warnings:
+        notes_html = "<h2>Примечания</h2><ul>" + "".join(
+            f"<li>{html.escape(item)}</li>" for item in data.warnings
+        ) + "</ul>"
+
     return f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -344,6 +363,7 @@ def build_weekly_report_html(data: WeeklyReportData) -> str:
 
   <h2>Конкуренты (публичные цены)</h2>
   {competitor_html}
+  {notes_html}
 </body>
 </html>"""
 
@@ -392,6 +412,9 @@ def build_weekly_report_plain(data: WeeklyReportData) -> str:
         ]
     )
     lines.extend(f"  - {t}" for t in data.market_trends)
+    if data.warnings:
+        lines.extend(["", "Примечания:"])
+        lines.extend(f"- {t}" for t in data.warnings)
     return "\n".join(lines)
 
 
@@ -419,6 +442,14 @@ def send_html_report(
     if not recipients:
         reason = "no_test_addresses" if is_dry else "no_recipients"
         logger.warning("Email пропущен: %s (dry_run=%s)", reason, is_dry)
+        save_error_log(
+            ErrorLogRecord(
+                error_date=date.today(),
+                source="email_sender",
+                error_type=reason,
+                message="Нет получателей для email",
+            )
+        )
         return {"status": "skipped", "reason": reason, "dry_run": is_dry}
 
     if is_dry:
@@ -431,6 +462,14 @@ def send_html_report(
 
     if not env.smtp_host:
         logger.warning("SMTP не настроен")
+        save_error_log(
+            ErrorLogRecord(
+                error_date=date.today(),
+                source="email_sender",
+                error_type="no_smtp",
+                message="SMTP не настроен",
+            )
+        )
         return {"status": "skipped", "reason": "no_smtp", "dry_run": is_dry}
 
     msg = MIMEMultipart("alternative")
@@ -440,16 +479,28 @@ def send_html_report(
     msg.attach(MIMEText(text_plain, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    if smtp_factory:
-        server = smtp_factory()
-        server.sendmail(cfg.email.from_address, recipients, msg.as_string())
-    else:
-        with smtplib.SMTP(env.smtp_host, env.smtp_port) as server:
-            if env.smtp_use_tls:
-                server.starttls()
-            if env.smtp_user:
-                server.login(env.smtp_user, env.smtp_password)
+    try:
+        if smtp_factory:
+            server = smtp_factory()
             server.sendmail(cfg.email.from_address, recipients, msg.as_string())
+        else:
+            with smtplib.SMTP(env.smtp_host, env.smtp_port) as server:
+                if env.smtp_use_tls:
+                    server.starttls()
+                if env.smtp_user:
+                    server.login(env.smtp_user, env.smtp_password)
+                server.sendmail(cfg.email.from_address, recipients, msg.as_string())
+    except smtplib.SMTPException as exc:
+        logger.error("Ошибка SMTP: %s", exc)
+        save_error_log(
+            ErrorLogRecord(
+                error_date=date.today(),
+                source="email_sender",
+                error_type="smtp_error",
+                message=str(exc),
+            )
+        )
+        return {"status": "error", "reason": "smtp_error", "dry_run": is_dry}
 
     logger.info("Email отправлен: %s → %s", full_subject, recipients)
     return {"status": "sent", "recipients": recipients, "dry_run": is_dry}
@@ -472,9 +523,48 @@ def send_weekly_report(
     period_start = period_start or (period_end - timedelta(days=6))
 
     data = report_data or prepare_weekly_report_data(period_start, period_end, cfg)
+    if data.critical_error:
+        from src.notifiers.incidents import send_incident
+
+        send_incident(
+            "Критическая ошибка источника",
+            "\n".join(data.warnings) or "Google Sheets недоступен.",
+            config=cfg,
+            source="email_sender",
+        )
+        save_report_log(
+            ReportLogRecord(
+                report_type="email",
+                report_date=report_date,
+                run_date=run_date,
+                period_start=period_start,
+                period_end=period_end,
+                status="skipped",
+                dry_run=cfg.dry_run,
+                preview="; ".join(data.warnings)[:200],
+                message="critical_error",
+            )
+        )
+        return {
+            "status": "skipped",
+            "reason": "critical_error",
+            "dry_run": cfg.dry_run,
+            "warnings": data.warnings,
+        }
+
     html_body = build_weekly_report_html(data)
     plain = build_weekly_report_plain(data)
     subject = f"{period_start.strftime('%d.%m.%Y')} — {period_end.strftime('%d.%m.%Y')}"
+
+    if data.warnings:
+        from src.notifiers.incidents import send_incident
+
+        send_incident(
+            "Неполные данные weekly-отчёта",
+            "\n".join(data.warnings),
+            config=cfg,
+            source="email_sender",
+        )
 
     result = send_html_report(
         subject=subject,

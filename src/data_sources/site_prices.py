@@ -18,6 +18,9 @@ from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
 
 from src.config import AppConfig, SitePricesConfig, get_config
+from src.storage.db import save_error_log
+from src.storage.models import ErrorLogRecord
+from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,7 @@ class SnapshotCollectionResult(BaseModel):
     snapshots: list[PriceSnapshot] = Field(default_factory=list)
     used_fallback: bool = False
     fetched_count: int = 0
+    warnings: list[str] = Field(default_factory=list)
 
 
 class HttpClient(Protocol):
@@ -168,40 +172,15 @@ def _request_with_backoff(
     url: str,
     cfg: SitePricesConfig,
 ) -> httpx.Response:
-    """HTTP-запрос с экспоненциальным backoff при 403/429/503."""
-    delay = cfg.backoff_initial_sec
-    last_error: Exception | None = None
-
-    for attempt in range(cfg.max_retries):
-        try:
-            resp = client.get(url)
-            if resp.status_code in (403, 429, 503):
-                logger.warning(
-                    "HTTP %s для %s, попытка %s/%s, пауза %.1f с",
-                    resp.status_code,
-                    url,
-                    attempt + 1,
-                    cfg.max_retries,
-                    delay,
-                )
-                time.sleep(min(delay, cfg.backoff_max_sec))
-                delay *= 2
-                continue
-            resp.raise_for_status()
-            return resp
-        except httpx.HTTPError as exc:
-            last_error = exc
-            logger.warning(
-                "Ошибка запроса %s: %s, попытка %s/%s",
-                url,
-                exc,
-                attempt + 1,
-                cfg.max_retries,
-            )
-            time.sleep(min(delay, cfg.backoff_max_sec))
-            delay *= 2
-
-    raise last_error or httpx.HTTPError(f"Не удалось загрузить {url}")
+    """HTTP-запрос с backoff (единый helper)."""
+    return retry_with_backoff(
+        lambda: client.get(url),
+        retries=cfg.max_retries,
+        backoff_initial=cfg.backoff_initial_sec,
+        backoff_max=cfg.backoff_max_sec,
+        retry_statuses=(403, 429, 503, 500, 502, 504),
+        log_prefix=f"site_prices {url}",
+    )
 
 
 def _fetch_robots_disallow(
@@ -286,9 +265,21 @@ def collect_price_snapshots(
 
         cached = load_cached_snapshots(site_cfg)
         if cached:
+            warning = (
+                "Сбор цен недоступен, часть данных из последнего снимка"
+            )
             logger.warning(
                 "Сбор не удался, возвращаем последний успешный snapshot (%s записей)",
                 len(cached),
+            )
+            save_error_log(
+                ErrorLogRecord(
+                    error_date=now.date(),
+                    source="site_prices",
+                    error_type="fallback",
+                    message=warning,
+                    details=f"cached={len(cached)}",
+                )
             )
             fallback = [
                 s.model_copy(update={"is_fallback": True}) for s in cached
@@ -297,10 +288,19 @@ def collect_price_snapshots(
                 snapshots=fallback,
                 used_fallback=True,
                 fetched_count=0,
+                warnings=[warning],
             )
 
         logger.error("Нет цен и нет кэшированного snapshot")
-        return SnapshotCollectionResult()
+        save_error_log(
+            ErrorLogRecord(
+                error_date=now.date(),
+                source="site_prices",
+                error_type="no_data",
+                message="Нет цен и нет кэшированного snapshot",
+            )
+        )
+        return SnapshotCollectionResult(warnings=["Нет цен и нет кэшированного snapshot"])
 
     finally:
         if own_client is not None:

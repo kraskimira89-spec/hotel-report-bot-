@@ -17,6 +17,7 @@ from src.metrics.guests import classify_channel, hash_guest_identifiers
 from src.metrics.revenue import calc_adr, calc_revpar, resolve_revenue
 from src.storage.db import save_error_log
 from src.storage.models import ErrorLogRecord
+from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -392,61 +393,51 @@ class TravelLineClient:
     ) -> dict[str, Any]:
         """HTTP-запрос с backoff."""
         tl = self.config.travelline
-        delay = tl.backoff_initial_sec
-        last_status: int | None = None
 
-        for attempt in range(tl.max_retries):
-            try:
-                client = self._client()
-                if isinstance(client, httpx.Client):
-                    response = client.request(
-                        method,
-                        url,
-                        params=params,
-                        json=json,
-                        headers=self._headers(),
-                    )
-                else:
-                    response = client.request(
-                        method,
-                        url,
-                        params=params,
-                        json=json,
-                        headers=self._headers(),
-                    )
-                last_status = response.status_code
+        def _call() -> httpx.Response:
+            client = self._client()
+            return client.request(
+                method,
+                url,
+                params=params,
+                json=json,
+                headers=self._headers(),
+            )
 
-                if response.status_code in RETRYABLE_STATUS:
-                    if response.status_code in {401, 403} and auth_retry:
-                        self.authenticate(force=True)
-                        auth_retry = False
-                        continue
-                    if attempt >= tl.max_retries - 1:
-                        response.raise_for_status()
-                    logger.warning(
-                        "TravelLine %s %s, retry %s/%s",
-                        method,
-                        response.status_code,
-                        attempt + 1,
-                        tl.max_retries,
-                    )
-                    time.sleep(min(delay, tl.backoff_max_sec))
-                    delay *= 2
-                    continue
+        try:
+            response = retry_with_backoff(
+                _call,
+                retries=tl.max_retries,
+                backoff_initial=tl.backoff_initial_sec,
+                backoff_max=tl.backoff_max_sec,
+                retry_statuses=(429, 500, 502, 503, 504),
+                log_prefix=f"travelline {method} {url}",
+            )
+        except httpx.HTTPError as exc:
+            save_error_log(
+                ErrorLogRecord(
+                    error_date=date.today(),
+                    source="travelline",
+                    error_type="http_error",
+                    message=str(exc),
+                )
+            )
+            raise TravelLineError(str(exc)) from exc
 
-                response.raise_for_status()
-                if not response.content:
-                    return {}
-                return response.json()
+        if response.status_code in {401, 403} and auth_retry:
+            self.authenticate(force=True)
+            response = retry_with_backoff(
+                _call,
+                retries=tl.max_retries,
+                backoff_initial=tl.backoff_initial_sec,
+                backoff_max=tl.backoff_max_sec,
+                retry_statuses=(429, 500, 502, 503, 504),
+                log_prefix=f"travelline {method} {url}",
+            )
 
-            except httpx.HTTPError as exc:
-                logger.error("TravelLine HTTP error: %s", exc)
-                if attempt >= tl.max_retries - 1:
-                    raise TravelLineError(str(exc)) from exc
-                time.sleep(min(delay, tl.backoff_max_sec))
-                delay *= 2
-
-        raise TravelLineError(f"TravelLine API error, status={last_status}")
+        if not response.content:
+            return {}
+        return response.json()
 
     def _webpms_url(self, path: str) -> str:
         base = self.config.travelline.webpms_base_url.rstrip("/")

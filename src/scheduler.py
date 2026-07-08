@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta
-from typing import Callable
+from typing import Callable, TypeVar
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from src.config import get_config
-from src.data_sources.site_prices import collect_price_snapshots
+from src.data_sources.site_prices import SnapshotCollectionResult, collect_price_snapshots
 from src.data_sources.travelline import run_daily_reconciliation
 from src.notifiers.email_sender import send_weekly_report
+from src.notifiers.incidents import send_incident
 from src.notifiers.max_bot import send_daily_summary
 from src.storage.db import (
     init_db,
@@ -51,12 +52,18 @@ def job_price_snapshot(
     if price_snapshot_exists(report_date):
         logger.info("Snapshot цен уже есть за %s, пропуск", report_date)
         return
-    _run_job(
+    result = _run_job(
         "price_snapshot",
         run_date,
         report_date,
         _collect_price_snapshot,
     )
+    if isinstance(result, SnapshotCollectionResult) and result.used_fallback:
+        send_incident(
+            "Источник цен недоступен",
+            "Часть данных из последнего снимка.",
+            source="site_prices",
+        )
     _run_job(
         "sheets_reconcile",
         run_date,
@@ -65,7 +72,7 @@ def job_price_snapshot(
     )
 
 
-def _collect_price_snapshot() -> None:
+def _collect_price_snapshot() -> SnapshotCollectionResult:
     result = collect_price_snapshots()
     records = [
         PriceSnapshotRecord(
@@ -86,6 +93,7 @@ def _collect_price_snapshot() -> None:
         saved,
         result.used_fallback,
     )
+    return result
 
 
 def job_daily_summary(
@@ -147,14 +155,17 @@ def job_weekly_email(
     )
 
 
+T = TypeVar("T")
+
+
 def _run_job(
     job_name: str,
     run_date: date,
     report_date: date,
-    func: Callable[[], None],
-) -> None:
+    func: Callable[[], T],
+) -> T | None:
     try:
-        func()
+        return func()
     except Exception as exc:
         logger.exception("Ошибка задачи %s: %s", job_name, exc)
         save_error_log(
@@ -166,6 +177,7 @@ def _run_job(
                 details=f"report_date={report_date}",
             )
         )
+        return None
 
 
 def _parse_cron(cron_expr: str) -> dict[str, str]:

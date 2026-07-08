@@ -129,10 +129,13 @@ def test_read_bookings_month_mock(_mock_creds: MagicMock) -> None:
 
 
 def test_read_occupancy_spreadsheet_not_found() -> None:
-    rows = _load_rows("zaselyaemost_2026_sample.csv")
-    client = _make_client(occupancy_rows=rows, spreadsheet_error=SpreadsheetNotFound("nf"))
-    data = client.read_occupancy_daily(date(2026, 7, 1))
-    assert data == OccupancyDay(date=date(2026, 7, 1))
+    client = _make_client(
+        occupancy_rows=OCCUPANCY_ROWS,
+        spreadsheet_error=SpreadsheetNotFound("nf"),
+    )
+    data = client.read_occupancy()
+    assert data.is_available is False
+    assert data.errors
 
 
 def test_read_bookings_worksheet_not_found() -> None:
@@ -141,14 +144,16 @@ def test_read_bookings_worksheet_not_found() -> None:
     mock_spreadsheet = client._client_override.open_by_key.return_value
     mock_spreadsheet.worksheet.side_effect = WorksheetNotFound("nf")
 
-    data = client.read_bookings_for_date(date(2026, 7, 1))
-    assert data == []
+    data = client.read_bookings_stats()
+    assert data.is_available is False
+    assert data.errors
 
 
 def test_read_occupancy_api_error_on_read() -> None:
     client = _make_client(api_error_on_read=True)
-    data = client.read_occupancy_daily(date(2026, 7, 1))
-    assert data == OccupancyDay(date=date(2026, 7, 1))
+    data = client.read_occupancy()
+    assert data.is_available is False
+    assert data.errors
 
 
 def test_get_client_without_sa_path() -> None:
