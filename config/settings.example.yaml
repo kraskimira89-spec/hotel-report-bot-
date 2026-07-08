@@ -48,28 +48,32 @@ channels_map:
     - "Booking.com"
     - "Ostrovok"
 
-# Сбор цен с сайта 1apart.ru (статический HTML)
-# ВАЖНО: цены отдаются ТОЛЬКО на главной странице (карточки-слайдер),
-# на страницах категорий цен в HTML нет. Собирать одним запросом на base_url.
-# Селекторы и эталонная таблица: docs/Этап_3_Селекторы_1apart.md
+# Сбор цен с сайта 1apart.ru (статический HTML, БЕЗ Playwright)
+# Цены на конкретные даты — TravelLine API (этап 7), здесь не собираются
 site_prices:
   base_url: https://1apart.ru
   # Реальные slug категорий (ключ карточки = href). Цена берётся с главной,
   # эти slug нужны для сопоставления карточек с бизнес-категориями.
   category_urls:
-    - /family-30                                # Однокомнатные с диванчиком, 30 м²
-    - /1room23                                  # Однокомнатные, 23 м²
-    - /1room                                    # Однокомнатные, 27 м²
-    - /uluchshennyie-odnokomnatnyie-kvartiryi   # Улучшенные однокомнатные, 30 м²
-    - /dvuxkomnatnyie-kvartiryi-(2-krovati)     # Двухкомнатные (2 кровати), 60 м²
-    - /dvuxkomnatnyie-kvartiryi-3               # Двухкомнатные (3 кровати), 60 м²
-    - /80m2-apartamentyi                        # Двухкомнатные люкс, 80 м²
+    - /1room23
+    - /1room
+    - /uluchshennyie-odnokomnatnyie-kvartiryi
+    - /odnokomnatnye-kvartiry-s-divanom
+    - /2room
+    - /luxe-kvartiry
   request_delay_min_sec: 2
   request_delay_max_sec: 3
-  user_agent: "Mozilla/5.0 (compatible; HotelReportBot/1.0; +https://1apart.ru)"
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
   backoff_initial_sec: 5
   backoff_max_sec: 60
   max_retries: 3
+  robots_disallow_paths:
+    - /manager/
+  snapshot_cache_path: data/last_price_snapshots.json
+  selectors:
+    data_price: "[data-price]"
+    price_value: ".price-value"
+    price_from_regex: 'от\s*([\d\s\u00a0]+)\s*(?:руб|₽|Р|р\.?)'
 
 # Конкуренты — цены собираются ТОЛЬКО для еженедельного email-отчёта (справочно).
 # Собираются те же анти-блок правила, что и для site_prices.

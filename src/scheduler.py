@@ -39,9 +39,9 @@ def job_price_snapshot(
         report_date,
         run_date,
     )
-    # TODO: этап 3 — сохранить в price_snapshots
+    # TODO: этап 4 — сохранить в price_snapshots (SQLite)
     prices = fetch_category_prices()
-    logger.info("Собрано %s цен (заглушка)", len(prices))
+    logger.info("Собрано %s цен (snapshot)", len(prices))
 
 
 def job_daily_summary(
