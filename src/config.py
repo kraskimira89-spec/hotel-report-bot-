@@ -81,6 +81,8 @@ class CompetitorConfig(BaseModel):
     name: str
     type: str = "direct"  # direct | indirect
     url: str
+    parser: str = "widget"  # static (BeautifulSoup) | widget (JS, available=false)
+    selectors: dict[str, str] = Field(default_factory=dict)
 
 
 class MarketNewsConfig(BaseModel):
