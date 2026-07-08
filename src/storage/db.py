@@ -12,6 +12,7 @@ from src.config import get_config, get_db_path
 from src.storage.models import (
     INDEXES,
     MIGRATIONS_V2,
+    MIGRATIONS_V3,
     SCHEMA_VERSION,
     TABLES,
     BookingDailyRecord,
@@ -104,6 +105,12 @@ def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
             except sqlite3.OperationalError as exc:
                 if "duplicate column name" not in str(exc).lower():
                     logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 3:
+        for ddl in MIGRATIONS_V3:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
     conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
 
 
@@ -601,6 +608,40 @@ def get_reports_log(limit: int = 50) -> list[ReportLogRecord]:
         )
         for row in rows
     ]
+
+
+def report_log_exists(
+    report_type: str,
+    report_date: date,
+    period_start: date | None = None,
+    period_end: date | None = None,
+) -> bool:
+    """Проверить, есть ли отчёт за дату/период."""
+    sql = """
+        SELECT 1 FROM reports_log
+        WHERE report_type = ? AND report_date = ?
+    """
+    params: list[object] = [report_type, _date_str(report_date)]
+    if period_start is not None:
+        sql += " AND period_start = ?"
+        params.append(_date_str(period_start))
+    if period_end is not None:
+        sql += " AND period_end = ?"
+        params.append(_date_str(period_end))
+    sql += " LIMIT 1"
+    with db_session() as conn:
+        row = conn.execute(sql, params).fetchone()
+    return row is not None
+
+
+def price_snapshot_exists(snapshot_date: date) -> bool:
+    """Есть ли snapshot цен за дату."""
+    with db_session() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM price_snapshots WHERE snapshot_date = ? LIMIT 1",
+            (_date_str(snapshot_date),),
+        ).fetchone()
+    return row is not None
 
 
 def save_error_log(
