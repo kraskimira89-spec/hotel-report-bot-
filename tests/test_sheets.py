@@ -1,8 +1,10 @@
-"""Тесты Google Sheets (моки gspread, без сети)."""
+"""Тесты Google Sheets (фикстуры без сети)."""
 
 from __future__ import annotations
 
+import csv
 from datetime import date
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,101 +12,52 @@ from gspread.exceptions import APIError, SpreadsheetNotFound, WorksheetNotFound
 
 from src.config import AppConfig, EnvSettings, SheetsConfig
 from src.data_sources.sheets import (
-    BookingRecord,
-    BookingsSheetData,
+    BookingsMonth,
     GoogleSheetsClient,
-    OccupancySheetData,
-    RoomStatus,
-    RoomTypeOccupancy,
-    RoomUnit,
+    OccupancyDay,
     SheetsReadError,
-    parse_bookings_rows,
-    parse_occupancy_rows,
+    parse_bookings_day_rows,
+    parse_bookings_month_rows,
+    parse_occupancy_daily_rows,
 )
 
-OCCUPANCY_ROWS = [
-    ["Тип квартиры", "Загрузка %", "Всего", "Свободно", "Занято", "Забронировано"],
-    ["Студия", "75", "8", "2", "5", "1"],
-    ["Комфорт", "60%", "10", "4", "5", "1"],
-    ["Бизнес", "50", "8", "4", "3", "1"],
-    ["Премиум", "80", "6", "1", "4", "1"],
-    ["Люкс", "40", "6", "3", "2", "1"],
-    ["Пентхаус", "100", "6", "0", "5", "1"],
-    [],
-    ["Номер", "Тип", "Статус"],
-    ["101", "Студия", "занят"],
-    ["102", "Студия", "свободен"],
-    ["201", "Комфорт", "забронирован"],
-    ["", "", ""],
-]
 
-BOOKINGS_PIVOT_ROWS = [
-    ["Дата", "1apart.ru", "Островок", "Звонок"],
-    ["01.07.2026", "2", "1", "0"],
-    ["02.07.2026", "1", "", "3"],
-    ["03.07.2026", "-", "2", "1"],
-]
-
-BOOKINGS_LONG_ROWS = [
-    ["Дата", "Источник", "Кол-во броней"],
-    ["2026-07-01", "1apart.ru", "2"],
-    ["2026-07-01", "Островок", "1"],
-    ["2026-07-02", "Авито", "3"],
-]
+def _load_rows(filename: str) -> list[list[str]]:
+    path = Path(__file__).parent / "fixtures" / "sheets" / filename
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.reader(handle)
+        return [row for row in reader]
 
 
-def test_parse_occupancy_room_types() -> None:
-    data = parse_occupancy_rows(OCCUPANCY_ROWS)
-    assert len(data.room_types) == 6
-    assert data.room_types[0] == RoomTypeOccupancy(
-        room_type="Студия",
-        occupancy_pct=75.0,
-        total_rooms=8,
-        free_count=2,
-        occupied_count=5,
-        booked_count=1,
-    )
-    assert data.room_types[1].occupancy_pct == 60.0
+def test_parse_occupancy_daily_from_fixture() -> None:
+    rows = _load_rows("zaselyaemost_2026_sample.csv")
+    data = parse_occupancy_daily_rows(rows, date(2026, 7, 1))
+    assert isinstance(data, OccupancyDay)
+    room = next(r for r in data.by_type if r.room_type.startswith("1-комн. 23 кв.м."))
+    assert room.occupancy_pct == 5.0
+    assert data.total_pct == 24.0
+    assert data.travelline_pct == 51.2
 
 
-def test_parse_occupancy_units() -> None:
-    data = parse_occupancy_rows(OCCUPANCY_ROWS)
-    assert len(data.units) == 3
-    assert data.units[0] == RoomUnit(
-        room_id="101", room_type="Студия", status=RoomStatus.OCCUPIED
-    )
-    assert data.units[1].status == RoomStatus.FREE
-    assert data.units[2].status == RoomStatus.BOOKED
+def test_parse_bookings_for_day_from_fixture() -> None:
+    rows = _load_rows("broni_iyul_sample.csv")
+    day_one = parse_bookings_day_rows(rows, date(2026, 7, 1))
+    day_one_map = {item.source: item.count for item in day_one}
+    assert day_one_map["Сайт"] == 3
+
+    day_two = parse_bookings_day_rows(rows, date(2026, 7, 2))
+    day_two_map = {item.source: item.count for item in day_two}
+    assert day_two_map["Уже проживали (по звонку)"] == 4
 
 
-def test_parse_occupancy_empty() -> None:
-    data = parse_occupancy_rows([])
-    assert data == OccupancySheetData()
-
-
-def test_parse_bookings_pivot() -> None:
-    data = parse_bookings_rows(BOOKINGS_PIVOT_ROWS)
-    assert len(data.records) == 6  # нулевые ячейки пропускаются
-    first = data.records[0]
-    assert first == BookingRecord(
-        report_date=date(2026, 7, 1),
-        source="1apart.ru",
-        bookings_count=2,
-    )
-    ostrovok = [r for r in data.records if r.source == "Островок" and r.report_date.day == 3]
-    assert len(ostrovok) == 1
-    assert ostrovok[0].bookings_count == 2
-
-
-def test_parse_bookings_long_format() -> None:
-    data = parse_bookings_rows(BOOKINGS_LONG_ROWS)
-    assert len(data.records) == 3
-    assert data.records[2].source == "Авито"
-    assert data.records[2].bookings_count == 3
-
-
-def test_parse_bookings_empty() -> None:
-    assert parse_bookings_rows([]) == BookingsSheetData()
+def test_parse_bookings_month_from_fixture() -> None:
+    rows = _load_rows("broni_iyul_sample.csv")
+    data = parse_bookings_month_rows(rows, 2026, 7)
+    assert isinstance(data, BookingsMonth)
+    assert data.by_source["Сайт"] == 12
+    assert data.by_source["Уже проживали (по звонку)"] == 15
+    assert data.by_source["Островок"] == 1
+    assert data.total == 38
 
 
 def _make_client(
@@ -152,45 +105,50 @@ def _make_client(
 
 
 @patch("src.data_sources.sheets.Credentials.from_service_account_file")
-def test_read_occupancy_integration_mock(_mock_creds: MagicMock) -> None:
-    client = _make_client(occupancy_rows=OCCUPANCY_ROWS)
-    data = client.read_occupancy()
-    assert len(data.room_types) == 6
-    assert len(data.units) == 3
+def test_read_occupancy_daily_mock(_mock_creds: MagicMock) -> None:
+    rows = _load_rows("zaselyaemost_2026_sample.csv")
+    client = _make_client(occupancy_rows=rows)
+    data = client.read_occupancy_daily(date(2026, 7, 1))
+    assert data.total_pct == 24.0
 
 
 @patch("src.data_sources.sheets.Credentials.from_service_account_file")
-def test_read_bookings_integration_mock(_mock_creds: MagicMock) -> None:
-    client = _make_client(bookings_rows=BOOKINGS_PIVOT_ROWS)
-    data = client.read_bookings_stats()
-    assert len(data.records) == 6
+def test_read_bookings_for_date_mock(_mock_creds: MagicMock) -> None:
+    rows = _load_rows("broni_iyul_sample.csv")
+    client = _make_client(bookings_rows=rows)
+    data = client.read_bookings_for_date(date(2026, 7, 1))
+    assert any(item.source == "Сайт" and item.count == 3 for item in data)
+
+
+@patch("src.data_sources.sheets.Credentials.from_service_account_file")
+def test_read_bookings_month_mock(_mock_creds: MagicMock) -> None:
+    rows = _load_rows("broni_iyul_sample.csv")
+    client = _make_client(bookings_rows=rows)
+    data = client.read_bookings_month(2026, 7)
+    assert data.total == 38
 
 
 def test_read_occupancy_spreadsheet_not_found() -> None:
-    client = _make_client(
-        occupancy_rows=OCCUPANCY_ROWS,
-        spreadsheet_error=SpreadsheetNotFound("nf"),
-    )
-    data = client.read_occupancy()
-    assert data == OccupancySheetData()
+    rows = _load_rows("zaselyaemost_2026_sample.csv")
+    client = _make_client(occupancy_rows=rows, spreadsheet_error=SpreadsheetNotFound("nf"))
+    data = client.read_occupancy_daily(date(2026, 7, 1))
+    assert data == OccupancyDay(date=date(2026, 7, 1))
 
 
 def test_read_bookings_worksheet_not_found() -> None:
-    client = _make_client(
-        bookings_rows=BOOKINGS_PIVOT_ROWS,
-        worksheet_error=WorksheetNotFound("nf"),
-    )
+    rows = _load_rows("broni_iyul_sample.csv")
+    client = _make_client(bookings_rows=rows, worksheet_error=WorksheetNotFound("nf"))
     mock_spreadsheet = client._client_override.open_by_key.return_value
     mock_spreadsheet.worksheet.side_effect = WorksheetNotFound("nf")
 
-    data = client.read_bookings_stats()
-    assert data == BookingsSheetData()
+    data = client.read_bookings_for_date(date(2026, 7, 1))
+    assert data == []
 
 
 def test_read_occupancy_api_error_on_read() -> None:
     client = _make_client(api_error_on_read=True)
-    data = client.read_occupancy()
-    assert data == OccupancySheetData()
+    data = client.read_occupancy_daily(date(2026, 7, 1))
+    assert data == OccupancyDay(date=date(2026, 7, 1))
 
 
 def test_get_client_without_sa_path() -> None:
