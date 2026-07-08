@@ -47,9 +47,9 @@ def fetch_competitor_prices(config: AppConfig | None = None) -> list[dict[str, A
     # TODO: реальный сбор. Пока возвращаем структуру без цен.
     return [
         {
-            "name": c.get("name") if isinstance(c, dict) else getattr(c, "name", ""),
-            "type": c.get("type") if isinstance(c, dict) else getattr(c, "type", ""),
-            "url": c.get("url") if isinstance(c, dict) else getattr(c, "url", ""),
+            "name": c.name,
+            "type": c.type,
+            "url": c.url,
             "price_from": None,
             "available": False,
         }
