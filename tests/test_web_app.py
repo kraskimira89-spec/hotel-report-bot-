@@ -78,6 +78,19 @@ def test_login_required(web_client: TestClient) -> None:
     assert response.headers["location"] == "/login"
 
 
+def test_max_webhook_accepts_update(web_client: TestClient) -> None:
+    payload = {
+        "updates": [
+            {"update_type": "bot_started", "chat_id": 364502022, "user_id": 6407832}
+        ]
+    }
+    response = web_client.post("/api/max/webhook", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert 364502022 in data["chat_ids"]
+
+
 def test_dashboard_after_login(web_client: TestClient) -> None:
     _login(web_client)
     response = web_client.get("/")

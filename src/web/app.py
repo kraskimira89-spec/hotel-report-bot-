@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Form, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -19,6 +19,7 @@ from src.config import get_config, get_env_settings, reload_config
 from src.config_runtime import persist_dry_run_to_yaml, save_runtime_overrides
 from src.notifiers.email_sender import send_weekly_report
 from src.notifiers.max_bot import send_daily_summary
+from src.notifiers.max_webhook import handle_max_webhook, log_webhook_error, verify_webhook_secret
 from src.storage.db import get_report_log, init_db
 from src.web import queries
 
@@ -60,6 +61,24 @@ def _require_auth(request: Request) -> RedirectResponse | None:
 async def startup() -> None:
     init_db()
     logger.info("Веб-админка запущена")
+
+
+@app.post("/api/max/webhook")
+async def max_webhook(request: Request) -> JSONResponse:
+    """Webhook Max Bot API (POST /subscriptions → наш endpoint)."""
+    secret = request.headers.get("X-Max-Bot-Api-Secret")
+    if not verify_webhook_secret(secret):
+        log_webhook_error("Неверный X-Max-Bot-Api-Secret")
+        return JSONResponse({"ok": False}, status_code=status.HTTP_403_FORBIDDEN)
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        log_webhook_error(f"Некорректный JSON webhook: {exc}")
+        return JSONResponse({"ok": False}, status_code=status.HTTP_400_BAD_REQUEST)
+    if not isinstance(payload, dict):
+        return JSONResponse({"ok": False}, status_code=status.HTTP_400_BAD_REQUEST)
+    result = handle_max_webhook(payload)
+    return JSONResponse(result)
 
 
 @app.get("/login", response_class=HTMLResponse)

@@ -10,6 +10,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from src.config import AppConfig, get_config, get_env_settings
+from src.notifiers.max_api import build_max_api_client
 from src.data_sources.sheets import (
     BookingsSheetData,
     GoogleSheetsClient,
@@ -82,6 +83,17 @@ class DailySummaryData(BaseModel):
 
 class HttpPoster(Protocol):
     def post(self, url: str, **kwargs: Any) -> httpx.Response: ...
+
+
+class MessageSender(Protocol):
+    def send_message(
+        self,
+        text: str,
+        *,
+        chat_id: int | str | None = None,
+        user_id: int | str | None = None,
+        format: str = "markdown",
+    ) -> dict[str, Any]: ...
 
 
 
@@ -315,13 +327,14 @@ def send_message(
     dry_run: bool | None = None,
     config: AppConfig | None = None,
     client: HttpPoster | None = None,
+    api: MessageSender | None = None,
 ) -> dict[str, Any]:
     """Отправить сообщение в Max (POST /messages).
 
     При dry_run=True — в test_chat_id (реальная отправка, не в основной чат).
+    См. https://dev.max.ru/docs-api/methods/POST/messages
     """
     cfg = config or get_config()
-    env = get_env_settings()
     is_dry = cfg.dry_run if dry_run is None else dry_run
     chat_id = _resolve_chat_id(cfg, is_dry)
 
@@ -329,25 +342,33 @@ def send_message(
         logger.warning("chat_id не задан (dry_run=%s)", is_dry)
         return {"status": "skipped", "reason": "no_chat_id", "dry_run": is_dry}
 
-    if not env.max_token:
+    if api is None and client is None:
+        api = build_max_api_client(cfg)
+    if api is None and client is None:
         logger.warning("MAX_TOKEN не задан, отправка пропущена")
         return {"status": "skipped", "reason": "no_token", "dry_run": is_dry}
 
-    url = f"{cfg.max_bot.api_url.rstrip('/')}/messages"
-    headers = {"Authorization": env.max_token}
-    payload = {"chat_id": chat_id, "text": text, "format": "markdown"}
-
     try:
-        resp = retry_with_backoff(
-            lambda: (client or httpx).post(
-                url, json=payload, headers=headers, timeout=30.0
-            ),
-            retries=cfg.max_bot.max_retries,
-            backoff_initial=cfg.max_bot.backoff_initial_sec,
-            backoff_max=cfg.max_bot.backoff_max_sec,
-            retry_statuses=RETRYABLE_STATUS,
-            log_prefix="max_bot",
-        )
+        if api is not None:
+            response = api.send_message(text, chat_id=int(chat_id), format="markdown")
+        else:
+            url = f"{cfg.max_bot.api_url.rstrip('/')}/messages"
+            headers = {"Authorization": get_env_settings().max_token}
+            resp = retry_with_backoff(
+                lambda: client.post(  # type: ignore[union-attr]
+                    url,
+                    params={"chat_id": int(chat_id)},
+                    json={"text": text, "format": "markdown"},
+                    headers=headers,
+                    timeout=30.0,
+                ),
+                retries=cfg.max_bot.max_retries,
+                backoff_initial=cfg.max_bot.backoff_initial_sec,
+                backoff_max=cfg.max_bot.backoff_max_sec,
+                retry_statuses=RETRYABLE_STATUS,
+                log_prefix="max_bot",
+            )
+            response = resp.json()
     except httpx.HTTPError as exc:
         logger.error("Ошибка Max API: %s", exc)
         save_error_log(
@@ -365,16 +386,12 @@ def send_message(
             "error": str(exc),
         }
 
-    body: dict[str, Any] = {
+    return {
         "status": "sent",
         "chat_id": chat_id,
         "dry_run": is_dry,
+        "response": response,
     }
-    try:
-        body["response"] = resp.json()
-    except ValueError:
-        body["response"] = resp.text
-    return body
 
 
 def send_daily_summary(

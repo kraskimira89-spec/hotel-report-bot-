@@ -69,8 +69,8 @@ def max_config() -> AppConfig:
         dry_run=True,
         max_bot=MaxBotConfig(
             api_url="https://platform-api2.max.ru",
-            chat_id="main-chat",
-            test_chat_id="test-chat",
+            chat_id="111222333",
+            test_chat_id="364502022",
             max_message_length=4000,
             max_retries=3,
             backoff_initial_sec=0.01,
@@ -184,8 +184,9 @@ def test_send_message_dry_run_uses_test_chat(
 
     assert result["status"] == "sent"
     assert result["dry_run"] is True
-    assert result["chat_id"] == "test-chat"
-    assert client.calls[0]["json"]["chat_id"] == "test-chat"
+    assert result["chat_id"] == "364502022"
+    assert client.calls[0]["params"]["chat_id"] == 364502022
+    assert client.calls[0]["json"]["text"] == "тест"
     assert client.calls[0]["headers"]["Authorization"] == "test-token"
 
 
@@ -196,8 +197,8 @@ def test_send_message_production_uses_main_chat(
     client = _FakeClient()
     result = send_message("тест", config=max_config, client=client)
 
-    assert result["chat_id"] == "main-chat"
-    assert client.calls[0]["json"]["chat_id"] == "main-chat"
+    assert result["chat_id"] == "111222333"
+    assert client.calls[0]["params"]["chat_id"] == 111222333
 
 
 def test_send_message_retries_on_429(
@@ -240,7 +241,7 @@ def test_send_daily_summary_writes_reports_log(
 
     assert result["status"] == "sent"
     assert result["dry_run"] is True
-    assert client.calls[0]["json"]["chat_id"] == "test-chat"
+    assert client.calls[0]["params"]["chat_id"] == 364502022
 
     conn = storage_db.get_connection()
     try:

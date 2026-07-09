@@ -12,3 +12,5 @@ service_account.json
 *.egg-info/
 dist/
 build/
+miniapp/node_modules/
+miniapp/dist/

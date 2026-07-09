@@ -15,3 +15,8 @@ ruff
 # runtime-зависимости FastAPI (сессии, формы) — не Playwright
 python-multipart
 itsdangerous
+# Max Bot API (community Python-клиент; официально в доке — JS/TS и Go)
+python-max-bot
+# SSL: использовать системные CA Windows (нужен сертификат Минцифры для platform-api2.max.ru)
+pip-system-certs
+truststore

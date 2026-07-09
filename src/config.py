@@ -124,7 +124,7 @@ class TravelLineConfig(BaseModel):
 
 
 class MaxBotConfig(BaseModel):
-    """Параметры Max Bot API."""
+    """Параметры Max Bot API (https://dev.max.ru/docs-api)."""
 
     api_url: str = "https://platform-api2.max.ru"
     chat_id: str = ""
@@ -133,6 +133,10 @@ class MaxBotConfig(BaseModel):
     max_retries: int = 3
     backoff_initial_sec: float = 1.0
     backoff_max_sec: float = 60.0
+    webhook_url: str = ""
+    webhook_update_types: list[str] = Field(
+        default_factory=lambda: ["bot_started", "message_created", "bot_added"]
+    )
 
 
 class EmailConfig(BaseModel):
@@ -193,6 +197,7 @@ class EnvSettings(BaseSettings):
 
     settings_path: str = Field(default="config/settings.yaml", alias="SETTINGS_PATH")
     max_token: str = ""
+    max_webhook_secret: str = ""
     google_sa_json_path: str = ""
     tl_api_key: str = ""
     tl_client_id: str = ""

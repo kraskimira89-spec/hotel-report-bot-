@@ -53,9 +53,9 @@ site_prices:
   - /manager/
   snapshot_cache_path: data/last_price_snapshots.json
   selectors:
-    data_price: "[data-price]"
-    price_value: ".price-value"
-    price_from_regex: 'от\s*([\d\s\u00a0]+)\s*(?:руб|₽|Р|р\.?)'
+    data_price: '[data-price]'
+    price_value: .price-value
+    price_from_regex: от\s*([\d\s\u00a0]+)\s*(?:руб|₽|Р|р\.?)
 competitors:
 - name: Апартаменты Петровские
   type: direct
@@ -117,6 +117,11 @@ max_bot:
   max_retries: 3
   backoff_initial_sec: 1
   backoff_max_sec: 60
+  webhook_url: ''
+  webhook_update_types:
+  - bot_started
+  - message_created
+  - bot_added
 email:
   from_address: reports@1apart.ru
   to_addresses:
