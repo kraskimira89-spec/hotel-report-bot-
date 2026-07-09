@@ -17,4 +17,4 @@
 1. ~~Написать боту `/start` в Max.~~
 2. ~~Вызвать `GET /updates` и сохранить `chat_id`~~ — `364502022` в settings.yaml.
 3. ~~Вшить CA-бандл~~ — `src/utils/ssl_certs.py` + `src/notifiers/max_api.py`.
-4. Для production: `max_bot.webhook_url` + `MAX_WEBHOOK_SECRET` → `python scripts/max_subscribe_webhook.py`.
+4. Для production: `MAX_WEBHOOK_URL` + `MAX_WEBHOOK_SECRET` → `python scripts/max_subscribe_webhook.py`. Пример nginx: `docker/nginx.example.conf`.

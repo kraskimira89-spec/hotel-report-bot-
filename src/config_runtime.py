@@ -95,4 +95,9 @@ def build_config_from_sources() -> AppConfig:
     yaml_path = _project_root() / env.settings_path
     data = _load_yaml(yaml_path)
     merged = merge_yaml_with_runtime(data)
+    webhook_url = env.max_webhook_url.strip()
+    if webhook_url:
+        max_bot = dict(merged.get("max_bot") or {})
+        max_bot["webhook_url"] = webhook_url
+        merged["max_bot"] = max_bot
     return AppConfig(**merged)

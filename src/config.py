@@ -198,6 +198,7 @@ class EnvSettings(BaseSettings):
     settings_path: str = Field(default="config/settings.yaml", alias="SETTINGS_PATH")
     max_token: str = ""
     max_webhook_secret: str = ""
+    max_webhook_url: str = ""
     google_sa_json_path: str = ""
     tl_api_key: str = ""
     tl_client_id: str = ""

@@ -29,7 +29,16 @@ def web_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
                 "admin_password": "admin",
                 "admin_token": "",
                 "web_force_https": False,
+                "max_webhook_secret": "",
             },
+        )(),
+    )
+    monkeypatch.setattr(
+        "src.notifiers.max_webhook.get_env_settings",
+        lambda: type(
+            "E",
+            (),
+            {"max_webhook_secret": ""},
         )(),
     )
 
@@ -89,6 +98,35 @@ def test_max_webhook_accepts_update(web_client: TestClient) -> None:
     data = response.json()
     assert data["ok"] is True
     assert 364502022 in data["chat_ids"]
+
+
+def test_max_webhook_rejects_bad_secret(
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "src.notifiers.max_webhook.get_env_settings",
+        lambda: type(
+            "E",
+            (),
+            {
+                "secret_key": "test-secret",
+                "admin_password": "admin",
+                "admin_token": "",
+                "web_force_https": False,
+                "max_webhook_secret": "expected-secret",
+            },
+        )(),
+    )
+    payload = {"updates": [{"update_type": "bot_started", "chat_id": 1}]}
+    ok = web_client.post(
+        "/api/max/webhook",
+        json=payload,
+        headers={"X-Max-Bot-Api-Secret": "expected-secret"},
+    )
+    assert ok.status_code == 200
+
+    bad = web_client.post("/api/max/webhook", json=payload)
+    assert bad.status_code == 403
 
 
 def test_dashboard_after_login(web_client: TestClient) -> None:

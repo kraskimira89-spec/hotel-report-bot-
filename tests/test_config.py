@@ -1,6 +1,7 @@
 """Smoke-тесты загрузки конфигурации (этап 0)."""
 
 import importlib
+from pathlib import Path
 
 import pytest
 
@@ -67,6 +68,21 @@ def test_reload_config_returns_fresh_instance() -> None:
     c = get_config()
     assert c is b
     assert c is not a
+
+
+def test_max_webhook_url_env_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    yaml_path = tmp_path / "settings.yaml"
+    yaml_path.write_text(
+        "dry_run: true\nmax_bot:\n  webhook_url: ''\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SETTINGS_PATH", str(yaml_path))
+    monkeypatch.setenv("MAX_WEBHOOK_URL", "https://example.com/api/max/webhook")
+    reload_config()
+    cfg = get_config()
+    assert cfg.max_bot.webhook_url == "https://example.com/api/max/webhook"
 
 
 @pytest.mark.parametrize(
