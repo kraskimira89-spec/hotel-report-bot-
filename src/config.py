@@ -108,7 +108,11 @@ class MarketNewsConfig(BaseModel):
     max_items: int = 5
     sources: list[str] = Field(default_factory=list)
     regions: list[str] = Field(default_factory=lambda: ["ru", "world"])
+    # Основная категория для «Идеи недели» (обратная совместимость).
     idea_category_priority: str = "Технологии и ИИ"
+    # Резервный список приоритетов: если в первой категории нет
+    # трендов — берётся следующая по списку, и т.д. Пустой — используется только
+    # idea_category_priority. Финальный фолбэк (любой свежий тренд) — в коде.
     idea_category_priorities: list[str] = Field(
         default_factory=lambda: [
             "Технологии и ИИ",
@@ -123,13 +127,16 @@ class MarketNewsConfig(BaseModel):
 
     @property
     def idea_priority_order(self) -> list[str]:
-        """Основная категория + резервный список без дубликатов, порядок сохраняется."""
-        seen: set[str] = set()
+        """Итоговый порядок категорий для выбора «Идеи недели».
+
+        Начинается с idea_category_priority, затем добавляются
+        idea_category_priorities (без дубликатов, с сохранением порядка).
+        """
         order: list[str] = []
-        for category in [self.idea_category_priority, *self.idea_category_priorities]:
-            if category and category not in seen:
-                seen.add(category)
-                order.append(category)
+        for cat in [self.idea_category_priority, *self.idea_category_priorities]:
+            cat = (cat or "").strip()
+            if cat and cat not in order:
+                order.append(cat)
         return order
 
 

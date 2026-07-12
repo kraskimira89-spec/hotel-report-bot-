@@ -370,17 +370,21 @@ def run_weekly_trends_collection(period_days: int = 7) -> int:
 
 
 def _refresh_idea_of_week() -> None:
-    """Выбрать идею недели: резервный список категорий → любой свежий тренд."""
+    """Выбрать идею недели по резервному списку приоритетов.
+
+    Порядок: перебираем категории из idea_priority_order по очереди;
+    если ни в одной нет трендов — берём любой самый свежий тренд
+    (чтобы «Идея недели» никогда не пустовала).
+    """
     if get_trend_idea_of_week() is not None:
         return
     cfg = get_config()
+    priority_order = cfg.market_news.idea_priority_order
     from src.storage.db import db_session
 
     with db_session() as conn:
-        chosen_id: int | None = None
-        chosen_category: str | None = None
-
-        for category in cfg.market_news.idea_priority_order:
+        row = None
+        for category in priority_order:
             row = conn.execute(
                 """
                 SELECT id FROM trends
@@ -391,29 +395,26 @@ def _refresh_idea_of_week() -> None:
                 (category,),
             ).fetchone()
             if row is not None:
-                chosen_id = int(row["id"])
-                chosen_category = category
+                logger.info("Идея недели: категория '%s'", category)
                 break
-
-        if chosen_id is None:
+        if row is None:
             row = conn.execute(
                 """
-                SELECT id, category FROM trends
+                SELECT id FROM trends
                 ORDER BY COALESCE(published_at, date(created_at)) DESC
                 LIMIT 1
                 """
             ).fetchone()
-            if row is None:
-                return
-            chosen_id = int(row["id"])
-            chosen_category = str(row["category"])
-
+            if row is not None:
+                logger.info("Идея недели: фолбэк на любой свежий тренд")
+        if row is None:
+            logger.warning("Идея недели: трендов нет, пропуск")
+            return
         clear_trends_idea_of_week(conn=conn)
         conn.execute(
             "UPDATE trends SET is_idea_of_week = 1 WHERE id = ?",
-            (chosen_id,),
+            (row["id"],),
         )
-        logger.info("Идея недели выбрана из категории: %s", chosen_category)
 
 
 def collect_and_save_competitor_prices(snapshot_date: date | None = None) -> int:
