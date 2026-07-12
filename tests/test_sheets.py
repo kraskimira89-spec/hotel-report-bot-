@@ -16,7 +16,6 @@ from src.data_sources.sheets import (
     GoogleSheetsClient,
     OccupancyDay,
     SheetsReadError,
-    occupancy_day_to_sheet_data,
     parse_bookings_day_rows,
     parse_bookings_month_rows,
     parse_occupancy_daily_rows,

@@ -142,8 +142,28 @@ def test_snapshots_and_metrics_pages(web_client: TestClient) -> None:
     assert web_client.get("/snapshots").status_code == 200
     assert web_client.get("/metrics").status_code == 200
     assert web_client.get("/channels").status_code == 200
+    assert web_client.get("/competitors").status_code == 200
+    assert web_client.get("/trends").status_code == 200
     assert web_client.get("/logs").status_code == 200
     assert web_client.get("/reports").status_code == 200
+
+
+def test_competitors_page_content(web_client: TestClient) -> None:
+    _login(web_client)
+    response = web_client.get("/competitors")
+    assert response.status_code == 200
+    assert "Конкуренты" in response.text
+    assert "Сводка" in response.text
+    assert "Гоголь" in response.text or "Петровские" in response.text
+
+
+def test_trends_page_content(web_client: TestClient) -> None:
+    _login(web_client)
+    response = web_client.get("/trends")
+    assert response.status_code == 200
+    assert "Тренды" in response.text
+    assert "Томск" in response.text
+    assert "Идеи для 1apart" in response.text
 
 
 def test_toggle_dry_run_without_restart(web_client: TestClient) -> None:

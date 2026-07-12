@@ -61,6 +61,9 @@ competitors:
   type: direct
   url: https://apartment.tomsk.ru/
   parser: static
+  selectors:
+    name: .js-product-name
+    price: .t776__price-value
 - name: Bon Apart (Банапарт)
   type: direct
   url: https://www.bon-apart.ru/
@@ -73,6 +76,8 @@ competitors:
   type: direct
   url: https://gogolhotel.ru/
   parser: static
+  selectors:
+    price_regex: Цена от\s*([\d\s]+)\s*руб
 - name: Xander Hotel
   type: indirect
   url: https://xanderhotel.ru/ru/
@@ -81,6 +86,8 @@ competitors:
   type: indirect
   url: https://kuhterinhotel.ru/catalog/catalog/
   parser: static
+  selectors:
+    price_block: .price
 - name: Скандинавия
   type: indirect
   url: https://www.scandinaviahotel.ru/

@@ -104,6 +104,7 @@ class MarketNewsConfig(BaseModel):
 
     enabled: bool = True
     max_items: int = 5
+    sources: list[str] = Field(default_factory=list)
 
 
 class TravelLineConfig(BaseModel):

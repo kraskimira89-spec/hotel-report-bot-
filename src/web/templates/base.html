@@ -36,6 +36,16 @@
         .settings-form fieldset { border: 1px solid #eee; margin-bottom: 1rem; padding: 1rem; }
         .settings-form label { margin-bottom: .75rem; }
         .settings-form input { width: 100%; max-width: 280px; }
+        h3 { margin: .75rem 0 .35rem; font-size: 1rem; }
+        ul { margin: .5rem 0 .5rem 1.25rem; }
+        li { margin-bottom: .25rem; }
+        code { background: #f0f0f0; padding: .1rem .35rem; border-radius: 3px; font-size: .85rem; }
+        .competitor-card h2 { display: inline; margin-right: .5rem; }
+        .card-head { margin-bottom: .75rem; }
+        .vs-block { margin-top: .75rem; padding: .75rem; background: #f8f9fa; border-radius: 6px; }
+        .trend-item { margin-bottom: 1.25rem; padding-bottom: 1rem; border-bottom: 1px solid #eee; }
+        .trend-item:last-child { border-bottom: none; margin-bottom: 0; }
+        .trend-list li { margin-bottom: .5rem; }
     </style>
 </head>
 <body>
@@ -46,6 +56,8 @@
         <a href="/snapshots" class="{% if page == 'snapshots' %}active{% endif %}">Цены</a>
         <a href="/metrics" class="{% if page == 'metrics' %}active{% endif %}">Метрики</a>
         <a href="/channels" class="{% if page == 'channels' %}active{% endif %}">Каналы</a>
+        <a href="/competitors" class="{% if page == 'competitors' %}active{% endif %}">Конкуренты</a>
+        <a href="/trends" class="{% if page == 'trends' %}active{% endif %}">Тренды</a>
         <a href="/reports" class="{% if page == 'reports' %}active{% endif %}">Отчёты</a>
         <a href="/logs" class="{% if page == 'logs' %}active{% endif %}">Логи</a>
         <a href="/settings" class="{% if page == 'settings' %}active{% endif %}">Настройки</a>

@@ -198,6 +198,32 @@ async def channels_page(request: Request) -> Response:
     )
 
 
+@app.get("/competitors", response_class=HTMLResponse)
+async def competitors_page(request: Request) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    data = queries.fetch_competitors_bundle()
+    return templates.TemplateResponse(
+        request,
+        "competitors.html",
+        {"request": request, "data": data, "page": "competitors"},
+    )
+
+
+@app.get("/trends", response_class=HTMLResponse)
+async def trends_page(request: Request) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    data = queries.fetch_trends_bundle()
+    return templates.TemplateResponse(
+        request,
+        "trends.html",
+        {"request": request, "data": data, "page": "trends"},
+    )
+
+
 @app.get("/logs", response_class=HTMLResponse)
 async def logs_page(request: Request) -> Response:
     redirect = _require_auth(request)

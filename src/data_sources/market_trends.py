@@ -27,12 +27,13 @@ from statistics import mean
 from pydantic import BaseModel
 
 from src.config import get_config
+from src.data_sources.competitor_prices import collect_competitor_prices
 from src.storage.db import get_price_snapshots
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MARKET_TRENDS: list[str] = [
-    "Спрос на апарт-отели в Москве остаётся устойчивым в будний сезон.",
+    "Спрос на апарт-отели в Томске остаётся устойчивым в будний сезон.",
     "Гости чаще бронируют напрямую при длительном проживании (3+ ночей).",
     "Агрегаторы усиливают промо в выходные — следите за долей прямых каналов.",
 ]
@@ -52,25 +53,21 @@ def fetch_competitor_prices(
     period_start: date,
     period_end: date,
 ) -> list[CompetitorPriceInfo]:
-    """Список конкурентов и минимальные публичные цены (если доступны).
-
-    Правила:
-    - цены конкурентов идут только в еженедельный email (справочно);
-    - используется тот же анти-блок, что и для 1apart (этап 6/7);
-    - часть цен может быть только в JS-виджете — тогда available=False.
-    """
+    """Список конкурентов и минимальные публичные цены (если доступны)."""
     _ = (period_start, period_end)
     cfg = get_config()
     if not cfg.competitors:
         logger.info("fetch_competitor_prices: список конкурентов пуст")
         return []
+
+    prices_map = collect_competitor_prices(cfg.competitors, cfg.site_prices)
     return [
         CompetitorPriceInfo(
             name=item.name,
             kind=item.type,
             url=item.url,
-            price_from=None,
-            available=False,
+            price_from=prices_map.get(item.name),
+            available=prices_map.get(item.name) is not None,
         )
         for item in cfg.competitors
     ]
@@ -130,10 +127,21 @@ def build_market_trends(
 
 
 def fetch_market_news() -> list[dict[str, str]]:
-    """Заглушка RSS/API — возвращает типовые тренды до подключения источника."""
+    """Тренды рынка для email и веб-раздела."""
     cfg = get_config()
     if not cfg.market_news.enabled:
         return []
-    logger.info("fetch_market_news: используется встроенный список трендов")
-    sources = cfg.market_news.sources or ["default"]
-    return [{"title": title, "source": sources[0]} for title in DEFAULT_MARKET_TRENDS]
+    from src.web.market_intel import GLOBAL_TRENDS, MOSCOW_TRENDS
+
+    source = (cfg.market_news.sources or ["1apart"])[0]
+    items: list[dict[str, str]] = []
+    for block in (*MOSCOW_TRENDS, *GLOBAL_TRENDS):
+        items.append(
+            {
+                "title": block["title"],
+                "body": block.get("body", ""),
+                "source": source,
+                "tag": block.get("tag", ""),
+            }
+        )
+    return items[: cfg.market_news.max_items]

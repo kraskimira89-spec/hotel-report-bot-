@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
+from src.data_sources.market_trends import build_market_trends, fetch_competitor_prices
 from src.storage.db import (
     compare_metrics_last_week,
     db_session,
@@ -267,4 +268,61 @@ def fetch_logs_bundle(limit: int = 100) -> dict[str, list[dict[str, Any]]]:
         ],
         "errors": other_errors,
         "reconcile": reconcile,
+    }
+
+
+def fetch_competitors_bundle() -> dict[str, Any]:
+    """Данные для страницы «Конкуренты»."""
+    from src.web.market_intel import build_competitor_cards, competitor_summary
+
+    period_end = date.today()
+    period_start = period_end - timedelta(days=7)
+    prices = fetch_competitor_prices(period_start, period_end)
+    cards = build_competitor_cards(prices=prices)
+    return {
+        "cards": cards,
+        "summary": competitor_summary(cards),
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+    }
+
+
+def fetch_trends_bundle() -> dict[str, Any]:
+    """Данные для страницы «Тренды»."""
+    from src.web.market_intel import get_all_trends
+
+    period_end = date.today()
+    period_start = period_end - timedelta(days=7)
+    prev_start = period_start - timedelta(days=7)
+    prev_end = period_start
+
+    aggregates = fetch_channel_aggregates(days=30)
+    metrics_rows = fetch_metrics_rows(days=14)
+    occupancy_vals = [
+        r["occupancy_pct"] for r in metrics_rows if r.get("occupancy_pct") is not None
+    ]
+    cur_occ = sum(occupancy_vals[:7]) / min(7, len(occupancy_vals)) if occupancy_vals else None
+    prev_occ = (
+        sum(occupancy_vals[7:14]) / min(7, len(occupancy_vals[7:14]))
+        if len(occupancy_vals) > 7
+        else None
+    )
+
+    auto_trends = build_market_trends(
+        period_start,
+        period_end,
+        occupancy_pct=cur_occ,
+        prev_occupancy_pct=prev_occ,
+        direct_share_pct=aggregates.get("direct_pct"),
+        returning_share_pct=aggregates.get("returning_pct"),
+    )
+
+    return {
+        "auto_trends": auto_trends,
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "prev_start": prev_start.isoformat(),
+        "prev_end": prev_end.isoformat(),
+        "aggregates": aggregates,
+        **get_all_trends(),
     }

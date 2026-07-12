@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Тренды — hotel-report-bot{% endblock %}
+{% block content %}
+<h1>Тренды рынка</h1>
+<p class="muted">Апарт-отели Томска и мировые практики. Авто-блок — из ваших метрик за {{ data.period_start }} — {{ data.period_end }}.</p>
+
+<div class="card">
+    <h2>📊 Ваши метрики (авто)</h2>
+    {% if data.auto_trends %}
+    <ul class="trend-list">
+        {% for t in data.auto_trends %}
+        <li>{{ t }}</li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">Недостаточно данных в БД — появятся после накопления метрик.</p>
+    {% endif %}
+    <p class="muted">Прямые: {{ data.aggregates.direct_pct }}% · Повторные гости: {{ data.aggregates.returning_pct or "—" }}%</p>
+</div>
+
+<div class="card">
+    <h2>🇷🇺 Томск — тренды апарт-отелей</h2>
+    {% for item in data.tomsk %}
+    <div class="trend-item">
+        <span class="badge badge-green">{{ item.tag }}</span>
+        <h3>{{ item.title }}</h3>
+        <p>{{ item.body }}</p>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <h2>🌍 Мир — лучшие практики</h2>
+    {% for item in data.global %}
+    <div class="trend-item">
+        <span class="badge badge-yellow">{{ item.tag }}</span>
+        <h3>{{ item.title }}</h3>
+        <p>{{ item.body }}</p>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <h2>💡 Идеи для 1apart</h2>
+    <table>
+        <thead><tr><th>Приоритет</th><th>Идея</th><th>Описание</th></tr></thead>
+        <tbody>
+        {% for idea in data.ideas %}
+        <tr>
+            <td><span class="badge {% if idea.priority == 'Высокий' %}badge-green{% else %}badge-yellow{% endif %}">{{ idea.priority }}</span></td>
+            <td><strong>{{ idea.title }}</strong></td>
+            <td>{{ idea.body }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

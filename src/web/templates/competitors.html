@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Конкуренты — hotel-report-bot{% endblock %}
+{% block content %}
+<h1>Конкуренты</h1>
+<p class="muted">Справочник рынка апарт-отелей Томска для 1apart (44 кв., 6 категорий). Цены — в еженедельном email; авто-сбор — Петровские, Гоголь, Кухтерин.</p>
+
+<div class="grid-2">
+<div class="card">
+    <h2>Сводка</h2>
+    <p>Всего: <strong>{{ data.summary.total }}</strong></p>
+    <p>Прямые: <strong>{{ data.summary.direct }}</strong> · Косвенные: <strong>{{ data.summary.indirect }}</strong></p>
+    <p>С авто-ценой: <strong>{{ data.summary.with_price }}</strong> / {{ data.summary.total }}</p>
+    <p>Static-парсер: <strong>{{ data.summary.static_parsers }}</strong></p>
+    <p class="muted">Период цен: {{ data.period_start }} — {{ data.period_end }}</p>
+</div>
+<div class="card">
+    <h2>Как читать карточки</h2>
+    <p><span class="badge badge-green">Прямой</span> — тот же формат (апарт-отель / сервисные апартаменты).</p>
+    <p><span class="badge badge-yellow">Косвенный</span> — отель или другой сегмент, но забирает ту же аудиторию.</p>
+    <p class="muted">Виджет TL/Bnovo: цена на сайте только после выбора дат — помечаем «недоступна в HTML».</p>
+</div>
+</div>
+
+{% for card in data.cards %}
+<div class="card competitor-card">
+    <div class="card-head">
+        <h2>{{ card.name }}</h2>
+        <span class="badge {% if card.type == 'direct' %}badge-green{% else %}badge-yellow{% endif %}">{{ card.type_label }}</span>
+    </div>
+    {% if card.url %}
+    <p><a href="{{ card.url }}" target="_blank" rel="noopener">{{ card.url }}</a></p>
+    {% endif %}
+
+    <div class="grid-2">
+        <div>
+            <p><strong>Район:</strong> {{ card.district }}</p>
+            <p><strong>Сегмент:</strong> {{ card.segment }}</p>
+            <p><strong>Масштаб:</strong> {{ card.units_approx }}</p>
+            <p><strong>Ориентир цены:</strong> {{ card.price_hint }}</p>
+            {% if card.available and card.price_from %}
+            <p><strong>Собранная цена:</strong> {{ "%.0f"|format(card.price_from) }} ₽</p>
+            {% else %}
+            <p class="muted"><strong>Авто-цена:</strong> {{ card.parser_note }}</p>
+            {% endif %}
+        </div>
+        <div>
+            <p><strong>Движок сайта:</strong> {{ card.engine }}</p>
+            <p><strong>Парсер:</strong> <code>{{ card.parser }}</code></p>
+        </div>
+    </div>
+
+    {% if card.description %}
+    <p>{{ card.description }}</p>
+    {% endif %}
+
+    <div class="grid-2">
+        <div>
+            <h3>Сильные стороны</h3>
+            <ul>
+            {% for s in card.strengths %}
+                <li>{{ s }}</li>
+            {% endfor %}
+            </ul>
+        </div>
+        <div>
+            <h3>Слабые стороны</h3>
+            <ul>
+            {% for w in card.weaknesses %}
+                <li>{{ w }}</li>
+            {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    {% if card.vs_1apart %}
+    <p class="vs-block"><strong>vs 1apart:</strong> {{ card.vs_1apart }}</p>
+    {% endif %}
+</div>
+{% endfor %}
+{% endblock %}
