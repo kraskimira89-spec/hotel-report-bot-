@@ -370,23 +370,35 @@ def run_weekly_trends_collection(period_days: int = 7) -> int:
 
 
 def _refresh_idea_of_week() -> None:
-    """Выбрать идею недели по приоритетной категории."""
+    """Выбрать идею недели по резервному списку приоритетов.
+
+    Порядок: перебираем категории из idea_priority_order по очереди;
+    если ни в одной нет трендов — берём любой самый свежий тренд
+    (чтобы «Идея недели» никогда не пустовала).
+    """
     if get_trend_idea_of_week() is not None:
         return
     cfg = get_config()
-    priority = cfg.market_news.idea_category_priority
+    priority_order = cfg.market_news.idea_priority_order
     from src.storage.db import db_session
 
     with db_session() as conn:
-        row = conn.execute(
-            """
-            SELECT id FROM trends
-            WHERE category = ?
-            ORDER BY COALESCE(published_at, date(created_at)) DESC
-            LIMIT 1
-            """,
-            (priority,),
-        ).fetchone()
+        row = None
+        # 1) по резервному списку категорий
+        for category in priority_order:
+            row = conn.execute(
+                """
+                SELECT id FROM trends
+                WHERE category = ?
+                ORDER BY COALESCE(published_at, date(created_at)) DESC
+                LIMIT 1
+                """,
+                (category,),
+            ).fetchone()
+            if row is not None:
+                logger.info("Идея недели: категория '%s'", category)
+                break
+        # 2) финальный фолбэк — любой самый свежий тренд
         if row is None:
             row = conn.execute(
                 """
@@ -395,7 +407,10 @@ def _refresh_idea_of_week() -> None:
                 LIMIT 1
                 """
             ).fetchone()
+            if row is not None:
+                logger.info("Идея недели: фолбэк на любой свежий тренд")
         if row is None:
+            logger.warning("Идея недели: трендов нет, пропуск")
             return
         clear_trends_idea_of_week(conn=conn)
         conn.execute(
