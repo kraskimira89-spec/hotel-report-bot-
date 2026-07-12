@@ -14,6 +14,13 @@ from src.config import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _reset_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Изолировать тесты от SETTINGS_PATH других модулей."""
+    monkeypatch.delenv("SETTINGS_PATH", raising=False)
+    reload_config()
+
+
 def test_get_config_loads_defaults() -> None:
     cfg = get_config()
     assert isinstance(cfg, AppConfig)

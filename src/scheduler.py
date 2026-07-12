@@ -11,6 +11,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from src.config import get_config
+from src.data_sources.market_trends import (
+    collect_and_save_competitor_prices,
+    run_weekly_trends_collection,
+)
 from src.data_sources.site_prices import SnapshotCollectionResult, collect_price_snapshots
 from src.data_sources.travelline import run_daily_reconciliation
 from src.notifiers.email_sender import send_weekly_report
@@ -69,6 +73,12 @@ def job_price_snapshot(
         run_date,
         report_date,
         lambda: run_daily_reconciliation(report_date),
+    )
+    _run_job(
+        "competitor_prices",
+        run_date,
+        report_date,
+        lambda: collect_and_save_competitor_prices(report_date),
     )
 
 
@@ -155,6 +165,26 @@ def job_weekly_email(
     )
 
 
+def job_weekly_trends(
+    run_date: date | None = None,
+    report_date: date | None = None,
+) -> None:
+    """Еженедельный сбор трендов рынка (пн 07:00 MSK)."""
+    run_date = run_date or _msk_now().date()
+    report_date = report_date or run_date
+    logger.info(
+        "Задача weekly_trends: report_date=%s, run_date=%s",
+        report_date,
+        run_date,
+    )
+    _run_job(
+        "weekly_trends",
+        run_date,
+        report_date,
+        lambda: run_weekly_trends_collection(period_days=7),
+    )
+
+
 T = TypeVar("T")
 
 
@@ -203,6 +233,7 @@ def create_scheduler() -> BackgroundScheduler:
     snapshot_kw = _parse_cron(cfg.scheduler.price_snapshot_cron)
     summary_kw = _parse_cron(cfg.scheduler.daily_summary_cron)
     email_kw = _parse_cron(cfg.scheduler.weekly_email_cron)
+    trends_kw = _parse_cron(cfg.scheduler.weekly_trends_cron)
 
     scheduler.add_job(
         job_price_snapshot,
@@ -222,8 +253,14 @@ def create_scheduler() -> BackgroundScheduler:
         id="weekly_email",
         name="Email-отчёт",
     )
+    scheduler.add_job(
+        job_weekly_trends,
+        CronTrigger(timezone=tz, **trends_kw),
+        id="weekly_trends",
+        name="Сбор трендов",
+    )
 
-    logger.info("Планировщик: зарегистрировано %s задач (TZ=%s)", 3, cfg.property.timezone)
+    logger.info("Планировщик: зарегистрировано %s задач (TZ=%s)", 4, cfg.property.timezone)
     return scheduler
 
 

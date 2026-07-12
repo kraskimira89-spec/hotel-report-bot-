@@ -8,8 +8,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Form, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, Form, Query, Request, status
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -26,6 +26,7 @@ from src.web import queries
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+SCREENSHOTS_DIR = Path("data/screenshots")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 app = FastAPI(title="hotel-report-bot Admin", version="0.2.0")
@@ -60,6 +61,10 @@ def _require_auth(request: Request) -> RedirectResponse | None:
 @app.on_event("startup")
 async def startup() -> None:
     init_db()
+    from src.data_sources.market_trends import seed_trends_if_empty
+
+    seed_trends_if_empty()
+    SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
     logger.info("Веб-админка запущена")
 
 
@@ -211,12 +216,32 @@ async def competitors_page(request: Request) -> Response:
     )
 
 
-@app.get("/trends", response_class=HTMLResponse)
-async def trends_page(request: Request) -> Response:
+@app.get("/screenshots/{file_path:path}")
+async def competitor_screenshot(request: Request, file_path: str) -> Response:
+    """Скриншоты виджетов — только для авторизованных."""
     redirect = _require_auth(request)
     if redirect:
         return redirect
-    data = queries.fetch_trends_bundle()
+    base = SCREENSHOTS_DIR.resolve()
+    target = (SCREENSHOTS_DIR / file_path).resolve()
+    if not str(target).startswith(str(base)) or not target.is_file():
+        return RedirectResponse(url="/competitors", status_code=status.HTTP_302_FOUND)
+    return FileResponse(target)
+
+
+@app.get("/trends", response_class=HTMLResponse)
+async def trends_page(
+    request: Request,
+    region: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    days: int = Query(default=30, ge=7, le=90),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    if region == "all":
+        region = None
+    data = queries.fetch_trends_bundle(region=region, category=category or None, days=days)
     return templates.TemplateResponse(
         request,
         "trends.html",

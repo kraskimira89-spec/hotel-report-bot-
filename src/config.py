@@ -35,6 +35,8 @@ class SchedulerConfig(BaseModel):
     price_snapshot_cron: str = "0 9 * * *"
     daily_summary_cron: str = "5 9 * * *"
     weekly_email_cron: str = "0 8 * * 1"
+    weekly_trends_cron: str = "0 7 * * 1"
+    competitor_prices_cron: str = "30 9 * * *"
 
 
 class StorageConfig(BaseModel):
@@ -100,11 +102,13 @@ class CompetitorConfig(BaseModel):
 
 
 class MarketNewsConfig(BaseModel):
-    """Сбор новостей/трендов рынка для email-отчёта."""
+    """Сбор новостей/трендов рынка для email-отчёта и раздела «Тренды»."""
 
     enabled: bool = True
     max_items: int = 5
     sources: list[str] = Field(default_factory=list)
+    regions: list[str] = Field(default_factory=lambda: ["ru", "world"])
+    idea_category_priority: str = "Технологии и ИИ"
 
 
 class TravelLineConfig(BaseModel):
@@ -179,6 +183,7 @@ class AppConfig(BaseModel):
     channels_map: ChannelsMap = Field(default_factory=ChannelsMap)
     site_prices: SitePricesConfig = Field(default_factory=SitePricesConfig)
     competitors: list[CompetitorConfig] = Field(default_factory=list)
+    competitor_category_map: dict[str, str] = Field(default_factory=dict)
     market_news: MarketNewsConfig = Field(default_factory=MarketNewsConfig)
     travelline: TravelLineConfig = Field(default_factory=TravelLineConfig)
     max_bot: MaxBotConfig = Field(default_factory=MaxBotConfig)

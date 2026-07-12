@@ -13,9 +13,12 @@ from src.storage.models import (
     INDEXES,
     MIGRATIONS_V2,
     MIGRATIONS_V3,
+    MIGRATIONS_V4,
     SCHEMA_VERSION,
     TABLES,
+    TRENDS_RETENTION_DAYS,
     BookingDailyRecord,
+    CompetitorPriceRecord,
     ErrorLogRecord,
     GuestRecord,
     MetricsDailyRecord,
@@ -23,6 +26,7 @@ from src.storage.models import (
     PricePeriodComparison,
     PriceSnapshotRecord,
     ReportLogRecord,
+    TrendRecord,
 )
 
 logger = logging.getLogger(__name__)
@@ -107,6 +111,12 @@ def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
                     logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
     if current < 3:
         for ddl in MIGRATIONS_V3:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 4:
+        for ddl in MIGRATIONS_V4:
             try:
                 conn.execute(ddl)
             except sqlite3.OperationalError as exc:
@@ -737,5 +747,232 @@ def cleanup_old_records() -> int:
                 (cutoff,),
             )
             deleted += cur.rowcount
+        deleted += prune_old_trends(conn=conn)
     logger.info("Удалено %s записей старше %s", deleted, cutoff)
     return deleted
+
+
+def save_competitor_prices(
+    records: Iterable[CompetitorPriceRecord],
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Сохранить снимки цен конкурентов (по одной записи на конкурента и дату)."""
+    items = list(records)
+    if not items:
+        return 0
+
+    sql = """
+        INSERT INTO competitor_prices (
+            competitor_name, date, price_from, currency, source,
+            screenshot_path, available
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    """
+
+    def _save(connection: sqlite3.Connection) -> int:
+        count = 0
+        for item in items:
+            connection.execute(
+                sql,
+                (
+                    item.competitor_name,
+                    _date_str(item.date),
+                    item.price_from,
+                    item.currency,
+                    item.source,
+                    item.screenshot_path,
+                    int(item.available),
+                ),
+            )
+            count += 1
+        return count
+
+    if conn is not None:
+        return _save(conn)
+
+    with db_session() as connection:
+        return _save(connection)
+
+
+def _row_to_competitor_price(row: sqlite3.Row) -> CompetitorPriceRecord:
+    return CompetitorPriceRecord(
+        id=row["id"],
+        competitor_name=row["competitor_name"],
+        date=_parse_date(row["date"]),
+        price_from=row["price_from"],
+        currency=row["currency"] or "RUB",
+        source=row["source"] or "dom",
+        screenshot_path=row["screenshot_path"],
+        available=bool(row["available"]),
+    )
+
+
+def get_competitor_prices_latest() -> list[CompetitorPriceRecord]:
+    """Последняя запись по каждому конкуренту."""
+    sql = """
+        SELECT cp.* FROM competitor_prices cp
+        INNER JOIN (
+            SELECT competitor_name, MAX(date) AS max_date
+            FROM competitor_prices
+            GROUP BY competitor_name
+        ) latest ON cp.competitor_name = latest.competitor_name
+            AND cp.date = latest.max_date
+        ORDER BY cp.competitor_name
+    """
+    with db_session() as conn:
+        rows = conn.execute(sql).fetchall()
+    return [_row_to_competitor_price(row) for row in rows]
+
+
+def get_competitor_prices_history(
+    competitor_name: str,
+    days: int = 90,
+) -> list[CompetitorPriceRecord]:
+    """История цен конкурента за период."""
+    start = date.today() - timedelta(days=days)
+    sql = """
+        SELECT * FROM competitor_prices
+        WHERE competitor_name = ? AND date >= ?
+        ORDER BY date DESC
+    """
+    with db_session() as conn:
+        rows = conn.execute(sql, (competitor_name, _date_str(start))).fetchall()
+    return [_row_to_competitor_price(row) for row in rows]
+
+
+def _row_to_trend(row: sqlite3.Row) -> TrendRecord:
+    published = row["published_at"]
+    return TrendRecord(
+        id=row["id"],
+        title=row["title"],
+        summary=row["summary"],
+        category=row["category"],
+        region=row["region"],
+        source_url=row["source_url"],
+        takeaway=row["takeaway"],
+        published_at=_parse_date(published) if published else None,
+        is_idea_of_week=bool(row["is_idea_of_week"]),
+    )
+
+
+def save_trends(
+    records: Iterable[TrendRecord],
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Сохранить тренды в БД."""
+    items = list(records)
+    if not items:
+        return 0
+
+    sql = """
+        INSERT INTO trends (
+            title, summary, category, region, source_url,
+            published_at, takeaway, is_idea_of_week
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """
+
+    def _save(connection: sqlite3.Connection) -> int:
+        count = 0
+        for item in items:
+            connection.execute(
+                sql,
+                (
+                    item.title,
+                    item.summary,
+                    item.category,
+                    item.region,
+                    item.source_url,
+                    _date_str(item.published_at) if item.published_at else None,
+                    item.takeaway,
+                    int(item.is_idea_of_week),
+                ),
+            )
+            count += 1
+        return count
+
+    if conn is not None:
+        return _save(conn)
+
+    with db_session() as connection:
+        return _save(connection)
+
+
+def get_trends_records(
+    region: str | None = None,
+    category: str | None = None,
+    days: int = 30,
+) -> list[TrendRecord]:
+    """Прочитать тренды с фильтрами."""
+    start = date.today() - timedelta(days=days)
+    sql = """
+        SELECT * FROM trends
+        WHERE COALESCE(published_at, date(created_at)) >= ?
+    """
+    params: list[object] = [_date_str(start)]
+    if region:
+        sql += " AND region = ?"
+        params.append(region)
+    if category:
+        sql += " AND category = ?"
+        params.append(category)
+    sql += " ORDER BY COALESCE(published_at, date(created_at)) DESC, id DESC"
+
+    with db_session() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [_row_to_trend(row) for row in rows]
+
+
+def get_trend_idea_of_week() -> TrendRecord | None:
+    """Выделенная идея недели."""
+    sql = """
+        SELECT * FROM trends
+        WHERE is_idea_of_week = 1
+        ORDER BY COALESCE(published_at, date(created_at)) DESC, id DESC
+        LIMIT 1
+    """
+    with db_session() as conn:
+        row = conn.execute(sql).fetchone()
+    if row is None:
+        return None
+    return _row_to_trend(row)
+
+
+def trends_count() -> int:
+    with db_session() as conn:
+        row = conn.execute("SELECT COUNT(*) AS c FROM trends").fetchone()
+    return int(row["c"])
+
+
+def prune_old_trends(
+    days: int = TRENDS_RETENTION_DAYS,
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Удалить тренды старше days дней."""
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    sql = """
+        DELETE FROM trends
+        WHERE COALESCE(published_at, date(created_at)) < ?
+    """
+
+    def _prune(connection: sqlite3.Connection) -> int:
+        cur = connection.execute(sql, (cutoff,))
+        return cur.rowcount
+
+    if conn is not None:
+        return _prune(conn)
+
+    with db_session() as connection:
+        return _prune(connection)
+
+
+def clear_trends_idea_of_week(conn: sqlite3.Connection | None = None) -> None:
+    """Сбросить флаг is_idea_of_week у всех записей."""
+
+    def _clear(connection: sqlite3.Connection) -> None:
+        connection.execute("UPDATE trends SET is_idea_of_week = 0")
+
+    if conn is not None:
+        _clear(conn)
+        return
+
+    with db_session() as connection:
+        _clear(connection)

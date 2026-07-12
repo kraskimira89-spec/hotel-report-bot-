@@ -112,6 +112,10 @@ def test_fetch_competitor_prices_marks_widget_unavailable(monkeypatch) -> None:
             "Bon Apart (Банапарт)": None,
         },
     )
+    monkeypatch.setattr(
+        "src.storage.db.get_competitor_prices_latest",
+        lambda: [],
+    )
     items = fetch_competitor_prices(date(2026, 7, 1), date(2026, 7, 7))
     by_name = {i.name: i for i in items}
     assert len(by_name) == len(cfg.competitors)

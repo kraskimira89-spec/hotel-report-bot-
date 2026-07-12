@@ -153,8 +153,14 @@ def test_competitors_page_content(web_client: TestClient) -> None:
     response = web_client.get("/competitors")
     assert response.status_code == 200
     assert "Конкуренты" in response.text
-    assert "Сводка" in response.text
+    assert "Обзорная таблица" in response.text
     assert "Гоголь" in response.text or "Петровские" in response.text
+
+
+def test_competitors_redirect_without_auth(web_client: TestClient) -> None:
+    response = web_client.get("/competitors", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/login"
 
 
 def test_trends_page_content(web_client: TestClient) -> None:
@@ -162,8 +168,27 @@ def test_trends_page_content(web_client: TestClient) -> None:
     response = web_client.get("/trends")
     assert response.status_code == 200
     assert "Тренды" in response.text
-    assert "Томск" in response.text
-    assert "Идеи для 1apart" in response.text
+    assert "Лента трендов" in response.text
+    assert "Идея недели" in response.text or "Фильтры" in response.text
+
+
+def test_trends_redirect_without_auth(web_client: TestClient) -> None:
+    response = web_client.get("/trends", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/login"
+
+
+def test_trends_page_filters(web_client: TestClient) -> None:
+    _login(web_client)
+    response = web_client.get("/trends?region=ru&days=90")
+    assert response.status_code == 200
+    assert "Лента трендов" in response.text
+
+    filtered = web_client.get(
+        "/trends?region=world&category=Технологии+и+ИИ&days=30"
+    )
+    assert filtered.status_code == 200
+    assert "Фильтры" in filtered.text
 
 
 def test_toggle_dry_run_without_restart(web_client: TestClient) -> None:

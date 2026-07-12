@@ -2,7 +2,51 @@
 {% block title %}Тренды — hotel-report-bot{% endblock %}
 {% block content %}
 <h1>Тренды рынка</h1>
-<p class="muted">Апарт-отели Томска и мировые практики. Авто-блок — из ваших метрик за {{ data.period_start }} — {{ data.period_end }}.</p>
+<p class="muted">Лучшие идеи и практики апарт-отелей — Россия и мир. Период: {{ data.period_start }} — {{ data.period_end }}.</p>
+
+<div class="card">
+    <h2>Фильтры</h2>
+    <form method="get" action="/trends" class="filters-form">
+        <label>Регион
+            <select name="region">
+                <option value="all" {% if not data.filters.region %}selected{% endif %}>Все</option>
+                <option value="ru" {% if data.filters.region == 'ru' %}selected{% endif %}>🇷🇺 Россия</option>
+                <option value="world" {% if data.filters.region == 'world' %}selected{% endif %}>🌍 Мир</option>
+            </select>
+        </label>
+        <label>Категория
+            <select name="category">
+                <option value="" {% if not data.filters.category %}selected{% endif %}>Все</option>
+                {% for cat in data.categories %}
+                <option value="{{ cat }}" {% if data.filters.category == cat %}selected{% endif %}>{{ cat }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Период
+            <select name="days">
+                <option value="7" {% if data.filters.days == 7 %}selected{% endif %}>7 дней</option>
+                <option value="30" {% if data.filters.days == 30 %}selected{% endif %}>30 дней</option>
+                <option value="90" {% if data.filters.days == 90 %}selected{% endif %}>90 дней</option>
+            </select>
+        </label>
+        <button type="submit">Применить</button>
+    </form>
+</div>
+
+{% if data.idea_of_week %}
+<div class="card idea-week">
+    <h2>💡 Идея недели</h2>
+    <span class="badge badge-green">{{ data.idea_of_week.category }}</span>
+    <span class="muted">{{ data.idea_of_week.region_label }}</span>
+    <h3>{{ data.idea_of_week.title }}</h3>
+    <p>{{ data.idea_of_week.summary }}</p>
+    <p class="takeaway"><strong>Что это значит для нас:</strong> {{ data.idea_of_week.takeaway }}</p>
+    <p class="muted">
+        <a href="{{ data.idea_of_week.source_url }}" target="_blank" rel="noopener">Источник</a>
+        {% if data.idea_of_week.published_at %} · {{ data.idea_of_week.published_at }}{% endif %}
+    </p>
+</div>
+{% endif %}
 
 <div class="card">
     <h2>📊 Ваши метрики (авто)</h2>
@@ -15,44 +59,26 @@
     {% else %}
     <p class="muted">Недостаточно данных в БД — появятся после накопления метрик.</p>
     {% endif %}
-    <p class="muted">Прямые: {{ data.aggregates.direct_pct }}% · Повторные гости: {{ data.aggregates.returning_pct or "—" }}%</p>
 </div>
 
 <div class="card">
-    <h2>🇷🇺 Томск — тренды апарт-отелей</h2>
-    {% for item in data.tomsk %}
+    <h2>Лента трендов</h2>
+    {% if data.trends %}
+    {% for item in data.trends %}
     <div class="trend-item">
-        <span class="badge badge-green">{{ item.tag }}</span>
+        <span class="badge badge-yellow">{{ item.category }}</span>
+        <span class="muted">{{ item.region_label }}</span>
         <h3>{{ item.title }}</h3>
-        <p>{{ item.body }}</p>
+        <p>{{ item.summary }}</p>
+        <p class="takeaway"><strong>Что это значит для нас:</strong> {{ item.takeaway }}</p>
+        <p class="muted">
+            <a href="{{ item.source_url }}" target="_blank" rel="noopener">Источник</a>
+            {% if item.published_at %} · {{ item.published_at }}{% endif %}
+        </p>
     </div>
     {% endfor %}
-</div>
-
-<div class="card">
-    <h2>🌍 Мир — лучшие практики</h2>
-    {% for item in data.global %}
-    <div class="trend-item">
-        <span class="badge badge-yellow">{{ item.tag }}</span>
-        <h3>{{ item.title }}</h3>
-        <p>{{ item.body }}</p>
-    </div>
-    {% endfor %}
-</div>
-
-<div class="card">
-    <h2>💡 Идеи для 1apart</h2>
-    <table>
-        <thead><tr><th>Приоритет</th><th>Идея</th><th>Описание</th></tr></thead>
-        <tbody>
-        {% for idea in data.ideas %}
-        <tr>
-            <td><span class="badge {% if idea.priority == 'Высокий' %}badge-green{% else %}badge-yellow{% endif %}">{{ idea.priority }}</span></td>
-            <td><strong>{{ idea.title }}</strong></td>
-            <td>{{ idea.body }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-    </table>
+    {% else %}
+    <p class="muted">Нет трендов за выбранный период. Попробуйте расширить фильтры или дождитесь еженедельного сбора.</p>
+    {% endif %}
 </div>
 {% endblock %}

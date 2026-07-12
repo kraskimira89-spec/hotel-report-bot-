@@ -2,23 +2,111 @@
 {% block title %}Конкуренты — hotel-report-bot{% endblock %}
 {% block content %}
 <h1>Конкуренты</h1>
-<p class="muted">Справочник рынка апарт-отелей Томска для 1apart (44 кв., 6 категорий). Цены — в еженедельном email; авто-сбор — Петровские, Гоголь, Кухтерин.</p>
+<p class="muted">Мониторинг цен и позиционирования на рынке апарт-отелей Томска. Источники — публичные сайты; дата и способ сбора указаны в таблице.</p>
 
 <div class="grid-2">
 <div class="card">
-    <h2>Сводка</h2>
-    <p>Всего: <strong>{{ data.summary.total }}</strong></p>
-    <p>Прямые: <strong>{{ data.summary.direct }}</strong> · Косвенные: <strong>{{ data.summary.indirect }}</strong></p>
-    <p>С авто-ценой: <strong>{{ data.summary.with_price }}</strong> / {{ data.summary.total }}</p>
-    <p>Static-парсер: <strong>{{ data.summary.static_parsers }}</strong></p>
-    <p class="muted">Период цен: {{ data.period_start }} — {{ data.period_end }}</p>
+    <h2>Мы vs рынок — прямые</h2>
+    {% set md = data.market_direct %}
+    <p>Конкуренты: {{ md.competitor_names | join(", ") }}</p>
+    <p>Средняя цена рынка: <strong>{% if md.market_avg %}{{ "%.0f"|format(md.market_avg) }} ₽{% else %}—{% endif %}</strong></p>
+    <p>Наша средняя: <strong>{% if md.our_avg %}{{ "%.0f"|format(md.our_avg) }} ₽{% else %}—{% endif %}</strong></p>
+    <p>Позиция: <strong>{% if md.position %}{{ md.position }}{% if md.position_pct %} ({{ md.position_pct | string | replace(".0", "") }}%){% endif %}{% else %}недостаточно данных{% endif %}</strong></p>
+    <p class="muted">С ценами: {{ md.with_price_count }} / {{ md.total_count }}</p>
 </div>
 <div class="card">
-    <h2>Как читать карточки</h2>
-    <p><span class="badge badge-green">Прямой</span> — тот же формат (апарт-отель / сервисные апартаменты).</p>
-    <p><span class="badge badge-yellow">Косвенный</span> — отель или другой сегмент, но забирает ту же аудиторию.</p>
-    <p class="muted">Виджет TL/Bnovo: цена на сайте только после выбора дат — помечаем «недоступна в HTML».</p>
+    <h2>Мы vs рынок — косвенные</h2>
+    {% set mi = data.market_indirect %}
+    <p>Конкуренты: {{ mi.competitor_names | join(", ") }}</p>
+    <p>Средняя цена рынка: <strong>{% if mi.market_avg %}{{ "%.0f"|format(mi.market_avg) }} ₽{% else %}—{% endif %}</strong></p>
+    <p>Наша средняя: <strong>{% if mi.our_avg %}{{ "%.0f"|format(mi.our_avg) }} ₽{% else %}—{% endif %}</strong></p>
+    <p>Позиция: <strong>{% if mi.position %}{{ mi.position }}{% if mi.position_pct %} ({{ mi.position_pct | string | replace(".0", "") }}%){% endif %}{% else %}недостаточно данных{% endif %}</strong></p>
+    <p class="muted">С ценами: {{ mi.with_price_count }} / {{ mi.total_count }}</p>
 </div>
+</div>
+
+<div class="card">
+    <h2>Обзорная таблица</h2>
+    {% if data.overview %}
+    <table class="overview-table">
+        <thead>
+            <tr>
+                <th></th>
+                <th>Название</th>
+                <th>Тип</th>
+                <th>Движок</th>
+                <th>Цена «от»</th>
+                <th>Δ к 1apart</th>
+                <th>Обновлено</th>
+                <th>Статус</th>
+                <th>Ссылка</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in data.overview %}
+            <tr class="comp-row" data-name="{{ row.name }}">
+                <td><button type="button" class="btn-toggle btn-small" aria-label="Подробнее">▸</button></td>
+                <td><strong>{{ row.name }}</strong></td>
+                <td><span class="badge {% if row.type == 'direct' %}badge-green{% else %}badge-yellow{% endif %}">{{ row.type_label }}</span></td>
+                <td><code>{{ row.parser }}</code></td>
+                <td>{% if row.available and row.price_from %}{{ "%.0f"|format(row.price_from) }} ₽{% else %}<span class="muted">нет публичной цены</span>{% endif %}</td>
+                <td>{% if row.delta_pct is not none %}{{ row.delta_pct }}%{% else %}—{% endif %}</td>
+                <td>{{ row.updated_at or "—" }}</td>
+                <td>{{ row.status_emoji }} {{ row.status_label }}</td>
+                <td><a href="{{ row.url }}" target="_blank" rel="noopener">сайт</a></td>
+            </tr>
+            <tr class="comp-detail" id="detail-{{ loop.index }}" hidden>
+                <td colspan="9">
+                    {% set det = data.details[row.name] %}
+                    <div class="detail-grid">
+                        <div>
+                            <h3>История 90 дней</h3>
+                            {% if det.history %}
+                            <table>
+                                <thead><tr><th>Дата</th><th>Цена</th><th>Источник</th></tr></thead>
+                                <tbody>
+                                {% for h in det.history %}
+                                <tr>
+                                    <td>{{ h.date }}</td>
+                                    <td>{% if h.price_from %}{{ "%.0f"|format(h.price_from) }} ₽{% else %}—{% endif %}</td>
+                                    <td>{{ h.source }}</td>
+                                </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                            {% if det.sparkline %}
+                            <div class="sparkline" aria-hidden="true">
+                                {% set max_p = det.sparkline | max %}
+                                {% for p in det.sparkline %}
+                                <span class="spark-bar" style="height: {{ (p / max_p * 100) | int }}%"></span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            {% else %}
+                            <p class="muted">История пока пуста — данные появятся после ежедневного сбора.</p>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <h3>Скриншот / способ цены</h3>
+                            <p>Способ: <code>{{ row.source }}</code> (dom — HTML, vision — виджет)</p>
+                            {% if row.screenshot_path %}
+                            <p><img src="/screenshots/{{ row.screenshot_path }}" alt="Скриншот {{ row.name }}" class="screenshot-thumb"></p>
+                            <p class="muted">Снимок от {{ row.updated_at }}</p>
+                            {% else %}
+                            <p class="muted">Скриншот не сохранён{% if row.parser != 'static' %} — виджет требует Playwright{% endif %}.</p>
+                            {% endif %}
+                            <p><strong>Категория 1apart:</strong> <code>{{ det.category_slug or "—" }}</code></p>
+                            <p class="muted">Сопоставление из config.competitor_category_map</p>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Список конкурентов пуст — добавьте объекты в config.competitors.</p>
+    {% endif %}
 </div>
 
 {% for card in data.cards %}
@@ -30,51 +118,33 @@
     {% if card.url %}
     <p><a href="{{ card.url }}" target="_blank" rel="noopener">{{ card.url }}</a></p>
     {% endif %}
-
     <div class="grid-2">
         <div>
             <p><strong>Район:</strong> {{ card.district }}</p>
             <p><strong>Сегмент:</strong> {{ card.segment }}</p>
-            <p><strong>Масштаб:</strong> {{ card.units_approx }}</p>
             <p><strong>Ориентир цены:</strong> {{ card.price_hint }}</p>
-            {% if card.available and card.price_from %}
-            <p><strong>Собранная цена:</strong> {{ "%.0f"|format(card.price_from) }} ₽</p>
-            {% else %}
-            <p class="muted"><strong>Авто-цена:</strong> {{ card.parser_note }}</p>
-            {% endif %}
         </div>
         <div>
-            <p><strong>Движок сайта:</strong> {{ card.engine }}</p>
+            <p><strong>Движок:</strong> {{ card.engine }}</p>
             <p><strong>Парсер:</strong> <code>{{ card.parser }}</code></p>
         </div>
     </div>
-
-    {% if card.description %}
-    <p>{{ card.description }}</p>
-    {% endif %}
-
-    <div class="grid-2">
-        <div>
-            <h3>Сильные стороны</h3>
-            <ul>
-            {% for s in card.strengths %}
-                <li>{{ s }}</li>
-            {% endfor %}
-            </ul>
-        </div>
-        <div>
-            <h3>Слабые стороны</h3>
-            <ul>
-            {% for w in card.weaknesses %}
-                <li>{{ w }}</li>
-            {% endfor %}
-            </ul>
-        </div>
-    </div>
-
     {% if card.vs_1apart %}
     <p class="vs-block"><strong>vs 1apart:</strong> {{ card.vs_1apart }}</p>
     {% endif %}
 </div>
 {% endfor %}
+
+<script>
+document.querySelectorAll('.btn-toggle').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var row = btn.closest('tr');
+        var detail = row.nextElementSibling;
+        if (!detail || !detail.classList.contains('comp-detail')) return;
+        var open = !detail.hidden;
+        detail.hidden = open;
+        btn.textContent = open ? '▸' : '▾';
+    });
+});
+</script>
 {% endblock %}

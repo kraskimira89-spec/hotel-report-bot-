@@ -6,7 +6,9 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
+
+TRENDS_RETENTION_DAYS = 180
 
 TABLES: list[str] = [
     """
@@ -102,6 +104,33 @@ TABLES: list[str] = [
         version INTEGER NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS competitor_prices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        competitor_name TEXT NOT NULL,
+        date TEXT NOT NULL,
+        price_from REAL,
+        currency TEXT NOT NULL DEFAULT 'RUB',
+        source TEXT NOT NULL DEFAULT 'dom',
+        screenshot_path TEXT,
+        available INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS trends (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        category TEXT NOT NULL,
+        region TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        published_at TEXT,
+        takeaway TEXT NOT NULL,
+        is_idea_of_week INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
 ]
 
 INDEXES: list[str] = [
@@ -114,6 +143,12 @@ INDEXES: list[str] = [
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_guests_guest_id ON guests(guest_id)",
     "CREATE INDEX IF NOT EXISTS idx_errors_log_created ON errors_log(created_at)",
     "CREATE INDEX IF NOT EXISTS idx_errors_log_resolved ON errors_log(resolved)",
+    "CREATE INDEX IF NOT EXISTS idx_competitor_prices_name_date "
+    "ON competitor_prices(competitor_name, date)",
+    "CREATE INDEX IF NOT EXISTS idx_competitor_prices_date ON competitor_prices(date)",
+    "CREATE INDEX IF NOT EXISTS idx_trends_region ON trends(region)",
+    "CREATE INDEX IF NOT EXISTS idx_trends_category ON trends(category)",
+    "CREATE INDEX IF NOT EXISTS idx_trends_published ON trends(published_at)",
 ]
 
 MIGRATIONS_V2: list[str] = [
@@ -142,6 +177,42 @@ MIGRATIONS_V3: list[str] = [
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+]
+
+MIGRATIONS_V4: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS competitor_prices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        competitor_name TEXT NOT NULL,
+        date TEXT NOT NULL,
+        price_from REAL,
+        currency TEXT NOT NULL DEFAULT 'RUB',
+        source TEXT NOT NULL DEFAULT 'dom',
+        screenshot_path TEXT,
+        available INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS trends (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        category TEXT NOT NULL,
+        region TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        published_at TEXT,
+        takeaway TEXT NOT NULL,
+        is_idea_of_week INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_competitor_prices_name_date "
+    "ON competitor_prices(competitor_name, date)",
+    "CREATE INDEX IF NOT EXISTS idx_competitor_prices_date ON competitor_prices(date)",
+    "CREATE INDEX IF NOT EXISTS idx_trends_region ON trends(region)",
+    "CREATE INDEX IF NOT EXISTS idx_trends_category ON trends(category)",
+    "CREATE INDEX IF NOT EXISTS idx_trends_published ON trends(published_at)",
 ]
 
 
@@ -231,6 +302,33 @@ class PeriodComparison(BaseModel):
     compare_date: date
     metrics: MetricsDailyRecord | None = None
     reference_metrics: MetricsDailyRecord | None = None
+
+
+class CompetitorPriceRecord(BaseModel):
+    """Снимок цены конкурента."""
+
+    competitor_name: str
+    date: date
+    price_from: float | None = None
+    currency: str = "RUB"
+    source: str = "dom"
+    screenshot_path: str | None = None
+    available: bool = False
+    id: int | None = None
+
+
+class TrendRecord(BaseModel):
+    """Тренд рынка апарт-отелей."""
+
+    title: str
+    summary: str
+    category: str
+    region: str
+    source_url: str
+    takeaway: str
+    published_at: date | None = None
+    is_idea_of_week: bool = False
+    id: int | None = None
 
 
 class PricePeriodComparison(BaseModel):
