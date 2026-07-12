@@ -72,6 +72,8 @@ def persist_dry_run_to_yaml(dry_run: bool) -> None:
     """Дублировать dry_run в settings.yaml, если файл доступен."""
     env = get_env_settings()
     yaml_path = _project_root() / env.settings_path
+    if yaml_path.name == "settings.example.yaml":
+        return
     if not yaml_path.exists():
         return
     try:
