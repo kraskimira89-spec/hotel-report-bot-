@@ -288,7 +288,13 @@ def test_run_daily_reconciliation_mocked(
     )
 
     class FakeTL:
-        def get_reservations(self, start: date, end: date, date_kind: int = 2) -> list:
+        def get_reservations(
+            self,
+            start: date,
+            end: date,
+            date_kind: int = 2,
+            fetch_details: bool = True,
+        ) -> list:
             return [object(), object(), object()]
 
     class FakeSheets:

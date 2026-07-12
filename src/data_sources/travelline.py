@@ -690,26 +690,46 @@ class TravelLineClient:
         self,
         start_date: date,
         end_date: date,
+        *,
+        fetch_details: bool = True,
     ) -> list[ReservationSummary]:
         """Новые брони за период через WebPMS (текущий TL_API_KEY)."""
-        numbers = self.search_webpms_booking_numbers(start_date, end_date)
+        import calendar
+
+        _, month_days = calendar.monthrange(start_date.year, start_date.month)
+        search_start = date(start_date.year, start_date.month, 1)
+        search_end = date(start_date.year, start_date.month, month_days)
+        numbers = self.search_webpms_booking_numbers(search_start, search_end)
         result: list[ReservationSummary] = []
         for number in numbers:
             booking_date = booking_date_from_number(number)
             if booking_date is None or not (start_date <= booking_date <= end_date):
                 continue
-            try:
-                booking = self.get_booking(number)
-            except TravelLineError:
-                booking = {"number": number}
-            result.append(self._reservation_from_webpms_booking(number, booking))
-        return self._enrich_channels(result)
+            if fetch_details:
+                try:
+                    booking = self.get_booking(number)
+                except TravelLineError:
+                    booking = {"number": number}
+                result.append(self._reservation_from_webpms_booking(number, booking))
+            else:
+                created_dt = datetime(
+                    booking_date.year,
+                    booking_date.month,
+                    booking_date.day,
+                    tzinfo=MSK,
+                ).astimezone(timezone.utc)
+                result.append(
+                    ReservationSummary(number=number, created_at=created_dt)
+                )
+        return self._enrich_channels(result) if fetch_details else result
 
     def get_reservations(
         self,
         start_date: date,
         end_date: date,
         date_kind: int = 2,
+        *,
+        fetch_details: bool = True,
     ) -> list[ReservationSummary]:
         """Новые брони за период.
 
@@ -717,7 +737,11 @@ class TravelLineClient:
         Без OAuth используется WebPMS (TL_API_KEY + X-API-KEY).
         """
         if date_kind == 2 and not self._has_partner_auth():
-            return self._get_reservations_via_webpms(start_date, end_date)
+            return self._get_reservations_via_webpms(
+                start_date,
+                end_date,
+                fetch_details=fetch_details,
+            )
 
         if date_kind == 2:
             start_utc = msk_date_to_utc_start(start_date)
@@ -973,7 +997,12 @@ def run_daily_reconciliation(
     cfg = config or get_config()
     tl = client or TravelLineClient(cfg)
     sheets = sheets_client or GoogleSheetsClient(cfg)
-    tl_reservations = tl.get_reservations(report_date, report_date, date_kind=2)
+    tl_reservations = tl.get_reservations(
+        report_date,
+        report_date,
+        date_kind=2,
+        fetch_details=False,
+    )
     sheets_data = sheets.read_bookings_stats()
     sheets_count = count_sheets_bookings_for_date(sheets_data, report_date)
     return reconcile_with_sheets(

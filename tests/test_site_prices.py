@@ -17,6 +17,7 @@ from src.data_sources.site_prices import (
     is_path_allowed,
     load_cached_snapshots,
     parse_category_html,
+    parse_home_prices,
     parse_robots_disallow,
     save_cached_snapshots,
 )
@@ -40,6 +41,29 @@ def _site_config(**overrides: object) -> SitePricesConfig:
     }
     defaults.update(overrides)
     return SitePricesConfig(**defaults)
+
+
+def test_parse_home_prices_from_slider() -> None:
+    html = """
+    <div class="item-sliderblock">
+      <h3 class="item-sliderblock__title">однокомнатные<br>квартиры</h3>
+      <a class="btn-brow-arrowed" href="1room23"><span>Подробнее</span></a>
+      <div class="footer-sliderblock__row">
+        <span>23 м²</span><span>от 4500 р</span>
+      </div>
+    </div>
+    <div class="item-sliderblock">
+      <a class="btn-brow-arrowed" href="1room"></a>
+      <div class="footer-sliderblock__row">
+        <span>27 м²</span><span>от 5000 р</span>
+      </div>
+    </div>
+    """
+    items = parse_home_prices(html)
+    assert len(items) == 2
+    by_slug = {i.category: i.price for i in items}
+    assert by_slug["1room23"] == 4500.0
+    assert by_slug["1room"] == 5000.0
 
 
 def test_parse_price_from_text_ot_rub() -> None:
@@ -102,13 +126,27 @@ def _mock_response(text: str, status_code: int = 200) -> httpx.Response:
     return httpx.Response(status_code=status_code, text=text, request=request)
 
 
+HOME_FIXTURE = """
+<div class="item-sliderblock">
+  <a class="btn-brow-arrowed" href="1room23"></a>
+  <div class="footer-sliderblock__row">
+    <span>23 м²</span><span>от 4500 р</span>
+  </div>
+</div>
+<div class="item-sliderblock">
+  <a class="btn-brow-arrowed" href="1room"></a>
+  <div class="footer-sliderblock__row">
+    <span>27 м²</span><span>от 5000 р</span>
+  </div>
+</div>
+"""
+
+
 def test_collect_snapshots_success(tmp_path: Path) -> None:
-    html = FIXTURE.read_text(encoding="utf-8")
     client = MagicMock()
     client.get.side_effect = [
         _mock_response(ROBOTS_FIXTURE),
-        _mock_response(html),
-        _mock_response(html),
+        _mock_response(HOME_FIXTURE),
     ]
     cfg = AppConfig(
         site_prices=_site_config(
@@ -145,6 +183,7 @@ def test_collect_snapshots_fallback_to_cache(tmp_path: Path) -> None:
     client.get.side_effect = [
         _mock_response(ROBOTS_FIXTURE),
         httpx.HTTPError("403"),
+        httpx.HTTPError("403"),
     ]
 
     cfg = AppConfig(
@@ -180,6 +219,7 @@ def test_collect_snapshots_fallback_warning(tmp_path: Path) -> None:
     client = MagicMock()
     client.get.side_effect = [
         _mock_response(ROBOTS_FIXTURE),
+        httpx.HTTPError("403"),
         httpx.HTTPError("403"),
     ]
 

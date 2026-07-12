@@ -226,6 +226,17 @@ def prepare_daily_summary_data(
     if any(s.is_fallback for s in snapshots):
         warnings.append("Часть данных по ценам из последнего снимка.")
 
+    try:
+        from src.data_sources.travelline import TravelLineError, run_daily_reconciliation
+
+        recon_warnings = run_daily_reconciliation(report_date, config=cfg)
+        for item in recon_warnings:
+            warnings.append(item.message)
+    except TravelLineError as exc:
+        warnings.append(f"Сверка TravelLine: {exc}")
+    except Exception as exc:
+        logger.warning("Сверка TravelLine пропущена: %s", exc)
+
     return DailySummaryData(
         report_date=report_date,
         room_types=room_types,

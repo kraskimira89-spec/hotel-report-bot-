@@ -1,4 +1,4 @@
-dry_run: false
+dry_run: true
 property:
   total_units: 44
   categories: 6
@@ -36,12 +36,12 @@ channels_map:
 site_prices:
   base_url: https://1apart.ru
   category_urls:
-  - /1room23
-  - /1room
-  - /uluchshennyie-odnokomnatnyie-kvartiryi
-  - /odnokomnatnye-kvartiry-s-divanom
-  - /2room
-  - /luxe-kvartiry
+  - 1room23
+  - 1room
+  - uluchshennyie-odnokomnatnyie-kvartiryi
+  - family-30
+  - dvuxkomnatnyie-kvartiryi-(2-krovati)
+  - 80m2-apartamentyi
   request_delay_min_sec: 2
   request_delay_max_sec: 3
   user_agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,

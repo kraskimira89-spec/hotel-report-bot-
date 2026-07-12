@@ -78,6 +78,38 @@ def _extract_price_digits(raw: str) -> float | None:
     return float(digits)
 
 
+def parse_home_prices(html: str) -> list[PriceSnapshot]:
+    """Распарсить все карточки цен с главной страницы 1apart.ru."""
+    soup = BeautifulSoup(html, "lxml")
+    snapshots: list[PriceSnapshot] = []
+    for card in soup.select(".item-sliderblock"):
+        link_el = card.select_one("a.btn-brow-arrowed")
+        row = card.select_one(".footer-sliderblock__row")
+        if row is None:
+            continue
+        spans = row.find_all("span")
+        if len(spans) < 2:
+            continue
+        href = (link_el.get("href") if link_el else "") or ""
+        slug = href.strip("/").split("/")[-1]
+        if not slug:
+            continue
+        price = _extract_price_digits(spans[1].get_text(strip=True))
+        if price is None:
+            continue
+        snapshots.append(_make_snapshot_stub(slug, price))
+    return snapshots
+
+
+def _wanted_category_slugs(site_cfg: SitePricesConfig) -> set[str]:
+    slugs: set[str] = set()
+    for path in site_cfg.category_urls:
+        text = path.strip().strip("/")
+        if text:
+            slugs.add(text.split("/")[-1])
+    return slugs
+
+
 def parse_category_html(
     html: str,
     category_slug: str,
@@ -226,34 +258,61 @@ def collect_price_snapshots(
 
     try:
         disallow_paths = _fetch_robots_disallow(http, site_cfg)
+        home_url = site_cfg.base_url.rstrip("/") + "/"
 
-        for path in site_cfg.category_urls:
-            url = urljoin(site_cfg.base_url, path)
-            slug = path.rstrip("/").split("/")[-1] or path
-
-            if not is_path_allowed(path, disallow_paths):
-                logger.warning("Путь запрещён robots.txt: %s", path)
-                continue
-
-            _anti_block_pause(site_cfg)
-
+        if is_path_allowed("/", disallow_paths):
             try:
-                resp = _request_with_backoff(http, url, site_cfg)
-                parsed = parse_category_html(resp.text, slug, site_cfg)
-                if parsed is None:
-                    logger.warning("Не удалось распарсить цену: %s", url)
-                    continue
-                snapshot = parsed.model_copy(
-                    update={
-                        "snapshot_at": now,
-                        "url": url,
-                        "is_fallback": False,
-                    }
-                )
-                snapshots.append(snapshot)
-                logger.info("Цена %s: %s RUB (%s)", slug, snapshot.price, url)
+                resp = _request_with_backoff(http, home_url, site_cfg)
+                for parsed in parse_home_prices(resp.text):
+                    wanted = _wanted_category_slugs(site_cfg)
+                    if wanted and parsed.category not in wanted:
+                        continue
+                    snapshots.append(
+                        parsed.model_copy(
+                            update={
+                                "snapshot_at": now,
+                                "url": home_url,
+                                "is_fallback": False,
+                            }
+                        )
+                    )
+                if snapshots:
+                    logger.info(
+                        "Цены с главной: %s категорий (%s)",
+                        len(snapshots),
+                        home_url,
+                    )
             except httpx.HTTPError as exc:
-                logger.error("Ошибка сбора цен %s: %s", url, exc)
+                logger.error("Ошибка сбора цен с главной %s: %s", home_url, exc)
+
+        if not snapshots:
+            for path in site_cfg.category_urls:
+                url = urljoin(site_cfg.base_url, path)
+                slug = path.rstrip("/").split("/")[-1] or path
+
+                if not is_path_allowed(path, disallow_paths):
+                    logger.warning("Путь запрещён robots.txt: %s", path)
+                    continue
+
+                _anti_block_pause(site_cfg)
+
+                try:
+                    resp = _request_with_backoff(http, url, site_cfg)
+                    parsed = parse_category_html(resp.text, slug, site_cfg)
+                    if parsed is None:
+                        logger.warning("Не удалось распарсить цену: %s", url)
+                        continue
+                    snapshot = parsed.model_copy(
+                        update={
+                            "snapshot_at": now,
+                            "url": url,
+                            "is_fallback": False,
+                        }
+                    )
+                    snapshots.append(snapshot)
+                    logger.info("Цена %s: %s RUB (%s)", slug, snapshot.price, url)
+                except httpx.HTTPError as exc:
+                    logger.error("Ошибка сбора цен %s: %s", url, exc)
 
         if snapshots:
             save_cached_snapshots(site_cfg, snapshots)

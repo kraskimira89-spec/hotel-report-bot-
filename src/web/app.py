@@ -63,6 +63,11 @@ async def startup() -> None:
     logger.info("Веб-админка запущена")
 
 
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 @app.post("/api/max/webhook")
 async def max_webhook(request: Request) -> JSONResponse:
     """Webhook Max Bot API (POST /subscriptions → наш endpoint)."""
