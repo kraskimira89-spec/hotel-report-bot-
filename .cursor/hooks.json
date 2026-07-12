@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "command": "python .cursor/hooks/post_task_deploy.py",
+        "timeout": 960
+      }
+    ]
+  }
+}

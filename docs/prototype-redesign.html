@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Прототип редизайна — 1apart admin</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏨</text></svg>">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap');
+
+        :root {
+            --bg:        #FAF8F5;
+            --surface:   #FFFFFF;
+            --surface-2: #F6F1EA;
+            --border:    #E6DDCF;
+            --text:      #1B1B1B;
+            --text-muted:#7A756C;
+            --dark:      #121212;
+            --dark-brown:#3B170B;
+            --primary:   #C19B6A;
+            --primary-h: #A9824F;
+            --primary-2: #DCB179;
+            --primary-soft:#F5EBDC;
+            --ok:#2E7D32; --ok-bg:#E8F3E6;
+            --warn:#B26A00; --warn-bg:#F7EAD2;
+            --err:#B3261E; --err-bg:#F6E2DD;
+            --radius:10px;
+            --radius-sm:6px;
+            --shadow:0 1px 2px rgba(59,23,11,.06),0 4px 14px rgba(59,23,11,.06);
+            --shadow-hover:0 2px 6px rgba(59,23,11,.10),0 10px 28px rgba(59,23,11,.10);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.55;
+        }
+
+        h1, h2, h3, .brand, .big {
+            font-family: 'Oswald', Arial, sans-serif;
+            letter-spacing: .01em;
+        }
+
+        /* ——— Навигация ——— */
+        nav {
+            background: var(--dark);
+            padding: .85rem 1.5rem;
+            display: flex;
+            gap: 1.25rem;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 2px 12px rgba(0,0,0,.25);
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+
+        nav a {
+            color: #DDD;
+            text-decoration: none;
+            font-size: .9rem;
+            padding-bottom: .2rem;
+            border-bottom: 2px solid transparent;
+            transition: .15s ease;
+        }
+
+        nav a:hover,
+        nav a.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        nav .brand {
+            font-weight: 600;
+            margin-right: auto;
+            color: #fff;
+            text-transform: uppercase;
+            font-size: .95rem;
+            letter-spacing: .04em;
+        }
+
+        nav .logout {
+            color: #999;
+            margin-left: .5rem;
+        }
+
+        main {
+            max-width: 1180px;
+            margin: 2rem auto;
+            padding: 0 1rem 3rem;
+        }
+
+        .proto-banner {
+            background: var(--primary-soft);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: .75rem 1rem;
+            margin-bottom: 1.5rem;
+            font-size: .9rem;
+            color: var(--dark-brown);
+        }
+
+        h1 {
+            margin-bottom: 1.25rem;
+            font-size: 1.75rem;
+            color: var(--dark-brown);
+        }
+
+        h2 {
+            font-size: 1.15rem;
+            margin-bottom: .75rem;
+            color: var(--dark-brown);
+        }
+
+        h3 {
+            margin: .75rem 0 .35rem;
+            font-size: 1rem;
+            color: var(--dark-brown);
+        }
+
+        /* ——— Карточки ——— */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            box-shadow: var(--shadow);
+            margin-bottom: 1rem;
+            transition: .15s ease;
+        }
+
+        .card:hover {
+            box-shadow: var(--shadow-hover);
+            transform: translateY(-1px);
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .big {
+            font-size: 2.25rem;
+            font-weight: 600;
+            color: var(--dark-brown);
+            line-height: 1.1;
+        }
+
+        .muted { color: var(--text-muted); font-size: .92rem; }
+
+        .delta-up { color: var(--ok); font-weight: 600; font-size: .85rem; }
+        .delta-down { color: var(--err); font-weight: 600; font-size: .85rem; }
+
+        /* ——— Бейджи ——— */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: .35rem;
+            padding: .2rem .65rem;
+            border-radius: 999px;
+            font-size: .82rem;
+            font-weight: 600;
+        }
+
+        .badge-green { background: var(--ok-bg); color: var(--ok); }
+        .badge-yellow { background: var(--warn-bg); color: var(--warn); }
+        .badge-red { background: var(--err-bg); color: var(--err); }
+        .badge-gold {
+            background: var(--primary-soft);
+            color: var(--dark-brown);
+            border: 1px solid var(--primary);
+        }
+
+        /* ——— Таблицы ——— */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: .6rem .85rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background: var(--surface-2);
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: .02em;
+            font-weight: 600;
+        }
+
+        tbody tr:nth-child(even) { background: var(--surface-2); }
+        tbody tr:hover { background: var(--primary-soft); }
+        td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+        /* ——— Кнопки и формы ——— */
+        .btn-row { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: 1rem; }
+
+        button, .btn {
+            padding: .55rem 1.25rem;
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: .9rem;
+            font-weight: 600;
+            transition: .15s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(180deg, var(--primary-2), var(--primary));
+            color: var(--dark);
+        }
+
+        .btn-primary:hover { background: var(--primary-h); color: #fff; }
+
+        .btn-secondary {
+            background: var(--surface);
+            color: var(--dark-brown);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover { border-color: var(--primary); background: var(--primary-soft); }
+
+        .btn-small { padding: .3rem .85rem; font-size: .82rem; }
+
+        input, select {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: .5rem .75rem;
+            font-size: .9rem;
+            width: 100%;
+            max-width: 280px;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-soft);
+        }
+
+        /* ——— Графики ——— */
+        .chart-bars {
+            display: flex;
+            align-items: flex-end;
+            gap: 6px;
+            height: 120px;
+            overflow-x: auto;
+            padding-top: .5rem;
+        }
+
+        .bar-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 36px;
+        }
+
+        .bar {
+            width: 26px;
+            background: linear-gradient(180deg, var(--primary-2), var(--primary));
+            border-radius: 4px 4px 0 0;
+            min-height: 4px;
+        }
+
+        .bar-label { font-size: .65rem; color: var(--text-muted); margin-top: .25rem; }
+
+        .sparkline {
+            display: flex;
+            align-items: flex-end;
+            gap: 3px;
+            height: 48px;
+            margin-top: .75rem;
+        }
+
+        .spark-bar {
+            width: 8px;
+            background: linear-gradient(180deg, var(--primary-2), var(--primary));
+            border-radius: 2px 2px 0 0;
+            min-height: 2px;
+        }
+
+        /* ——— Тренды ——— */
+        .trend-item {
+            margin-bottom: 1.25rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .trend-item:last-child { border-bottom: none; margin-bottom: 0; }
+
+        .takeaway {
+            margin-top: .5rem;
+            padding: .65rem .85rem;
+            background: var(--primary-soft);
+            border-radius: var(--radius-sm);
+            border-left: 4px solid var(--primary);
+            font-size: .92rem;
+            color: var(--dark-brown);
+        }
+
+        .idea-week {
+            border: 2px solid var(--primary);
+            background: linear-gradient(135deg, var(--surface) 0%, var(--primary-soft) 100%);
+            position: relative;
+        }
+
+        .idea-week::before {
+            content: '💡 Идея недели';
+            display: inline-block;
+            background: var(--primary);
+            color: var(--dark);
+            font-family: 'Oswald', Arial, sans-serif;
+            font-size: .75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+            padding: .2rem .65rem;
+            border-radius: var(--radius-sm);
+            margin-bottom: .75rem;
+        }
+
+        /* ——— Конкуренты ——— */
+        .competitor-card h2 { display: inline; margin-right: .5rem; }
+        .card-head { margin-bottom: .75rem; }
+
+        .vs-block {
+            margin-top: .75rem;
+            padding: .85rem 1rem;
+            background: var(--surface-2);
+            border-radius: var(--radius-sm);
+            border-left: 4px solid var(--primary);
+        }
+
+        .screenshot-thumb {
+            max-width: 100%;
+            max-height: 140px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--surface-2);
+            display: block;
+            margin-top: .5rem;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            padding: .75rem 0;
+        }
+
+        ul { margin: .5rem 0 .5rem 1.25rem; }
+        li { margin-bottom: .35rem; }
+
+        code {
+            background: var(--surface-2);
+            padding: .1rem .35rem;
+            border-radius: 3px;
+            font-size: .85rem;
+            color: var(--dark-brown);
+        }
+
+        a { color: var(--dark-brown); }
+        a:hover { color: var(--primary-h); }
+
+        .section-title {
+            margin: 2rem 0 1rem;
+            padding-bottom: .5rem;
+            border-bottom: 2px solid var(--border);
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            font-family: 'Oswald', Arial, sans-serif;
+        }
+
+        @media (max-width: 768px) {
+            .grid-2, .detail-grid { grid-template-columns: 1fr; }
+            nav { padding: .75rem 1rem; gap: 1rem; }
+            h1 { font-size: 1.45rem; }
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <span class="brand">🏨 Первый Апарт-отель</span>
+    <a href="#" class="active">Дашборд</a>
+    <a href="#">Цены</a>
+    <a href="#">Метрики</a>
+    <a href="#">Каналы</a>
+    <a href="#">Конкуренты</a>
+    <a href="#">Тренды</a>
+    <a href="#">Отчёты</a>
+    <a href="#">Логи</a>
+    <a href="#">Настройки</a>
+    <a href="#" class="logout">Выход</a>
+</nav>
+
+<main>
+    <p class="proto-banner">
+        <strong>Прототип редизайна</strong> — превью фирменного стиля 1apart.ru.
+        Откройте этот файл в браузере до внедрения в <code>base.html</code>.
+    </p>
+
+    <h1>Дашборд</h1>
+
+    <div class="grid-2">
+        <div class="card">
+            <h2>Объект</h2>
+            <p>44 квартиры · 6 категорий</p>
+            <p style="margin-top:.5rem">Dry-run:
+                <span class="badge badge-yellow">● включён</span>
+            </p>
+        </div>
+        <div class="card">
+            <h2>Текущая загрузка</h2>
+            <p class="big">78%</p>
+            <p class="muted">ADR: 4 850 ₽ · RevPAR: 3 783 ₽</p>
+            <p><span class="delta-up">↑ +5% к прошлой неделе</span></p>
+        </div>
+    </div>
+
+    <div class="grid-2">
+        <div class="card">
+            <h2>Последняя отправка Max</h2>
+            <p>Статус: <span class="badge badge-green">● ok</span></p>
+            <p class="muted">12.07.2026 (dry-run)</p>
+        </div>
+        <div class="card">
+            <h2>Последний email</h2>
+            <p>Статус: <span class="badge badge-green">● ok</span></p>
+            <p class="muted">11.07.2026</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Загрузка за 7 дней</h2>
+        <div class="chart-bars">
+            <div class="bar-wrap"><div class="bar" style="height:72px" title="72%"></div><span class="bar-label">Пн</span></div>
+            <div class="bar-wrap"><div class="bar" style="height:85px" title="85%"></div><span class="bar-label">Вт</span></div>
+            <div class="bar-wrap"><div class="bar" style="height:68px" title="68%"></div><span class="bar-label">Ср</span></div>
+            <div class="bar-wrap"><div class="bar" style="height:90px" title="90%"></div><span class="bar-label">Чт</span></div>
+            <div class="bar-wrap"><div class="bar" style="height:78px" title="78%"></div><span class="bar-label">Пт</span></div>
+            <div class="bar-wrap"><div class="bar" style="height:95px" title="95%"></div><span class="bar-label">Сб</span></div>
+            <div class="bar-wrap"><div class="bar" style="height:88px" title="88%"></div><span class="bar-label">Вс</span></div>
+        </div>
+    </div>
+
+    <p class="section-title">Пример: Конкуренты</p>
+
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Конкурент</th>
+                    <th>Тип</th>
+                    <th>Цена от</th>
+                    <th>Статус</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><a href="#">Апартаменты Петровские</a></td>
+                    <td><span class="badge badge-gold">Прямой</span></td>
+                    <td class="num">12 000 ₽</td>
+                    <td><span class="badge badge-green">🟢 собрано</span></td>
+                </tr>
+                <tr>
+                    <td><a href="#">Гоголь</a></td>
+                    <td><span class="badge badge-gold">Прямой</span></td>
+                    <td class="num">3 600 ₽</td>
+                    <td><span class="badge badge-green">🟢 собрано</span></td>
+                </tr>
+                <tr>
+                    <td><a href="#">Bon Apart</a></td>
+                    <td><span class="badge badge-yellow">Косвенный</span></td>
+                    <td class="num">—</td>
+                    <td><span class="badge badge-red">🔴 виджет</span></td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="vs-block">
+            <strong>Мы vs рынок:</strong> средняя цена прямых конкурентов 7 800 ₽ — 1apart на 12% ниже рынка.
+        </div>
+    </div>
+
+    <p class="section-title">Пример: Тренды</p>
+
+    <div class="card idea-week">
+        <h2>Агентный ИИ в отелях</h2>
+        <p class="muted">🇷🇺 Мир · <span class="badge badge-gold">Технологии и ИИ</span> · 09.07.2026</p>
+        <p style="margin-top:.5rem">ИИ самостоятельно отвечает гостю и двигает тариф в заданных лимитах.</p>
+        <div class="takeaway">Снижает трудозатраты и помогает ловить выручку в нерабочее время.</div>
+    </div>
+
+    <div class="card">
+        <div class="trend-item">
+            <span class="badge badge-gold">Прямые бронирования</span>
+            <h3 style="margin-top:.5rem">Приоритет прямых каналов</h3>
+            <p class="muted">🌍 Мир · 05.07.2026 · <a href="#">hospitalitynet.org</a></p>
+            <div class="takeaway">Инвестируйте в прямой канал — особенно актуально при отключении на агрегаторах.</div>
+        </div>
+    </div>
+
+    <p class="section-title">Кнопки и поля</p>
+
+    <div class="card">
+        <label class="muted" for="email">Email для отчётов</label>
+        <input id="email" type="email" value="admin@1apart.ru" style="margin:.35rem 0 1rem">
+        <div class="btn-row">
+            <button class="btn btn-primary">Сохранить</button>
+            <button class="btn btn-secondary btn-small">Отмена</button>
+        </div>
+    </div>
+</main>
+
+</body>
+</html>

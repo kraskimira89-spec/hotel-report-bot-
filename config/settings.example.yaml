@@ -1,4 +1,4 @@
-dry_run: true
+dry_run: false
 property:
   total_units: 44
   categories: 6
@@ -9,6 +9,19 @@ scheduler:
   weekly_email_cron: 0 8 * * 1
   weekly_trends_cron: 0 7 * * 1
   competitor_prices_cron: 30 9 * * *
+deploy:
+  enabled: false
+  after_jobs: true
+  min_interval_minutes: 15
+  ssh_host: ''
+  ssh_user: root
+  app_dir: /opt/1apart/hotel-report-bot
+  compose_file: docker/docker-compose.yml
+  job_ids:
+  - price_snapshot
+  - daily_summary
+  - weekly_email
+  - weekly_trends
 storage:
   db_path: data/hotel_report.db
   retention_days: 90

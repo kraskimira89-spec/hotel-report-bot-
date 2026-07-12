@@ -39,6 +39,26 @@ class SchedulerConfig(BaseModel):
     competitor_prices_cron: str = "30 9 * * *"
 
 
+class DeployConfig(BaseModel):
+    """Автодеплой на VPS после задач планировщика / агента."""
+
+    enabled: bool = False
+    after_jobs: bool = True
+    min_interval_minutes: int = 15
+    ssh_host: str = ""
+    ssh_user: str = "root"
+    app_dir: str = "/opt/1apart/hotel-report-bot"
+    compose_file: str = "docker/docker-compose.yml"
+    job_ids: list[str] = Field(
+        default_factory=lambda: [
+            "price_snapshot",
+            "daily_summary",
+            "weekly_email",
+            "weekly_trends",
+        ]
+    )
+
+
 class StorageConfig(BaseModel):
     """Настройки SQLite-хранилища."""
 
@@ -207,6 +227,7 @@ class AppConfig(BaseModel):
     dry_run: bool = True
     property: PropertyConfig = Field(default_factory=PropertyConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    deploy: DeployConfig = Field(default_factory=DeployConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     traffic_light: TrafficLightThresholds = Field(default_factory=TrafficLightThresholds)
     channels_map: ChannelsMap = Field(default_factory=ChannelsMap)
@@ -247,6 +268,10 @@ class EnvSettings(BaseSettings):
     admin_token: str = ""
     secret_key: str = "change-me"
     web_force_https: bool = False
+    deploy_enabled: bool = Field(default=False, alias="DEPLOY_ENABLED")
+    vps_host: str = Field(default="", alias="VPS_HOST")
+    vps_user: str = Field(default="root", alias="VPS_USER")
+    vps_app_dir: str = Field(default="/opt/1apart/hotel-report-bot", alias="VPS_APP_DIR")
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

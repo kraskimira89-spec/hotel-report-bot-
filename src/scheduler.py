@@ -7,10 +7,12 @@ from datetime import date, datetime, timedelta
 from typing import Callable, TypeVar
 from zoneinfo import ZoneInfo
 
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from src.config import get_config
+from src.deploy.vps_deploy import run_deploy_after_job
 from src.data_sources.market_trends import (
     collect_and_save_competitor_prices,
     run_weekly_trends_collection,
@@ -210,6 +212,17 @@ def _run_job(
         return None
 
 
+def _on_job_finished(event) -> None:
+    """После успешной задачи планировщика — автодеплой (если включён)."""
+    if event.code != EVENT_JOB_EXECUTED:
+        return
+    job_id = event.job_id or ""
+    try:
+        run_deploy_after_job(job_id, job_success=True)
+    except Exception as exc:
+        logger.warning("Автодеплой после %s не выполнен: %s", job_id, exc)
+
+
 def _parse_cron(cron_expr: str) -> dict[str, str]:
     """Разобрать cron 'min hour dom month dow' в kwargs для CronTrigger."""
     parts = cron_expr.split()
@@ -259,6 +272,8 @@ def create_scheduler() -> BackgroundScheduler:
         id="weekly_trends",
         name="Сбор трендов",
     )
+
+    scheduler.add_listener(_on_job_finished, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
 
     logger.info("Планировщик: зарегистрировано %s задач (TZ=%s)", 4, cfg.property.timezone)
     return scheduler
