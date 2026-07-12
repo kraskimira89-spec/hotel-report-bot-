@@ -12,13 +12,13 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from src.config import get_config
-from src.deploy.vps_deploy import run_deploy_after_job
 from src.data_sources.market_trends import (
     collect_and_save_competitor_prices,
     run_weekly_trends_collection,
 )
 from src.data_sources.site_prices import SnapshotCollectionResult, collect_price_snapshots
 from src.data_sources.travelline import run_daily_reconciliation
+from src.deploy.vps_deploy import run_deploy_after_job
 from src.notifiers.email_sender import send_weekly_report
 from src.notifiers.incidents import send_incident
 from src.notifiers.max_bot import send_daily_summary

@@ -40,7 +40,9 @@ def test_run_deploy_after_job_triggers(deploy_cfg: None) -> None:
         mock_deploy.assert_called_once_with(trigger="job:price_snapshot")
 
 
-def test_run_deploy_debounce(deploy_cfg: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_deploy_debounce(
+    deploy_cfg: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _ = deploy_cfg
     state = tmp_path / "data" / "last_deploy.json"
     state.parent.mkdir(parents=True)
@@ -56,7 +58,9 @@ def test_run_deploy_debounce(deploy_cfg: None, tmp_path: Path, monkeypatch: pyte
         mock_run.assert_not_called()
 
 
-def test_run_deploy_ssh_success(deploy_cfg: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_deploy_ssh_success(
+    deploy_cfg: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _ = deploy_cfg
     monkeypatch.setattr(vps_deploy, "_project_root", lambda: tmp_path)
     mock_proc = MagicMock()

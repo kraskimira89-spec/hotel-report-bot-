@@ -8,7 +8,8 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.config import DeployConfig as DeploySettings, get_config, get_env_settings
+from src.config import DeployConfig as DeploySettings
+from src.config import get_config, get_env_settings
 
 logger = logging.getLogger(__name__)
 

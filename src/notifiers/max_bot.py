@@ -10,7 +10,6 @@ import httpx
 from pydantic import BaseModel, Field
 
 from src.config import AppConfig, get_config, get_env_settings
-from src.notifiers.max_api import build_max_api_client
 from src.data_sources.sheets import (
     BookingsSheetData,
     GoogleSheetsClient,
@@ -21,6 +20,7 @@ from src.data_sources.sheets import (
 )
 from src.metrics.guests import classify_channel
 from src.metrics.occupancy import calc_occupancy, traffic_light
+from src.notifiers.max_api import build_max_api_client
 from src.storage.db import (
     compare_prices_yesterday,
     get_price_snapshots_by_date,

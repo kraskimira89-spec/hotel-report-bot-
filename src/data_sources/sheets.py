@@ -746,7 +746,12 @@ class GoogleSheetsClient:
                 sheets_cfg.bookings_sheet,
             )
             records = bookings_records_for_month(rows, ref.year, ref.month)
-            logger.info("Брони статистика: %s записей за %s-%02d", len(records), ref.year, ref.month)
+            logger.info(
+                "Брони статистика: %s записей за %s-%02d",
+                len(records),
+                ref.year,
+                ref.month,
+            )
             return BookingsSheetData(records=records)
         except SheetsReadError as exc:
             save_error_log(
