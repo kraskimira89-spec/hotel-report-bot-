@@ -109,6 +109,28 @@ class MarketNewsConfig(BaseModel):
     sources: list[str] = Field(default_factory=list)
     regions: list[str] = Field(default_factory=lambda: ["ru", "world"])
     idea_category_priority: str = "Технологии и ИИ"
+    idea_category_priorities: list[str] = Field(
+        default_factory=lambda: [
+            "Технологии и ИИ",
+            "Динамическое ценообразование / RMS",
+            "Прямые бронирования",
+            "Бесконтактный сервис",
+            "Длительное проживание / корпоративные гости",
+            "Гость-опыт и допуслуги",
+            "Рынок и регулирование",
+        ]
+    )
+
+    @property
+    def idea_priority_order(self) -> list[str]:
+        """Основная категория + резервный список без дубликатов, порядок сохраняется."""
+        seen: set[str] = set()
+        order: list[str] = []
+        for category in [self.idea_category_priority, *self.idea_category_priorities]:
+            if category and category not in seen:
+                seen.add(category)
+                order.append(category)
+        return order
 
 
 class TravelLineConfig(BaseModel):

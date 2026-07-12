@@ -119,6 +119,14 @@ market_news:
   - ru
   - world
   idea_category_priority: Технологии и ИИ
+  idea_category_priorities:
+  - Технологии и ИИ
+  - Динамическое ценообразование / RMS
+  - Прямые бронирования
+  - Бесконтактный сервис
+  - Длительное проживание / корпоративные гости
+  - Гость-опыт и допуслуги
+  - Рынок и регулирование
   sources:
   - https://hoteltechreport.com/feed/
   - https://www.hospitalitynet.org/rss/news.xml

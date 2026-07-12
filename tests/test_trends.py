@@ -94,3 +94,38 @@ def test_get_trends_filters(trends_db: Path) -> None:
     idea = queries.get_idea_of_week()
     assert idea is not None
     assert idea["title"]
+
+
+def test_idea_priority_order_dedup() -> None:
+    from src.config import MarketNewsConfig
+
+    cfg = MarketNewsConfig(
+        idea_category_priority="Прямые бронирования",
+        idea_category_priorities=[
+            "Прямые бронирования",
+            "Технологии и ИИ",
+            "Технологии и ИИ",
+        ],
+    )
+    assert cfg.idea_priority_order == [
+        "Прямые бронирования",
+        "Технологии и ИИ",
+    ]
+
+
+def test_refresh_idea_of_week_fallback_category(trends_db: Path) -> None:
+    from src.data_sources.market_trends import _refresh_idea_of_week
+    from src.storage.db import clear_trends_idea_of_week, db_session
+
+    _ = trends_db
+    seed_trends_if_empty()
+    with db_session() as conn:
+        clear_trends_idea_of_week(conn=conn)
+        conn.execute(
+            "DELETE FROM trends WHERE category = ?",
+            ("Технологии и ИИ",),
+        )
+    _refresh_idea_of_week()
+    idea = queries.get_idea_of_week()
+    assert idea is not None
+    assert idea["category"] != "Технологии и ИИ"

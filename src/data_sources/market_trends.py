@@ -370,38 +370,50 @@ def run_weekly_trends_collection(period_days: int = 7) -> int:
 
 
 def _refresh_idea_of_week() -> None:
-    """Выбрать идею недели по приоритетной категории."""
+    """Выбрать идею недели: резервный список категорий → любой свежий тренд."""
     if get_trend_idea_of_week() is not None:
         return
     cfg = get_config()
-    priority = cfg.market_news.idea_category_priority
     from src.storage.db import db_session
 
     with db_session() as conn:
-        row = conn.execute(
-            """
-            SELECT id FROM trends
-            WHERE category = ?
-            ORDER BY COALESCE(published_at, date(created_at)) DESC
-            LIMIT 1
-            """,
-            (priority,),
-        ).fetchone()
-        if row is None:
+        chosen_id: int | None = None
+        chosen_category: str | None = None
+
+        for category in cfg.market_news.idea_priority_order:
             row = conn.execute(
                 """
                 SELECT id FROM trends
+                WHERE category = ?
+                ORDER BY COALESCE(published_at, date(created_at)) DESC
+                LIMIT 1
+                """,
+                (category,),
+            ).fetchone()
+            if row is not None:
+                chosen_id = int(row["id"])
+                chosen_category = category
+                break
+
+        if chosen_id is None:
+            row = conn.execute(
+                """
+                SELECT id, category FROM trends
                 ORDER BY COALESCE(published_at, date(created_at)) DESC
                 LIMIT 1
                 """
             ).fetchone()
-        if row is None:
-            return
+            if row is None:
+                return
+            chosen_id = int(row["id"])
+            chosen_category = str(row["category"])
+
         clear_trends_idea_of_week(conn=conn)
         conn.execute(
             "UPDATE trends SET is_idea_of_week = 1 WHERE id = ?",
-            (row["id"],),
+            (chosen_id,),
         )
+        logger.info("Идея недели выбрана из категории: %s", chosen_category)
 
 
 def collect_and_save_competitor_prices(snapshot_date: date | None = None) -> int:
