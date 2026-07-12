@@ -17,6 +17,7 @@ from src.data_sources.sheets import (
     OccupancySheetData,
     RoomStatus,
     RoomTypeOccupancy,
+    occupancy_day_to_sheet_data,
 )
 from src.metrics.guests import classify_channel
 from src.metrics.occupancy import calc_occupancy, traffic_light
@@ -150,11 +151,16 @@ def prepare_daily_summary_data(
     """Собрать данные сводки из Sheets и SQLite."""
     cfg = config or get_config()
     sheets_client = GoogleSheetsClient(cfg)
+    occ_day = None
 
     if occupancy is None:
-        occupancy = sheets_client.read_occupancy()
+        occ_day = sheets_client.read_occupancy_daily(report_date)
+        if occ_day.by_type:
+            occupancy = occupancy_day_to_sheet_data(occ_day)
+        else:
+            occupancy = sheets_client.read_occupancy()
     if bookings is None:
-        bookings = sheets_client.read_bookings_stats()
+        bookings = sheets_client.read_bookings_stats(report_date)
 
     warnings: list[str] = []
     critical = False
@@ -168,7 +174,10 @@ def prepare_daily_summary_data(
     room_types, totals = aggregate_room_status(occupancy)
     sold = totals.occupied + totals.booked
     available = totals.total or cfg.property.total_units
-    occupancy_pct = calc_occupancy(sold, available)
+    if occ_day and occ_day.travelline_pct is not None:
+        occupancy_pct = occ_day.travelline_pct
+    else:
+        occupancy_pct = calc_occupancy(sold, available)
     occupancy_light = traffic_light(
         occupancy_pct, cfg.traffic_light, metric="occupancy"
     )

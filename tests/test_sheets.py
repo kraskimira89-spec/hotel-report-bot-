@@ -16,6 +16,7 @@ from src.data_sources.sheets import (
     GoogleSheetsClient,
     OccupancyDay,
     SheetsReadError,
+    occupancy_day_to_sheet_data,
     parse_bookings_day_rows,
     parse_bookings_month_rows,
     parse_occupancy_daily_rows,
@@ -114,19 +115,21 @@ def test_read_occupancy_daily_mock(_mock_creds: MagicMock) -> None:
 
 
 @patch("src.data_sources.sheets.Credentials.from_service_account_file")
-def test_read_bookings_for_date_mock(_mock_creds: MagicMock) -> None:
+def test_read_bookings_stats_mock(_mock_creds: MagicMock) -> None:
     rows = _load_rows("broni_iyul_sample.csv")
     client = _make_client(bookings_rows=rows)
-    data = client.read_bookings_stats()
-    assert data.records == []
+    data = client.read_bookings_stats(reference_date=date(2026, 7, 1))
+    july_first = [r for r in data.records if r.report_date == date(2026, 7, 1)]
+    assert sum(r.bookings_count for r in july_first) == 4
+    assert sum(item.bookings_count for item in data.records) > 0
 
 
 @patch("src.data_sources.sheets.Credentials.from_service_account_file")
 def test_read_bookings_month_mock(_mock_creds: MagicMock) -> None:
     rows = _load_rows("broni_iyul_sample.csv")
     client = _make_client(bookings_rows=rows)
-    data = client.read_bookings_stats()
-    assert sum(item.bookings_count for item in data.records) == 0
+    data = client.read_bookings_month(2026, 7)
+    assert data.total == 38
 
 
 def test_read_occupancy_spreadsheet_not_found() -> None:

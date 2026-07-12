@@ -127,6 +127,48 @@ class SheetsReadError(Exception):
     """Ошибка чтения Google Sheets."""
 
 
+def occupancy_day_to_sheet_data(day: OccupancyDay) -> OccupancySheetData:
+    """Суточный блок → формат для aggregate_room_status."""
+    room_types: list[RoomTypeOccupancy] = []
+    for row in day.by_type:
+        occupied = int(row.occupancy_pct or 0)
+        units = row.units or 0
+        room_types.append(
+            RoomTypeOccupancy(
+                room_type=row.room_type,
+                units=units,
+                free_count=max(units - occupied, 0),
+                occupied_count=occupied,
+                booked_count=0,
+            )
+        )
+    return OccupancySheetData(room_types=room_types)
+
+
+def bookings_records_for_month(
+    rows: list[list[str]],
+    year: int,
+    month: int,
+) -> list[BookingRecord]:
+    """Собрать дневные записи броней за месяц из сырых строк листа."""
+    import calendar
+
+    _, month_days = calendar.monthrange(year, month)
+    records: list[BookingRecord] = []
+    for day in range(1, month_days + 1):
+        target = date(year, month, day)
+        for item in parse_bookings_day_rows(rows, target):
+            if item.count > 0:
+                records.append(
+                    BookingRecord(
+                        report_date=target,
+                        source=item.source,
+                        bookings_count=item.count,
+                    )
+                )
+    return records
+
+
 class GSpreadClient(Protocol):
     def open_by_key(self, key: str) -> Any: ...
 
@@ -691,17 +733,21 @@ class GoogleSheetsClient:
                 errors=[f"Неожиданная ошибка Google Sheets: {exc}"],
             )
 
-    def read_bookings_stats(self) -> BookingsSheetData:
-        """Прочитать лист «Брони статистика»."""
+    def read_bookings_stats(
+        self,
+        reference_date: date | None = None,
+    ) -> BookingsSheetData:
+        """Прочитать лист «Брони статистика» (помесячные блоки по маркерам)."""
         sheets_cfg = self.config.sheets
+        ref = reference_date or date.today()
         try:
             rows = self._fetch_rows(
                 sheets_cfg.bookings_sheet_gid,
                 sheets_cfg.bookings_sheet,
             )
-            data = parse_bookings_rows(rows)
-            logger.info("Брони статистика: %s записей", len(data.records))
-            return data
+            records = bookings_records_for_month(rows, ref.year, ref.month)
+            logger.info("Брони статистика: %s записей за %s-%02d", len(records), ref.year, ref.month)
+            return BookingsSheetData(records=records)
         except SheetsReadError as exc:
             save_error_log(
                 ErrorLogRecord(
@@ -726,3 +772,42 @@ class GoogleSheetsClient:
                 is_available=False,
                 errors=[f"Неожиданная ошибка Google Sheets: {exc}"],
             )
+
+    def read_occupancy_daily(self, target_date: date) -> OccupancyDay:
+        """Суточная заселяемость на дату (блок месяца 2026)."""
+        sheets_cfg = self.config.sheets
+        try:
+            rows = self._fetch_rows(
+                sheets_cfg.occupancy_sheet_gid,
+                sheets_cfg.occupancy_sheet,
+            )
+            return parse_occupancy_daily_rows(rows, target_date)
+        except SheetsReadError as exc:
+            logger.warning("read_occupancy_daily: %s", exc)
+            return OccupancyDay(date=target_date)
+
+    def read_bookings_for_date(self, target_date: date) -> list[BookingSourceDay]:
+        """Брони по источникам за день."""
+        sheets_cfg = self.config.sheets
+        try:
+            rows = self._fetch_rows(
+                sheets_cfg.bookings_sheet_gid,
+                sheets_cfg.bookings_sheet,
+            )
+            return parse_bookings_day_rows(rows, target_date)
+        except SheetsReadError as exc:
+            logger.warning("read_bookings_for_date: %s", exc)
+            return []
+
+    def read_bookings_month(self, year: int, month: int) -> BookingsMonth:
+        """Брони по источникам за месяц."""
+        sheets_cfg = self.config.sheets
+        try:
+            rows = self._fetch_rows(
+                sheets_cfg.bookings_sheet_gid,
+                sheets_cfg.bookings_sheet,
+            )
+            return parse_bookings_month_rows(rows, year, month)
+        except SheetsReadError as exc:
+            logger.warning("read_bookings_month: %s", exc)
+            return BookingsMonth(year=year, month=month)

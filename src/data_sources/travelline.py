@@ -317,6 +317,21 @@ def calc_reconcile_diff_pct(tl_value: float, sheets_value: float) -> float:
     return abs(tl_value - sheets_value) / sheets_value * 100
 
 
+def booking_date_from_number(booking_number: str) -> date | None:
+    """Дата создания из номера брони (YYYYMMDD-propertyId-seq)."""
+    prefix = booking_number.split("-", 1)[0]
+    if len(prefix) == 8 and prefix.isdigit():
+        return parse_tl_date(prefix)
+    return None
+
+
+def parse_webpms_source_label(source: Any) -> str | None:
+    """Подпись источника из WebPMS: {key, value} или {code, type}."""
+    if not isinstance(source, dict):
+        return str(source) if source else None
+    return source.get("value") or source.get("code") or source.get("name")
+
+
 class TravelLineClient:
     """REST-клиент TravelLine (Universal WebPMS + Read Reservation API)."""
 
@@ -341,7 +356,7 @@ class TravelLineClient:
         return httpx.Client(timeout=30.0)
 
     def authenticate(self, force: bool = False) -> str:
-        """Получить Bearer-токен: OAuth или ключ из .env."""
+        """Получить Bearer JWT для Partner API (OAuth client credentials)."""
         if (
             not force
             and self._access_token
@@ -368,13 +383,22 @@ class TravelLineClient:
             self._token_expires_at = time.time() + expires_in
             return token
 
-        if not self._env.tl_api_key:
-            raise TravelLineError("TL_API_KEY не задан")
-        self._access_token = self._env.tl_api_key
-        self._token_expires_at = time.time() + 3600
-        return self._access_token
+        raise TravelLineError(
+            "Partner API: задайте TL_CLIENT_ID и TL_CLIENT_SECRET в .env"
+        )
 
-    def _headers(self) -> dict[str, str]:
+    def _has_partner_auth(self) -> bool:
+        return bool(self._env.tl_client_id.strip() and self._env.tl_client_secret.strip())
+
+    def _webpms_headers(self) -> dict[str, str]:
+        if not self._env.tl_api_key.strip():
+            raise TravelLineError("TL_API_KEY не задан")
+        return {
+            "X-API-KEY": self._env.tl_api_key.strip(),
+            "Accept": "application/json",
+        }
+
+    def _partner_headers(self) -> dict[str, str]:
         token = self.authenticate()
         return {
             "Authorization": f"Bearer {token}",
@@ -382,14 +406,16 @@ class TravelLineClient:
             "Accept": "application/json",
         }
 
-    def _request(
+    def _http_request(
         self,
         method: str,
         url: str,
         *,
+        headers: dict[str, str],
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
-        auth_retry: bool = True,
+        auth_retry: bool = False,
+        retry_auth: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         """HTTP-запрос с backoff."""
         tl = self.config.travelline
@@ -401,7 +427,7 @@ class TravelLineClient:
                 url,
                 params=params,
                 json=json,
-                headers=self._headers(),
+                headers=headers,
             )
 
         try:
@@ -424,8 +450,8 @@ class TravelLineClient:
             )
             raise TravelLineError(str(exc)) from exc
 
-        if response.status_code in {401, 403} and auth_retry:
-            self.authenticate(force=True)
+        if response.status_code in {401, 403} and auth_retry and retry_auth:
+            retry_auth()
             response = retry_with_backoff(
                 _call,
                 retries=tl.max_retries,
@@ -435,18 +461,64 @@ class TravelLineClient:
                 log_prefix=f"travelline {method} {url}",
             )
 
+        if response.status_code >= 400:
+            raise TravelLineError(
+                f"HTTP {response.status_code}: {response.text[:300]}"
+            )
+
         if not response.content:
             return {}
         return response.json()
 
+    def _webpms_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._http_request(
+            method,
+            self._webpms_url(path),
+            headers=self._webpms_headers(),
+            params=params,
+            json=json,
+        )
+
+    def _partner_request(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        headers = self._partner_headers()
+
+        def _retry() -> None:
+            self.authenticate(force=True)
+            headers.update(self._partner_headers())
+
+        return self._http_request(
+            method,
+            url,
+            headers=headers,
+            params=params,
+            json=json,
+            auth_retry=True,
+            retry_auth=_retry,
+        )
+
     def _webpms_url(self, path: str) -> str:
         base = self.config.travelline.webpms_base_url.rstrip("/")
-        prop = self.property_id
-        return f"{base}/v1/properties/{prop}/{path.lstrip('/')}"
+        return f"{base}/v1/{path.lstrip('/')}"
 
     def _reservation_url(self, path: str) -> str:
         base = self.config.travelline.reservation_base_url.rstrip("/")
         prop = self.property_id
+        if not prop:
+            raise TravelLineError("travelline.property_id не задан в settings.yaml")
         return f"{base}/v2/properties/{prop}/{path.lstrip('/')}"
 
     def _analytics_params(
@@ -466,6 +538,12 @@ class TravelLineClient:
             "dateKind": date_kind,
         }
 
+    def _payments_params(self, start_date: date, end_date: date) -> dict[str, str]:
+        return {
+            "startDateTime": start_date.strftime("%Y%m%d") + "0000",
+            "endDateTime": end_date.strftime("%Y%m%d") + "2359",
+        }
+
     def get_analytics_services(
         self,
         start_date: date,
@@ -473,9 +551,9 @@ class TravelLineClient:
         date_kind: int = 1,
     ) -> list[AnalyticsServiceItem]:
         """Начисления/доход (analytics/services)."""
-        payload = self._request(
+        payload = self._webpms_request(
             "GET",
-            self._webpms_url("analytics/services"),
+            "analytics/services",
             params=self._analytics_params(start_date, end_date, date_kind),
         )
         return parse_analytics_services(payload)
@@ -487,10 +565,11 @@ class TravelLineClient:
         date_kind: int = 1,
     ) -> list[PaymentItem]:
         """Платежи (analytics/payments)."""
-        payload = self._request(
+        _ = date_kind
+        payload = self._webpms_request(
             "GET",
-            self._webpms_url("analytics/payments"),
-            params=self._analytics_params(start_date, end_date, date_kind),
+            "analytics/payments",
+            params=self._payments_params(start_date, end_date),
         )
         return parse_analytics_payments(payload)
 
@@ -501,20 +580,36 @@ class TravelLineClient:
         date_kind: int = 1,
     ) -> list[AnalyticsServiceItem]:
         """Отменённые начисления (analytics/services/cancelled)."""
-        payload = self._request(
+        payload = self._webpms_request(
             "GET",
-            self._webpms_url("analytics/services/cancelled"),
+            "analytics/services/cancelled",
             params=self._analytics_params(start_date, end_date, date_kind),
         )
         return parse_analytics_services(payload)
 
     def get_booking(self, booking_number: str) -> dict[str, Any]:
         """Детали бронирования bookings/{number}."""
-        payload = self._request(
-            "GET",
-            self._webpms_url(f"bookings/{booking_number}"),
-        )
+        payload = self._webpms_request("GET", f"bookings/{booking_number}")
         return parse_booking_details(payload)
+
+    def search_webpms_booking_numbers(
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        state: str = "Active",
+    ) -> list[str]:
+        """Поиск номеров броней через WebPMS (без Partner OAuth)."""
+        params = {
+            "modifiedFrom": start_date.strftime("%Y-%m-%d") + "T00:00",
+            "modifiedTo": end_date.strftime("%Y-%m-%d") + "T23:59",
+            "state": state,
+        }
+        payload = self._webpms_request("GET", "bookings", params=params)
+        numbers = payload.get("bookingNumbers")
+        if isinstance(numbers, list):
+            return [str(n) for n in numbers]
+        return []
 
     def search_reservations(
         self,
@@ -536,7 +631,7 @@ class TravelLineClient:
         params["maxPageSize"] = (
             max_page_size or self.config.travelline.reservation_page_size
         )
-        payload = self._request(
+        payload = self._partner_request(
             "GET",
             self._reservation_url("reservations/search"),
             params=params,
@@ -561,6 +656,55 @@ class TravelLineClient:
                 break
         return all_items
 
+    def _reservation_from_webpms_booking(
+        self,
+        booking_number: str,
+        booking: dict[str, Any],
+    ) -> ReservationSummary:
+        source = booking.get("source") or {}
+        source_code = parse_webpms_source_label(source)
+        created = booking_date_from_number(booking_number)
+        created_dt = (
+            datetime(
+                created.year,
+                created.month,
+                created.day,
+                tzinfo=MSK,
+            ).astimezone(timezone.utc)
+            if created
+            else None
+        )
+        modified_raw = booking.get("lastModified") or booking.get("modifiedDateTime")
+        modified_dt = _parse_datetime_utc(str(modified_raw)) if modified_raw else None
+        return ReservationSummary(
+            number=booking_number,
+            status=booking.get("status"),
+            created_at=created_dt,
+            modified_at=modified_dt,
+            source_code=source_code,
+            source_type=source.get("type") if isinstance(source, dict) else None,
+            raw=booking,
+        )
+
+    def _get_reservations_via_webpms(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> list[ReservationSummary]:
+        """Новые брони за период через WebPMS (текущий TL_API_KEY)."""
+        numbers = self.search_webpms_booking_numbers(start_date, end_date)
+        result: list[ReservationSummary] = []
+        for number in numbers:
+            booking_date = booking_date_from_number(number)
+            if booking_date is None or not (start_date <= booking_date <= end_date):
+                continue
+            try:
+                booking = self.get_booking(number)
+            except TravelLineError:
+                booking = {"number": number}
+            result.append(self._reservation_from_webpms_booking(number, booking))
+        return self._enrich_channels(result)
+
     def get_reservations(
         self,
         start_date: date,
@@ -569,8 +713,12 @@ class TravelLineClient:
     ) -> list[ReservationSummary]:
         """Новые брони за период.
 
-        date_kind=2 — фильтр по дате создания (MSK → UTC для search).
+        date_kind=2 — по дате создания.
+        Без OAuth используется WebPMS (TL_API_KEY + X-API-KEY).
         """
+        if date_kind == 2 and not self._has_partner_auth():
+            return self._get_reservations_via_webpms(start_date, end_date)
+
         if date_kind == 2:
             start_utc = msk_date_to_utc_start(start_date)
             reservations = self.iter_reservations(last_modification_utc=start_utc)
@@ -599,7 +747,7 @@ class TravelLineClient:
                     status=booking.get("status"),
                     created_at=_parse_datetime_utc(booking.get("createdDateTime")),
                     modified_at=_parse_datetime_utc(booking.get("modifiedDateTime")),
-                    source_code=source.get("code") if isinstance(source, dict) else None,
+                    source_code=parse_webpms_source_label(source),
                     source_type=source.get("type") if isinstance(source, dict) else None,
                     raw=booking,
                 )
@@ -746,7 +894,11 @@ class TravelLineClient:
         }
         if category_id:
             params["roomTypeId"] = category_id
-        payload = self._request("GET", url, params=params)
+        payload = self._partner_request(
+            "GET",
+            url,
+            params=params,
+        )
         return parse_dynamic_prices(payload)
 
 

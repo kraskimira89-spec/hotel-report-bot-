@@ -1,6 +1,7 @@
 .env
 config/.env
 config/settings.yaml
+config/primeval-rain-*.json
 *.db
 data/
 .venv/

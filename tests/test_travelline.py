@@ -13,6 +13,7 @@ from src.config import AppConfig, EnvSettings, StorageConfig, TravelLineConfig, 
 from src.data_sources.sheets import BookingRecord, BookingsSheetData
 from src.data_sources.travelline import (
     TravelLineClient,
+    booking_date_from_number,
     calc_reconcile_diff_pct,
     ensure_date_window,
     format_tl_date,
@@ -20,6 +21,7 @@ from src.data_sources.travelline import (
     parse_analytics_payments,
     parse_analytics_services,
     parse_reservation_search,
+    parse_webpms_source_label,
     reconcile_with_sheets,
     run_daily_reconciliation,
     utc_to_msk_date,
@@ -36,6 +38,18 @@ def tl_env(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture
+def tl_oauth_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "src.data_sources.travelline.get_env_settings",
+        lambda: EnvSettings(
+            tl_api_key="test-key",
+            tl_client_id="client-id",
+            tl_client_secret="client-secret",
+        ),
+    )
+
+
 FIXTURES = Path(__file__).parent / "fixtures" / "travelline"
 
 
@@ -49,7 +63,11 @@ class MockTransport(httpx.BaseTransport):
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         url = str(request.url)
-        for pattern, payload in self.routes.items():
+        for pattern, payload in sorted(
+            self.routes.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        ):
             if pattern in url:
                 return httpx.Response(200, json=payload)
         return httpx.Response(404, json={"error": "not found"})
@@ -118,24 +136,54 @@ def test_get_revenue_from_payments(
     assert report.is_estimated is False
 
 
-def test_get_reservations_date_kind_2(
+def test_get_reservations_date_kind_2_webpms(
     tl_config: AppConfig,
     tl_env: None,
+) -> None:
+    booking_number = "20260707-7291-100"
+    routes = {
+        "v1/bookings": {
+            "bookingNumbers": [booking_number],
+        },
+        f"v1/bookings/{booking_number}": {
+            "number": booking_number,
+            "source": {"value": "1apart.ru"},
+        },
+    }
+    transport = MockTransport(routes)
+    client = TravelLineClient(tl_config, http_client=httpx.Client(transport=transport))
+    items = client.get_reservations(date(2026, 7, 7), date(2026, 7, 7), date_kind=2)
+    assert len(items) == 1
+    assert items[0].number == booking_number
+    assert items[0].source_code == "1apart.ru"
+    assert items[0].channel_type in {"direct", "aggregator", "unknown"}
+    assert transport.requests[0].headers.get("X-API-KEY") == "test-key"
+
+
+def test_get_reservations_date_kind_2_partner(
+    tl_config: AppConfig,
+    tl_oauth_env: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     search_payload = json.loads(
         (FIXTURES / "reservations_search.json").read_text(encoding="utf-8")
     )
     transport = MockTransport({"reservations/search": search_payload})
     client = TravelLineClient(tl_config, http_client=httpx.Client(transport=transport))
+    monkeypatch.setattr(
+        client,
+        "authenticate",
+        lambda force=False: "jwt-token",
+    )
     items = client.get_reservations(date(2026, 7, 7), date(2026, 7, 7), date_kind=2)
     assert len(items) == 1
     assert items[0].number == "20260707-7291-100"
-    assert items[0].channel_type in {"direct", "aggregator", "unknown"}
 
 
 def test_search_reservations_pagination(
     tl_config: AppConfig,
-    tl_env: None,
+    tl_oauth_env: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     page1 = {
         "reservations": [{"number": "A-1", "createdDateTime": "2026-07-07T10:00:00Z"}],
@@ -154,6 +202,11 @@ def test_search_reservations_pagination(
 
     transport = httpx.MockTransport(route_handler)
     client = TravelLineClient(tl_config, http_client=httpx.Client(transport=transport))
+    monkeypatch.setattr(
+        client,
+        "authenticate",
+        lambda force=False: "jwt-token",
+    )
     items, token, has_next = client.search_reservations()
     assert len(items) == 1
     assert token == "token-2"
@@ -208,6 +261,16 @@ def test_reconcile_logs_warning(
     assert row is not None
     assert row["source"] == "travelline"
     assert row["error_type"] == "sheets_reconcile"
+
+
+def test_booking_date_from_number() -> None:
+    assert booking_date_from_number("20260707-7291-100") == date(2026, 7, 7)
+    assert booking_date_from_number("bad") is None
+
+
+def test_parse_webpms_source_label() -> None:
+    assert parse_webpms_source_label({"value": "Сайт гостиницы"}) == "Сайт гостиницы"
+    assert parse_webpms_source_label({"code": "1apart.ru"}) == "1apart.ru"
 
 
 def test_calc_reconcile_diff_pct() -> None:
