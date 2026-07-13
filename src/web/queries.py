@@ -18,10 +18,12 @@ from src.storage.db import (
     get_competitor_prices_history,
     get_competitor_prices_latest,
     get_guest_stats,
+    get_insights_records,
     get_price_snapshots_by_date,
     get_reports_log,
     get_trend_idea_of_week,
     get_trends_records,
+    insights_count,
 )
 from src.web.market_intel import build_competitor_cards
 
@@ -516,4 +518,94 @@ def fetch_trends_bundle(
             "category": category or "",
             "days": days,
         },
+    }
+
+
+_SEVERITY_RANK = {"action": 0, "attention": 1, "info": 2}
+
+_TOPIC_LABELS = {
+    "occupancy": "Загрузка и динамика",
+    "revenue": "Доход / ADR / RevPAR",
+    "channels": "Каналы продаж",
+    "returning_guests": "Повторные гости",
+    "cancellations": "Отмены",
+    "als": "Средний срок проживания",
+    "competitors": "Конкуренты",
+    "market_trends": "Тренды рынка",
+    "regional_demand": "Спрос в регионе",
+    "regulation": "Регулирование",
+}
+
+
+def get_insights(
+    source: str | None = None,
+    topic: str | None = None,
+) -> list[dict[str, Any]]:
+    """Карточки аналитики с сортировкой action → attention → info."""
+    records = get_insights_records(source=source, topic=topic)
+    rows: list[dict[str, Any]] = []
+    for r in records:
+        rows.append(
+            {
+                "id": r.id,
+                "topic": r.topic,
+                "topic_label": _TOPIC_LABELS.get(r.topic, r.topic),
+                "title": r.title,
+                "summary": r.summary,
+                "recommendations": r.recommendations,
+                "severity": r.severity,
+                "source": r.source,
+                "source_label": {
+                    "travelline": "TravelLine",
+                    "web": "Интернет",
+                    "mixed": "Смешанный",
+                }.get(r.source, r.source),
+                "period": r.period,
+                "detail_payload": r.detail_payload or {},
+                "updated_at": r.updated_at.isoformat(sep=" ", timespec="minutes")
+                if r.updated_at
+                else "",
+            }
+        )
+    rows.sort(
+        key=lambda x: (
+            _SEVERITY_RANK.get(x["severity"], 9),
+            x["updated_at"] or "",
+        )
+    )
+    return rows
+
+
+def get_top_insights(limit: int = 2) -> list[dict[str, Any]]:
+    """Главное сегодня — карточки с severity=action, иначе первые по приоритету."""
+    all_cards = get_insights()
+    action = [c for c in all_cards if c["severity"] == "action"]
+    if action:
+        return action[:limit]
+    return all_cards[:limit]
+
+
+def fetch_analytics_bundle(
+    source: str | None = None,
+    topic: str | None = None,
+) -> dict[str, Any]:
+    """Данные для страницы «Аналитика»."""
+    if source == "all":
+        source = None
+    if not topic:
+        topic = None
+    if insights_count() == 0:
+        from src.analytics.ai_insights import run_insights_refresh
+
+        run_insights_refresh()
+    cards = get_insights(source=source, topic=topic)
+    return {
+        "top": get_top_insights(2),
+        "cards": cards,
+        "topics": [{"id": k, "label": v} for k, v in _TOPIC_LABELS.items()],
+        "filters": {
+            "source": source or "all",
+            "topic": topic or "",
+        },
+        "count": len(cards),
     }

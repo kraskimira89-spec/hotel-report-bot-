@@ -14,6 +14,7 @@ from src.storage.models import (
     MIGRATIONS_V2,
     MIGRATIONS_V3,
     MIGRATIONS_V4,
+    MIGRATIONS_V5,
     SCHEMA_VERSION,
     TABLES,
     TRENDS_RETENTION_DAYS,
@@ -21,6 +22,7 @@ from src.storage.models import (
     CompetitorPriceRecord,
     ErrorLogRecord,
     GuestRecord,
+    InsightRecord,
     MetricsDailyRecord,
     PeriodComparison,
     PricePeriodComparison,
@@ -117,6 +119,12 @@ def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
                 logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
     if current < 4:
         for ddl in MIGRATIONS_V4:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 5:
+        for ddl in MIGRATIONS_V5:
             try:
                 conn.execute(ddl)
             except sqlite3.OperationalError as exc:
@@ -976,3 +984,89 @@ def clear_trends_idea_of_week(conn: sqlite3.Connection | None = None) -> None:
 
     with db_session() as connection:
         _clear(connection)
+
+
+def _row_to_insight(row: sqlite3.Row) -> InsightRecord:
+    import json
+
+    updated = row["updated_at"]
+    return InsightRecord(
+        id=row["id"],
+        topic=row["topic"],
+        title=row["title"],
+        summary=row["summary"],
+        recommendations=json.loads(row["recommendations"] or "[]"),
+        severity=row["severity"],
+        source=row["source"],
+        period=row["period"] or "",
+        detail_payload=json.loads(row["detail_payload"] or "{}"),
+        updated_at=_parse_dt(updated) if updated else None,
+    )
+
+
+def replace_insights(
+    records: Iterable[InsightRecord],
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Заменить кеш аналитики (удалить старые + вставить новые)."""
+    import json
+
+    items = list(records)
+
+    def _replace(connection: sqlite3.Connection) -> int:
+        connection.execute("DELETE FROM insights")
+        count = 0
+        sql = """
+            INSERT INTO insights (
+                topic, title, summary, recommendations, severity,
+                source, period, detail_payload, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        for item in items:
+            connection.execute(
+                sql,
+                (
+                    item.topic,
+                    item.title,
+                    item.summary,
+                    json.dumps(item.recommendations, ensure_ascii=False),
+                    item.severity,
+                    item.source,
+                    item.period,
+                    json.dumps(item.detail_payload, ensure_ascii=False),
+                    _dt_str(item.updated_at) if item.updated_at else _dt_str(datetime.utcnow()),
+                ),
+            )
+            count += 1
+        return count
+
+    if conn is not None:
+        return _replace(conn)
+    with db_session() as connection:
+        return _replace(connection)
+
+
+def get_insights_records(
+    source: str | None = None,
+    topic: str | None = None,
+) -> list[InsightRecord]:
+    """Прочитать карточки аналитики."""
+    sql = "SELECT * FROM insights WHERE 1=1"
+    params: list[object] = []
+    if source:
+        sql += " AND source = ?"
+        params.append(source)
+    if topic:
+        sql += " AND topic = ?"
+        params.append(topic)
+    sql += " ORDER BY id ASC"
+
+    with db_session() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [_row_to_insight(row) for row in rows]
+
+
+def insights_count() -> int:
+    with db_session() as conn:
+        row = conn.execute("SELECT COUNT(*) AS c FROM insights").fetchone()
+    return int(row["c"])

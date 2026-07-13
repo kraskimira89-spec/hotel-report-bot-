@@ -375,6 +375,47 @@
             color: var(--dark-brown);
         }
 
+        .insight-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            margin-bottom: 1rem;
+            padding: 1.25rem 1.5rem;
+            border-left: 4px solid var(--border);
+        }
+        .insight-card.severity-action { border-left-color: var(--err); }
+        .insight-card.severity-attention { border-left-color: var(--warn); }
+        .insight-card.severity-info { border-left-color: var(--ok); }
+        .insight-grid {
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: 1rem;
+            align-items: start;
+        }
+        .insight-recs {
+            background: var(--primary-soft);
+            border-left: 4px solid var(--primary);
+            border-radius: var(--radius-sm);
+            padding: .85rem 1rem;
+        }
+        .insight-recs h3 { margin-top: 0; color: var(--dark-brown); }
+        .insight-details { margin-top: .75rem; }
+        .insight-details summary {
+            cursor: pointer;
+            color: var(--dark-brown);
+            font-weight: 600;
+        }
+        .detail-block {
+            margin-top: .75rem;
+            padding-top: .5rem;
+            border-top: 1px solid var(--border);
+        }
+
+        @media (max-width: 1024px) {
+            .insight-grid { grid-template-columns: 1fr; }
+        }
+
         @media (max-width: 768px) {
             .grid-2, .detail-grid { grid-template-columns: 1fr; }
             nav { padding: .75rem 1rem; gap: 1rem; }
@@ -386,13 +427,11 @@
     {% if page %}
     <nav>
         <span class="brand">🏨 Первый Апарт-отель</span>
-        <a href="/" class="{% if page == 'dashboard' %}active{% endif %}">Дашборд</a>
-        <a href="/snapshots" class="{% if page == 'snapshots' %}active{% endif %}">Цены</a>
-        <a href="/metrics" class="{% if page == 'metrics' %}active{% endif %}">Метрики</a>
-        <a href="/channels" class="{% if page == 'channels' %}active{% endif %}">Каналы</a>
+        <a href="/analytics" class="{% if page == 'analytics' %}active{% endif %}">Аналитика</a>
         <a href="/competitors" class="{% if page == 'competitors' %}active{% endif %}">Конкуренты</a>
         <a href="/trends" class="{% if page == 'trends' %}active{% endif %}">Тренды</a>
         <a href="/reports" class="{% if page == 'reports' %}active{% endif %}">Отчёты</a>
+        <a href="/snapshots" class="{% if page == 'snapshots' %}active{% endif %}">Цены</a>
         <a href="/logs" class="{% if page == 'logs' %}active{% endif %}">Логи</a>
         <a href="/settings" class="{% if page == 'settings' %}active{% endif %}">Настройки</a>
         <a href="/logout" class="logout">Выход</a>
