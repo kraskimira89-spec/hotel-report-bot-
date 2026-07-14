@@ -221,6 +221,16 @@ class WebConfig(BaseModel):
     admin_username: str = "admin"
 
 
+class AnalyticsConfig(BaseModel):
+    """Параметры ИИ-ленты аналитики."""
+
+    enabled: bool = True
+    period_days: int = 14
+    refresh_cron: str = "15 9 * * *"
+    openai_model: str = "gpt-4o-mini"
+    openai_base_url: str = "https://api.openai.com/v1"
+
+
 class AppConfig(BaseModel):
     """Полная конфигурация приложения из settings.yaml."""
 
@@ -240,6 +250,7 @@ class AppConfig(BaseModel):
     email: EmailConfig = Field(default_factory=EmailConfig)
     sheets: SheetsConfig = Field(default_factory=SheetsConfig)
     web: WebConfig = Field(default_factory=WebConfig)
+    analytics: AnalyticsConfig = Field(default_factory=AnalyticsConfig)
 
 
 class EnvSettings(BaseSettings):
@@ -272,6 +283,9 @@ class EnvSettings(BaseSettings):
     vps_host: str = Field(default="", alias="VPS_HOST")
     vps_user: str = Field(default="root", alias="VPS_USER")
     vps_app_dir: str = Field(default="/opt/1apart/hotel-report-bot", alias="VPS_APP_DIR")
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
+    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

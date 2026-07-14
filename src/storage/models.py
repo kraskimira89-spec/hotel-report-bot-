@@ -6,9 +6,10 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 TRENDS_RETENTION_DAYS = 180
+INSIGHTS_RETENTION_DAYS = 90
 
 TABLES: list[str] = [
     """
@@ -131,6 +132,20 @@ TABLES: list[str] = [
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS insights (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        topic TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        recommendations TEXT NOT NULL DEFAULT '[]',
+        severity TEXT NOT NULL DEFAULT 'info',
+        source TEXT NOT NULL DEFAULT 'travelline',
+        period TEXT NOT NULL DEFAULT '',
+        detail_payload TEXT NOT NULL DEFAULT '{}',
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
 ]
 
 INDEXES: list[str] = [
@@ -149,6 +164,9 @@ INDEXES: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_trends_region ON trends(region)",
     "CREATE INDEX IF NOT EXISTS idx_trends_category ON trends(category)",
     "CREATE INDEX IF NOT EXISTS idx_trends_published ON trends(published_at)",
+    "CREATE INDEX IF NOT EXISTS idx_insights_topic ON insights(topic)",
+    "CREATE INDEX IF NOT EXISTS idx_insights_severity ON insights(severity)",
+    "CREATE INDEX IF NOT EXISTS idx_insights_updated ON insights(updated_at)",
 ]
 
 MIGRATIONS_V2: list[str] = [
@@ -213,6 +231,26 @@ MIGRATIONS_V4: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_trends_region ON trends(region)",
     "CREATE INDEX IF NOT EXISTS idx_trends_category ON trends(category)",
     "CREATE INDEX IF NOT EXISTS idx_trends_published ON trends(published_at)",
+]
+
+MIGRATIONS_V5: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS insights (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        topic TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        recommendations TEXT NOT NULL DEFAULT '[]',
+        severity TEXT NOT NULL DEFAULT 'info',
+        source TEXT NOT NULL DEFAULT 'travelline',
+        period TEXT NOT NULL DEFAULT '',
+        detail_payload TEXT NOT NULL DEFAULT '{}',
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_insights_topic ON insights(topic)",
+    "CREATE INDEX IF NOT EXISTS idx_insights_severity ON insights(severity)",
+    "CREATE INDEX IF NOT EXISTS idx_insights_updated ON insights(updated_at)",
 ]
 
 
@@ -328,6 +366,21 @@ class TrendRecord(BaseModel):
     takeaway: str
     published_at: date | None = None
     is_idea_of_week: bool = False
+    id: int | None = None
+
+
+class InsightRecord(BaseModel):
+    """Кешированная карточка ИИ-аналитики."""
+
+    topic: str
+    title: str
+    summary: str
+    recommendations: list[str] = []
+    severity: str = "info"
+    source: str = "travelline"
+    period: str = ""
+    detail_payload: dict = {}
+    updated_at: datetime | None = None
     id: int | None = None
 
 

@@ -131,10 +131,13 @@ def test_max_webhook_rejects_bad_secret(
 
 def test_dashboard_after_login(web_client: TestClient) -> None:
     _login(web_client)
-    response = web_client.get("/")
-    assert response.status_code == 200
-    assert "Дашборд" in response.text
-    assert "68.0" in response.text or "68" in response.text
+    # `/` → редирект на аналитику (стартовая страница)
+    response = web_client.get("/", follow_redirects=False)
+    assert response.status_code in (302, 303)
+    assert "/analytics" in response.headers.get("location", "")
+    page = web_client.get("/analytics")
+    assert page.status_code == 200
+    assert "Аналитика" in page.text
 
 
 def test_snapshots_and_metrics_pages(web_client: TestClient) -> None:
@@ -144,8 +147,10 @@ def test_snapshots_and_metrics_pages(web_client: TestClient) -> None:
     assert web_client.get("/channels").status_code == 200
     assert web_client.get("/competitors").status_code == 200
     assert web_client.get("/trends").status_code == 200
+    assert web_client.get("/analytics").status_code == 200
     assert web_client.get("/logs").status_code == 200
     assert web_client.get("/reports").status_code == 200
+    assert web_client.get("/dashboard").status_code == 200
 
 
 def test_competitors_page_content(web_client: TestClient) -> None:

@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Аналитика — hotel-report-bot{% endblock %}
+{% block content %}
+<h1>Аналитика</h1>
+<p class="muted">Лента ИИ-выводов и рекомендаций. Сырые таблицы TravelLine не дублируем — детали в «Подробнее».</p>
+
+<form method="post" action="/analytics/refresh" style="margin-bottom:1rem">
+    <button type="submit" class="btn-small">🔄 Обновить сейчас</button>
+</form>
+
+<div class="card">
+    <h2>Фильтры</h2>
+    <form method="get" action="/analytics" class="filters-form">
+        <label>Источник
+            <select name="source">
+                <option value="all" {% if data.filters.source == 'all' %}selected{% endif %}>Все</option>
+                <option value="travelline" {% if data.filters.source == 'travelline' %}selected{% endif %}>TravelLine</option>
+                <option value="web" {% if data.filters.source == 'web' %}selected{% endif %}>Интернет</option>
+            </select>
+        </label>
+        <label>Тема
+            <select name="topic">
+                <option value="" {% if not data.filters.topic %}selected{% endif %}>Все</option>
+                {% for t in data.topics %}
+                <option value="{{ t.id }}" {% if data.filters.topic == t.id %}selected{% endif %}>{{ t.label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button type="submit">Применить</button>
+    </form>
+</div>
+
+{% if data.top %}
+<div class="card">
+    <h2>⭐ Главное сегодня</h2>
+    {% for card in data.top %}
+    <p><span class="severity-{{ card.severity }}">●</span> <strong>{{ card.title }}</strong> — {{ card.summary }}</p>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if not data.cards %}
+<div class="card">
+    <p class="muted">📭 Нет карточек. Нажмите «Обновить сейчас» или дождитесь утреннего пересчёта.</p>
+</div>
+{% endif %}
+
+{% for card in data.cards %}
+<div class="insight-card severity-{{ card.severity }}">
+    <div class="insight-grid">
+        <div class="insight-main">
+            <div class="card-head">
+                {% if card.severity == 'action' %}<span class="badge badge-red">🔴 действие</span>
+                {% elif card.severity == 'attention' %}<span class="badge badge-yellow">🟡 внимание</span>
+                {% else %}<span class="badge badge-green">🟢 инфо</span>{% endif %}
+                <span class="badge">{{ card.topic_label }}</span>
+            </div>
+            <h2>{{ card.title }}</h2>
+            <p>{{ card.summary }}</p>
+            <p class="muted">{{ card.source_label }} · {{ card.period }}{% if card.updated_at %} · {{ card.updated_at }}{% endif %}</p>
+            <details class="insight-details">
+                <summary>Подробнее ▼</summary>
+                <div class="detail-block">
+                    {% if card.detail_payload.series %}
+                    <h3>Динамика</h3>
+                    <div class="sparkline">
+                        {% set vals = card.detail_payload.series %}
+                        {% set ns = namespace(max_v=1) %}
+                        {% for p in vals %}
+                          {% if (p.occupancy_pct or 0) > ns.max_v %}{% set ns.max_v = p.occupancy_pct %}{% endif %}
+                        {% endfor %}
+                        {% for p in vals %}
+                        <span class="spark-bar" style="height: {{ ((p.occupancy_pct or 0) / ns.max_v * 100)|int }}%" title="{{ p.date }}: {{ p.occupancy_pct }}%"></span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if card.detail_payload.competitors %}
+                    <h3>Конкуренты</h3>
+                    <table>
+                        <thead><tr><th>Имя</th><th class="num">Цена от</th></tr></thead>
+                        <tbody>
+                        {% for c in card.detail_payload.competitors %}
+                        <tr><td>{{ c.name }}</td><td class="num">{% if c.price_from %}{{ "%.0f"|format(c.price_from) }} ₽{% else %}—{% endif %}</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% endif %}
+                    {% if card.detail_payload.sources %}
+                    <h3>Источники</h3>
+                    <ul>
+                    {% for s in card.detail_payload.sources %}
+                        <li><a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.title }}</a>{% if s.date %} <span class="muted">({{ s.date }})</span>{% endif %}</li>
+                    {% endfor %}
+                    </ul>
+                    {% endif %}
+                    {% if card.detail_payload.trends %}
+                    <h3>Тренды</h3>
+                    <ul>
+                    {% for t in card.detail_payload.trends %}
+                        <li>{{ t.title }}{% if t.source_url %} — <a href="{{ t.source_url }}" target="_blank" rel="noopener">источник</a>{% endif %}</li>
+                    {% endfor %}
+                    </ul>
+                    {% endif %}
+                    {% if not card.detail_payload.series and not card.detail_payload.competitors and not card.detail_payload.sources and not card.detail_payload.trends %}
+                    <p class="muted">Детализация по цифрам будет наполняться по мере накопления метрик.</p>
+                    {% endif %}
+                </div>
+            </details>
+        </div>
+        <div class="insight-recs">
+            <h3>💡 Рекомендации</h3>
+            <ul>
+            {% for r in card.recommendations %}
+                <li>{{ r }}</li>
+            {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}

@@ -140,6 +140,15 @@ async def dashboard(request: Request) -> Response:
     redirect = _require_auth(request)
     if redirect:
         return redirect
+    return RedirectResponse(url="/analytics", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_legacy(request: Request) -> Response:
+    """Старый дашборд (оставлен по прямой ссылке)."""
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
     cfg = get_config()
     data = queries.fetch_dashboard_data()
     return templates.TemplateResponse(
@@ -147,6 +156,34 @@ async def dashboard(request: Request) -> Response:
         "dashboard.html",
         {"request": request, "config": cfg, "page": "dashboard", "data": data},
     )
+
+
+@app.get("/analytics", response_class=HTMLResponse)
+async def analytics_page(
+    request: Request,
+    source: str | None = Query(default="all"),
+    topic: str | None = Query(default=None),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    data = queries.fetch_analytics_bundle(source=source, topic=topic or None)
+    return templates.TemplateResponse(
+        request,
+        "analytics.html",
+        {"request": request, "data": data, "page": "analytics"},
+    )
+
+
+@app.post("/analytics/refresh")
+async def analytics_refresh(request: Request) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.analytics.ai_insights import run_insights_refresh
+
+    run_insights_refresh()
+    return RedirectResponse(url="/analytics", status_code=status.HTTP_302_FOUND)
 
 
 @app.get("/snapshots", response_class=HTMLResponse)

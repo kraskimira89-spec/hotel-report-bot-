@@ -11,6 +11,7 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from src.analytics.ai_insights import run_insights_refresh
 from src.config import get_config
 from src.data_sources.market_trends import (
     collect_and_save_competitor_prices,
@@ -187,6 +188,22 @@ def job_weekly_trends(
     )
 
 
+def job_analytics_insights(
+    run_date: date | None = None,
+    report_date: date | None = None,
+) -> None:
+    """Ежедневный пересчёт ИИ-ленты аналитики."""
+    run_date = run_date or _msk_now().date()
+    report_date = report_date or run_date
+    logger.info("Задача analytics_insights: run_date=%s", run_date)
+    _run_job(
+        "analytics_insights",
+        run_date,
+        report_date,
+        run_insights_refresh,
+    )
+
+
 T = TypeVar("T")
 
 
@@ -247,6 +264,8 @@ def create_scheduler() -> BackgroundScheduler:
     summary_kw = _parse_cron(cfg.scheduler.daily_summary_cron)
     email_kw = _parse_cron(cfg.scheduler.weekly_email_cron)
     trends_kw = _parse_cron(cfg.scheduler.weekly_trends_cron)
+    analytics_cron = getattr(cfg.analytics, "refresh_cron", "15 9 * * *")
+    analytics_kw = _parse_cron(analytics_cron)
 
     scheduler.add_job(
         job_price_snapshot,
@@ -272,10 +291,17 @@ def create_scheduler() -> BackgroundScheduler:
         id="weekly_trends",
         name="Сбор трендов",
     )
+    if getattr(cfg.analytics, "enabled", True):
+        scheduler.add_job(
+            job_analytics_insights,
+            CronTrigger(timezone=tz, **analytics_kw),
+            id="analytics_insights",
+            name="ИИ-аналитика",
+        )
 
     scheduler.add_listener(_on_job_finished, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
 
-    logger.info("Планировщик: зарегистрировано %s задач (TZ=%s)", 4, cfg.property.timezone)
+    logger.info("Планировщик: зарегистрировано задач (TZ=%s)", cfg.property.timezone)
     return scheduler
 
 

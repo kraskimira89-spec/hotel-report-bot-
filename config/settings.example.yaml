@@ -9,6 +9,12 @@ scheduler:
   weekly_email_cron: 0 8 * * 1
   weekly_trends_cron: 0 7 * * 1
   competitor_prices_cron: 30 9 * * *
+analytics:
+  enabled: true
+  period_days: 14
+  refresh_cron: 15 9 * * *
+  openai_model: gpt-4o-mini
+  openai_base_url: https://api.openai.com/v1
 deploy:
   enabled: false
   after_jobs: true
