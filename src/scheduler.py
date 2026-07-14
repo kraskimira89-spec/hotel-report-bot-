@@ -11,12 +11,12 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from src.analytics.ai_insights import run_insights_refresh
 from src.config import get_config
 from src.data_sources.market_trends import (
     collect_and_save_competitor_prices,
     run_weekly_trends_collection,
 )
-from src.analytics.ai_insights import run_insights_refresh
 from src.data_sources.site_prices import SnapshotCollectionResult, collect_price_snapshots
 from src.data_sources.travelline import run_daily_reconciliation
 from src.deploy.vps_deploy import run_deploy_after_job

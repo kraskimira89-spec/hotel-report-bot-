@@ -234,7 +234,11 @@ def _rule_based_cards(ctx: dict[str, Any]) -> list[InsightCard]:
             severity=occ_sev,
             source="travelline",
             period=period,
-            detail_payload={"series": occ["series"], "current": occ["current"], "previous": occ["previous"]},
+            detail_payload={
+                "series": occ["series"],
+                "current": occ["current"],
+                "previous": occ["previous"],
+            },
             updated_at=now,
         )
     )
@@ -403,7 +407,10 @@ def _rule_based_cards(ctx: dict[str, Any]) -> list[InsightCard]:
             InsightCard(
                 topic="competitors",
                 title="Конкуренты: цены ещё не собраны",
-                summary="Нет доступных авто-цен конкурентов — запустите сбор или дождитесь планировщика.",
+                summary=(
+                    "Нет доступных авто-цен конкурентов — "
+                    "запустите сбор или дождитесь планировщика."
+                ),
                 recommendations=[
                     "Проверить /competitors и static-парсеры",
                     "Сверить вручную 3 ключевых конкурента",
@@ -518,7 +525,13 @@ def _rule_based_cards(ctx: dict[str, Any]) -> list[InsightCard]:
     return cards
 
 
-def _call_llm(topic: str, context: dict[str, Any], api_key: str, base_url: str, model: str) -> InsightCard | None:
+def _call_llm(
+    topic: str,
+    context: dict[str, Any],
+    api_key: str,
+    base_url: str,
+    model: str,
+) -> InsightCard | None:
     """Один вызов OpenAI-compatible Chat Completions."""
     prompt = (
         "Ты аналитик апарт-отеля 1apart (Томск, 44 кв.). "
@@ -569,7 +582,6 @@ def generate_insights(period_days: int = 14, use_llm: bool = True) -> list[Insig
         cards: list[InsightCard] = []
         for topic in INSIGHT_TOPICS:
             tid = topic["id"]
-            topic_ctx = {k: ctx[k] for k in ctx if k in ("period", "period_days", tid) or True}
             # компактный срез
             slim = {
                 "period": ctx["period"],
