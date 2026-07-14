@@ -15,3 +15,5 @@ dist/
 build/
 miniapp/node_modules/
 miniapp/dist/
+# Секрет: GitHub PAT для MCP (см. docs/Как_связать_Cursor_с_задачами.md)
+.cursor/mcp.json
