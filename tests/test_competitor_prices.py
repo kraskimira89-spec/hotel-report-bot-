@@ -67,7 +67,7 @@ def test_parse_static_by_config_selectors() -> None:
     assert parse_static_competitor_html(_read_fixture("kuhterin.html"), kuhterin) == 4500.0
 
 
-def test_collect_competitor_prices_skips_widgets() -> None:
+def test_collect_competitor_prices_skips_widgets_when_disabled() -> None:
     reload_config()
     site_cfg = SitePricesConfig(
         user_agent="test-agent",
@@ -96,20 +96,28 @@ def test_collect_competitor_prices_skips_widgets() -> None:
             parser="tl_widget",
         ),
     ]
-    result = collect_competitor_prices(competitors, site_cfg, client=mock_client)
-    assert result["Гоголь"] == 3600.0
-    assert result["Bon Apart"] is None
+    result = collect_competitor_prices(
+        competitors,
+        site_cfg,
+        client=mock_client,
+        enable_widgets=False,
+    )
+    assert result["Гоголь"].price_from == 3600.0
+    assert result["Bon Apart"].price_from is None
+    assert result["Bon Apart"].available is False
 
 
 def test_fetch_competitor_prices_marks_widget_unavailable(monkeypatch) -> None:
+    from src.data_sources.competitor_prices import CollectedCompetitorPrice
+
     cfg = reload_config()
     monkeypatch.setattr(
         "src.data_sources.market_trends.collect_competitor_prices",
-        lambda competitors, site_cfg, client=None: {
-            "Апартаменты Петровские": 12000.0,
-            "Гоголь": 3600.0,
-            "Кухтерин": 4500.0,
-            "Bon Apart (Банапарт)": None,
+        lambda competitors, site_cfg, client=None, **kwargs: {
+            "Апартаменты Петровские": CollectedCompetitorPrice(price_from=12000.0),
+            "Гоголь": CollectedCompetitorPrice(price_from=3600.0),
+            "Кухтерин": CollectedCompetitorPrice(price_from=4500.0),
+            "Bon Apart (Банапарт)": CollectedCompetitorPrice(),
         },
     )
     monkeypatch.setattr(

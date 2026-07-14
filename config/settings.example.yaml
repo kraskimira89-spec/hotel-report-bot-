@@ -8,7 +8,7 @@ scheduler:
   daily_summary_cron: 5 9 * * *
   weekly_email_cron: 0 8 * * 1
   weekly_trends_cron: 0 7 * * 1
-  competitor_prices_cron: 30 9 * * *
+  competitor_prices_cron: 30 9 * * 1
 analytics:
   enabled: true
   period_days: 14

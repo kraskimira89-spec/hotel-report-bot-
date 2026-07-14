@@ -36,7 +36,7 @@ class SchedulerConfig(BaseModel):
     daily_summary_cron: str = "5 9 * * *"
     weekly_email_cron: str = "0 8 * * 1"
     weekly_trends_cron: str = "0 7 * * 1"
-    competitor_prices_cron: str = "30 9 * * *"
+    competitor_prices_cron: str = "30 9 * * 1"  # пн 09:30 — автосбор цен (Playwright)
 
 
 class DeployConfig(BaseModel):
@@ -55,6 +55,7 @@ class DeployConfig(BaseModel):
             "daily_summary",
             "weekly_email",
             "weekly_trends",
+            "competitor_prices",
         ]
     )
 

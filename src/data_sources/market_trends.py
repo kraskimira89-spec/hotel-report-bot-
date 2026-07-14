@@ -424,18 +424,40 @@ def collect_and_save_competitor_prices(snapshot_date: date | None = None) -> int
     if not cfg.competitors:
         return 0
 
-    prices_map = collect_competitor_prices(cfg.competitors, cfg.site_prices)
+    prices_map = collect_competitor_prices(
+        cfg.competitors,
+        cfg.site_prices,
+        snapshot_date=snapshot_date,
+        enable_widgets=True,
+    )
+    from src.storage.db import get_competitor_prices_latest
+
+    latest_db = {r.competitor_name: r for r in get_competitor_prices_latest()}
     records: list[CompetitorPriceRecord] = []
     for item in cfg.competitors:
-        price = prices_map.get(item.name)
-        available = price is not None
+        collected = prices_map.get(item.name)
+        price = collected.price_from if collected else None
+        source = collected.source if collected else "dom"
+        screenshot = collected.screenshot_path if collected else None
+        # Graceful: при сбое виджета — последний успешный snapshot.
+        if price is None and item.name in latest_db and latest_db[item.name].available:
+            prev = latest_db[item.name]
+            price = prev.price_from
+            source = prev.source
+            screenshot = screenshot or prev.screenshot_path
+            logger.info(
+                "Фолбэк на последний snapshot для %s (цена=%s)",
+                item.name,
+                price,
+            )
         records.append(
             CompetitorPriceRecord(
                 competitor_name=item.name,
                 date=snapshot_date,
                 price_from=price,
-                source="dom" if item.parser == "static" else "vision",
-                available=available,
+                source=source,
+                screenshot_path=screenshot,
+                available=price is not None,
             )
         )
     return save_competitor_prices(records)
@@ -455,17 +477,22 @@ def fetch_competitor_prices(
     from src.storage.db import get_competitor_prices_latest
 
     latest_db = {r.competitor_name: r for r in get_competitor_prices_latest()}
-    live_map = collect_competitor_prices(cfg.competitors, cfg.site_prices)
+    live_map = collect_competitor_prices(
+        cfg.competitors,
+        cfg.site_prices,
+        enable_widgets=False,
+    )
 
     result: list[CompetitorPriceInfo] = []
     for item in cfg.competitors:
-        live_price = live_map.get(item.name)
+        live = live_map.get(item.name)
+        live_price = live.price_from if live else None
         db_row = latest_db.get(item.name)
         if live_price is not None:
             price = live_price
-            source = "dom"
+            source = live.source if live else "dom"
             collected = date.today()
-            screenshot = None
+            screenshot = live.screenshot_path if live else None
         elif db_row is not None:
             price = db_row.price_from
             source = db_row.source

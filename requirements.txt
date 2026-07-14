@@ -3,6 +3,7 @@ google-auth
 httpx
 beautifulsoup4
 lxml
+playwright
 fastapi
 uvicorn
 jinja2

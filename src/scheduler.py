@@ -77,6 +77,20 @@ def job_price_snapshot(
         report_date,
         lambda: run_daily_reconciliation(report_date),
     )
+
+
+def job_competitor_prices(
+    report_date: date | None = None,
+    run_date: date | None = None,
+) -> None:
+    """Еженедельный автосбор цен конкурентов (Playwright + static)."""
+    run_date = run_date or _msk_now().date()
+    report_date = report_date or run_date
+    logger.info(
+        "Задача competitor_prices: report_date=%s, run_date=%s",
+        report_date,
+        run_date,
+    )
     _run_job(
         "competitor_prices",
         run_date,
@@ -266,6 +280,7 @@ def create_scheduler() -> BackgroundScheduler:
     trends_kw = _parse_cron(cfg.scheduler.weekly_trends_cron)
     analytics_cron = getattr(cfg.analytics, "refresh_cron", "15 9 * * *")
     analytics_kw = _parse_cron(analytics_cron)
+    competitors_kw = _parse_cron(cfg.scheduler.competitor_prices_cron)
 
     scheduler.add_job(
         job_price_snapshot,
@@ -298,6 +313,12 @@ def create_scheduler() -> BackgroundScheduler:
             id="analytics_insights",
             name="ИИ-аналитика",
         )
+    scheduler.add_job(
+        job_competitor_prices,
+        CronTrigger(timezone=tz, **competitors_kw),
+        id="competitor_prices",
+        name="Цены конкурентов",
+    )
 
     scheduler.add_listener(_on_job_finished, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
 

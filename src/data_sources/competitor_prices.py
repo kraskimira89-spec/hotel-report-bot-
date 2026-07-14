@@ -1,4 +1,4 @@
-"""Парсинг публичных цен конкурентов (static HTML, этап 6/7)."""
+"""Парсинг публичных цен конкурентов (static HTML + виджеты, этап 6/7)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import logging
 import random
 import re
 import time
+from dataclasses import dataclass
+from datetime import date
 from typing import Protocol
 from urllib.parse import urlparse
 
@@ -17,11 +19,25 @@ from src.data_sources.site_prices import (
     is_path_allowed,
     parse_robots_disallow,
 )
+from src.data_sources.tl_ibe import collect_widget_prices
 from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
 _WIDGET_PARSERS = frozenset({"widget", "tl_widget", "wubook_widget"})
+
+
+@dataclass
+class CollectedCompetitorPrice:
+    """Результат сбора цены одного конкурента."""
+
+    price_from: float | None = None
+    source: str = "dom"
+    screenshot_path: str | None = None
+
+    @property
+    def available(self) -> bool:
+        return self.price_from is not None
 
 
 class HttpClient(Protocol):
@@ -206,15 +222,37 @@ def collect_competitor_prices(
     competitors: list[CompetitorConfig],
     site_cfg: SitePricesConfig,
     client: HttpClient | None = None,
-) -> dict[str, float | None]:
-    """Собрать цены по списку конкурентов. Widget — пропуск."""
-    result: dict[str, float | None] = {}
+    *,
+    snapshot_date: date | None = None,
+    enable_widgets: bool = True,
+) -> dict[str, CollectedCompetitorPrice]:
+    """Собрать цены: static (BS) + tl_widget/wubook (Playwright)."""
+    result: dict[str, CollectedCompetitorPrice] = {}
     for item in competitors:
         if item.parser in _WIDGET_PARSERS:
-            result[item.name] = None
             continue
         if item.parser != "static":
-            result[item.name] = None
+            result[item.name] = CollectedCompetitorPrice()
             continue
-        result[item.name] = fetch_static_competitor_price(item, site_cfg, client=client)
+        price = fetch_static_competitor_price(item, site_cfg, client=client)
+        result[item.name] = CollectedCompetitorPrice(
+            price_from=price,
+            source="dom",
+        )
+
+    widget_map = collect_widget_prices(
+        competitors,
+        site_cfg,
+        snapshot_date=snapshot_date,
+        enable_widgets=enable_widgets,
+    )
+    for name, widget in widget_map.items():
+        result[name] = CollectedCompetitorPrice(
+            price_from=widget.price_from,
+            source=widget.source if widget.price_from is not None else "dom",
+            screenshot_path=widget.screenshot_path,
+        )
+    # Гарантируем ключ для каждого конкурента из конфига.
+    for item in competitors:
+        result.setdefault(item.name, CollectedCompetitorPrice())
     return result
