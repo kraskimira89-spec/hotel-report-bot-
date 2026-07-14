@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock
 
-import httpx
 import pytest
 
 from src.config import CompetitorConfig, SitePricesConfig
