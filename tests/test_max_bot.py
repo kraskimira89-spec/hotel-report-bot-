@@ -105,13 +105,13 @@ def _sample_summary() -> DailySummaryData:
         ],
         prices=[
             CategoryPriceLine(
-                category="1room23",
+                category="Однокомнатные квартиры 23 м²",
                 price=4500.0,
                 change_pct=0.0,
                 traffic_light="🟢",
             ),
             CategoryPriceLine(
-                category="1room",
+                category="Однокомнатные квартиры 27 м²",
                 price=5000.0,
                 change_pct=5.5,
                 traffic_light="🟡",
@@ -128,7 +128,8 @@ def test_build_daily_summary_text_contains_sections() -> None:
     assert "Итого" in text
     assert "Новые брони" in text
     assert "1apart.ru" in text
-    assert "1room23" in text
+    assert "Однокомнатные квартиры 23 м²" in text
+    assert "1room" not in text
     assert "4 500" in text or "4500" in text
 
 

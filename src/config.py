@@ -245,6 +245,8 @@ class AppConfig(BaseModel):
     site_prices: SitePricesConfig = Field(default_factory=SitePricesConfig)
     competitors: list[CompetitorConfig] = Field(default_factory=list)
     competitor_category_map: dict[str, str] = Field(default_factory=dict)
+    category_slug_map: dict[str, str] = Field(default_factory=dict)
+    room_type_aliases: dict[str, str] = Field(default_factory=dict)
     market_news: MarketNewsConfig = Field(default_factory=MarketNewsConfig)
     travelline: TravelLineConfig = Field(default_factory=TravelLineConfig)
     max_bot: MaxBotConfig = Field(default_factory=MaxBotConfig)

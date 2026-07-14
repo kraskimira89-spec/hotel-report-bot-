@@ -77,6 +77,16 @@ site_prices:
     data_price: '[data-price]'
     price_value: .price-value
     price_from_regex: от\s*([\d\s\u00a0]+)\s*(?:руб|₽|Р|р\.?)
+category_slug_map:
+  1room23: Однокомнатные квартиры 23 м²
+  1room: Однокомнатные квартиры 27 м²
+  uluchshennyie-odnokomnatnyie-kvartiryi: Улучшенные однокомнатные квартиры
+  family-30: Однокомнатные квартиры с диванчиком
+  dvuxkomnatnyie-kvartiryi-(2-krovati): Двухкомнатная квартира (2 кровати)
+  dvuxkomnatnyie-kvartiryi-3: Двухкомнатная квартира (3 кровати)
+  80m2-apartamentyi: Двухкомнатные квартиры люкс
+room_type_aliases:
+  Luxe: Люкс
 competitors:
 - name: Апартаменты Петровские
   type: direct

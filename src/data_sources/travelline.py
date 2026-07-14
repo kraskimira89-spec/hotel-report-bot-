@@ -310,6 +310,17 @@ def parse_dynamic_prices(payload: dict[str, Any]) -> list[DynamicPriceDay]:
     return prices
 
 
+class StayOccupancyResult(BaseModel):
+    """Загрузка на ночь по TravelLine (dateKind=1 — даты проживания)."""
+
+    stay_date: date
+    sold: int = 0
+    available: int = 0
+    occupancy_pct: float = 0.0
+    by_type: dict[str, int] = Field(default_factory=dict)  # label → занято
+    source: str = "travelline"
+
+
 def calc_reconcile_diff_pct(tl_value: float, sheets_value: float) -> float:
     """Процент расхождения относительно Sheets."""
     if sheets_value == 0:
@@ -924,6 +935,99 @@ class TravelLineClient:
             params=params,
         )
         return parse_dynamic_prices(payload)
+
+    def get_stay_occupancy(self, stay_date: date) -> StayOccupancyResult:
+        """Загрузка на ночь stay_date из analytics/services (dateKind=1).
+
+        Считаем уникальные брони с проживанием в эту ночь; при деталях —
+        раскладываем по типам номеров из roomStays.
+        """
+        from src.utils.category_labels import room_type_label
+
+        total_units = self.config.property.total_units
+        services = self.get_analytics_services(stay_date, stay_date, date_kind=1)
+        numbers = sorted({s.booking_number for s in services if s.booking_number})
+        by_type: dict[str, int] = {}
+        sold = 0
+        details_loaded = False
+        cancelled_statuses = {
+            "cancelled",
+            "canceled",
+            "отменена",
+            "отменен",
+            "noshow",
+            "no-show",
+            "незаезд",
+        }
+
+        if not numbers:
+            return StayOccupancyResult(
+                stay_date=stay_date,
+                sold=0,
+                available=total_units,
+                occupancy_pct=0.0,
+                by_type={},
+            )
+
+        for number in numbers:
+            try:
+                booking = self.get_booking(number)
+                details_loaded = True
+            except TravelLineError:
+                sold += 1
+                by_type["Прочее"] = by_type.get("Прочее", 0) + 1
+                continue
+
+            status = str(booking.get("status") or "").strip().lower()
+            if status in cancelled_statuses:
+                continue
+
+            stays = [
+                s for s in (booking.get("roomStays") or []) if isinstance(s, dict)
+            ]
+            if not stays:
+                sold += 1
+                by_type["Прочее"] = by_type.get("Прочее", 0) + 1
+                continue
+
+            for stay in stays:
+                arrival = parse_tl_date(str(stay.get("arrivalDate") or stay.get("startDate") or ""))
+                departure = parse_tl_date(
+                    str(stay.get("departureDate") or stay.get("endDate") or "")
+                )
+                if arrival and departure and not (arrival <= stay_date < departure):
+                    continue
+                room_type = stay.get("roomType") or {}
+                if isinstance(room_type, dict):
+                    raw_name = (
+                        room_type.get("name")
+                        or room_type.get("shortName")
+                        or room_type.get("code")
+                        or "Категория"
+                    )
+                else:
+                    raw_name = str(room_type or "Категория")
+                label = room_type_label(
+                    str(raw_name),
+                    self.config.room_type_aliases,
+                )
+                by_type[label] = by_type.get(label, 0) + 1
+                sold += 1
+
+        if sold == 0 and numbers and not details_loaded:
+            # Детали недоступны — fallback: 1 бронь = 1 занятая квартира.
+            sold = len(numbers)
+            by_type = {"Все категории": sold}
+
+        available = total_units
+        pct = round(sold / available * 100, 2) if available > 0 else 0.0
+        return StayOccupancyResult(
+            stay_date=stay_date,
+            sold=sold,
+            available=available,
+            occupancy_pct=pct,
+            by_type=by_type,
+        )
 
 
 def reconcile_with_sheets(

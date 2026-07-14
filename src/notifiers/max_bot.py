@@ -28,6 +28,7 @@ from src.storage.db import (
     save_report_log,
 )
 from src.storage.models import ErrorLogRecord, ReportLogRecord
+from src.utils.category_labels import category_label, room_type_label
 from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -174,13 +175,109 @@ def prepare_daily_summary_data(
     room_types, totals = aggregate_room_status(occupancy)
     sold = totals.occupied + totals.booked
     available = totals.total or cfg.property.total_units
-    if occ_day and occ_day.travelline_pct is not None:
-        occupancy_pct = occ_day.travelline_pct
-    else:
-        occupancy_pct = calc_occupancy(sold, available)
+    occupancy_pct = calc_occupancy(sold, available)
+    occupancy_source = "sheets"
+
+    # 1) Живые данные TravelLine (эталон «Доходность и загрузка»).
+    try:
+        from src.data_sources.travelline import TravelLineClient, TravelLineError
+
+        tl_occ = TravelLineClient(cfg).get_stay_occupancy(report_date)
+        # Если API пустой, а в Sheets уже есть ненулевая загрузка — не затираем.
+        sheets_hint = 0.0
+        if occ_day and occ_day.travelline_pct is not None:
+            sheets_hint = float(occ_day.travelline_pct)
+        elif occ_day and occ_day.total_pct is not None:
+            sheets_hint = float(occ_day.total_pct)
+        elif sold > 0:
+            sheets_hint = float(sold)
+
+        if tl_occ.sold == 0 and sheets_hint > 0:
+            warnings.append(
+                "TravelLine вернул 0 занятых при ненулевых данных Sheets — "
+                "используем Sheets."
+            )
+        else:
+            free_total = max(tl_occ.available - tl_occ.sold, 0)
+            room_types = [
+                RoomStatusSummary(
+                    label=label,
+                    free=0,
+                    occupied=occupied,
+                    booked=0,
+                )
+                for label, occupied in sorted(tl_occ.by_type.items())
+            ]
+            if not room_types:
+                room_types = [
+                    RoomStatusSummary(
+                        label="Все категории",
+                        free=free_total,
+                        occupied=tl_occ.sold,
+                        booked=0,
+                    )
+                ]
+            totals = RoomStatusSummary(
+                label="Итого",
+                free=free_total,
+                occupied=tl_occ.sold,
+                booked=0,
+            )
+            occupancy_pct = tl_occ.occupancy_pct
+            occupancy_source = "travelline"
+            logger.info(
+                "Загрузка из TravelLine на %s: %.1f%% (%s/%s)",
+                report_date,
+                occupancy_pct,
+                tl_occ.sold,
+                tl_occ.available,
+            )
+    except TravelLineError as exc:
+        warnings.append(f"Загрузка TravelLine недоступна, берём Sheets: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Загрузка TravelLine пропущена: %s", exc)
+        warnings.append("Загрузка TravelLine недоступна, используются данные Sheets.")
+
+    # 2) Фолбэк Sheets: строка «% из Traveline», иначе счётчики / общее кол-во.
+    if occupancy_source != "travelline":
+        room_types, totals = aggregate_room_status(occupancy)
+        room_types = [
+            RoomStatusSummary(
+                label=room_type_label(r.label, cfg.room_type_aliases),
+                free=r.free,
+                occupied=r.occupied,
+                booked=r.booked,
+            )
+            for r in room_types
+        ]
+        sold = totals.occupied + totals.booked
+        available = totals.total or cfg.property.total_units
+        if occ_day and occ_day.travelline_pct is not None:
+            occupancy_pct = occ_day.travelline_pct
+            occupancy_source = "sheets_travelline_row"
+        elif occ_day and occ_day.total_pct is not None and occ_day.total_pct >= 0:
+            # В суточном блоке «общее кол-во» — число занятых квартир, не %.
+            total_occupied = int(round(occ_day.total_pct))
+            if total_occupied <= cfg.property.total_units:
+                occupancy_pct = calc_occupancy(
+                    total_occupied,
+                    cfg.property.total_units,
+                )
+            else:
+                # Иногда туда попадает уже процент.
+                occupancy_pct = float(occ_day.total_pct)
+            occupancy_source = "sheets_total"
+        else:
+            occupancy_pct = calc_occupancy(sold, available)
+            occupancy_source = "sheets_calc"
+
     occupancy_light = traffic_light(
         occupancy_pct, cfg.traffic_light, metric="occupancy"
     )
+    if occupancy_source == "travelline":
+        warnings.append("Загрузка и статусы номеров — по TravelLine.")
+    elif occupancy_source == "sheets_travelline_row":
+        warnings.append("Загрузка — строка «% из Traveline» из Sheets.")
 
     day_bookings = [
         b for b in bookings.records if b.report_date == report_date
@@ -215,7 +312,7 @@ def prepare_daily_summary_data(
         )
         price_lines.append(
             CategoryPriceLine(
-                category=item.category,
+                category=category_label(item.category, cfg.category_slug_map),
                 price=item.reference_price,
                 change_pct=change,
                 traffic_light=light,
