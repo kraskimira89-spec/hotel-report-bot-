@@ -34,14 +34,21 @@ app.add_middleware(SessionMiddleware, secret_key=get_env_settings().secret_key)
 
 
 class HttpsRedirectMiddleware(BaseHTTPMiddleware):
-    """Редирект на HTTPS в проде (за reverse proxy)."""
+    """Редирект на HTTPS в проде (за reverse proxy).
+
+    /health не трогаем — Docker healthcheck ходит по HTTP на 127.0.0.1.
+    """
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         if get_env_settings().web_force_https:
-            proto = request.headers.get("x-forwarded-proto", request.url.scheme)
-            if proto != "https":
-                url = str(request.url).replace("http://", "https://", 1)
-                return RedirectResponse(url, status_code=status.HTTP_301_MOVED_PERMANENTLY)
+            path = request.url.path
+            if path != "/health" and not path.startswith("/health/"):
+                proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+                if proto != "https":
+                    url = str(request.url).replace("http://", "https://", 1)
+                    return RedirectResponse(
+                        url, status_code=status.HTTP_301_MOVED_PERMANENTLY
+                    )
         response = await call_next(request)
         return cast(Response, response)
 

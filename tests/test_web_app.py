@@ -240,3 +240,27 @@ def test_save_settings_thresholds(web_client: TestClient) -> None:
     assert response.status_code == 302
     cfg = reload_config()
     assert cfg.traffic_light.occupancy_green_min == 80.0
+
+
+def test_health_skips_https_redirect(web_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Docker healthcheck ходит на HTTP /health при WEB_FORCE_HTTPS=true."""
+    monkeypatch.setattr(
+        "src.web.app.get_env_settings",
+        lambda: type(
+            "E",
+            (),
+            {
+                "secret_key": "test-secret",
+                "admin_password": "admin",
+                "admin_token": "",
+                "web_force_https": True,
+                "max_webhook_secret": "",
+            },
+        )(),
+    )
+    health = web_client.get("/health", follow_redirects=False)
+    assert health.status_code == 200
+    assert health.json() == {"status": "ok"}
+
+    login = web_client.get("/login", follow_redirects=False)
+    assert login.status_code == 301
