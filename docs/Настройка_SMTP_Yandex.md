@@ -51,13 +51,34 @@
 
 ### `config/.env` (на VPS и локально, не в Git)
 
+Вариант A — 587 + STARTTLS:
+
 ```
 SMTP_HOST=smtp.yandex.ru
 SMTP_PORT=587
 SMTP_USER=bogdanchik2@yandex.ru
 SMTP_PASSWORD=ваш_пароль_приложения
 SMTP_USE_TLS=true
+SMTP_USE_SSL=false
 ```
+
+Вариант B — 465 + SSL:
+
+```
+SMTP_HOST=smtp.yandex.ru
+SMTP_PORT=465
+SMTP_USER=bogdanchik2@yandex.ru
+SMTP_PASSWORD=ваш_пароль_приложения
+SMTP_USE_TLS=false
+SMTP_USE_SSL=true
+```
+
+### Важно для VPS
+
+Многие хостинги **блокируют исходящие порты 25/465/587**.  
+Если с сервера письмо не уходит, а локально уходит — попросите провайдера открыть исходящий SMTP или используйте транзакционный API по HTTPS.
+
+В dry_run получатели берутся из `email.test_addresses` (обязательно задайте список).
 
 ### `config/settings.yaml`
 
