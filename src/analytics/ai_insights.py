@@ -22,12 +22,22 @@ from src.storage.db import (
     replace_insights,
 )
 from src.storage.models import InsightRecord
+from src.utils.metric_labels import (
+    ADR_RU,
+    REVPAR_RU,
+    expand_metric_abbrs,
+    looks_mostly_english,
+)
 
 logger = logging.getLogger(__name__)
 
 INSIGHT_TOPICS: list[dict[str, str]] = [
     {"id": "occupancy", "label": "Загрузка и динамика", "group": "travelline"},
-    {"id": "revenue", "label": "Доход / ADR / RevPAR", "group": "travelline"},
+    {
+        "id": "revenue",
+        "label": "Доход / ADR (средняя цена) / RevPAR (доход на номер)",
+        "group": "travelline",
+    },
     {"id": "channels", "label": "Каналы продаж", "group": "travelline"},
     {"id": "returning_guests", "label": "Повторные гости", "group": "travelline"},
     {"id": "cancellations", "label": "Отмены", "group": "travelline"},
@@ -70,9 +80,9 @@ def parse_llm_insight_json(raw: str, topic: str, source: str, period: str) -> In
         recs = [recs]
     return InsightCard(
         topic=topic,
-        title=str(data.get("title") or topic),
-        summary=str(data.get("summary") or ""),
-        recommendations=[str(r) for r in recs][:3],
+        title=expand_metric_abbrs(str(data.get("title") or topic)),
+        summary=expand_metric_abbrs(str(data.get("summary") or "")),
+        recommendations=[expand_metric_abbrs(str(r)) for r in recs][:3],
         severity=severity,
         source=source,
         period=period,
@@ -255,19 +265,19 @@ def _rule_based_cards(ctx: dict[str, Any]) -> list[InsightCard]:
         InsightCard(
             topic="revenue",
             title=(
-                f"RevPAR {rev['revpar']:.0f} ₽"
+                f"{REVPAR_RU} {rev['revpar']:.0f} ₽"
                 if rev["revpar"] is not None
                 else "Доход: мало данных"
             ),
             summary=(
-                f"ADR {rev['adr']:.0f} ₽, RevPAR {rev['revpar']:.0f} ₽ "
+                f"{ADR_RU} {rev['adr']:.0f} ₽, {REVPAR_RU} {rev['revpar']:.0f} ₽ "
                 f"(к прошлому периоду {rev_delta})."
                 if rev["adr"] is not None and rev["revpar"] is not None
-                else "Недостаточно метрик ADR/RevPAR в SQLite."
+                else f"Недостаточно метрик {ADR_RU} / {REVPAR_RU} в SQLite."
             ),
             recommendations=[
-                "Проверить вклад категорий в ADR",
-                "Не демпинговать слишком глубоко — следить за RevPAR",
+                f"Проверить вклад категорий в {ADR_RU}",
+                f"Не демпинговать слишком глубоко — следить за {REVPAR_RU}",
                 "Сверить с отчётом TravelLine «Доходность и загрузка»",
             ],
             severity=rev_sev,
@@ -392,7 +402,7 @@ def _rule_based_cards(ctx: dict[str, Any]) -> list[InsightCard]:
                 ),
                 recommendations=[
                     "Сверить наши «цены от» с минимумом рынка",
-                    "Не опускаться ниже порога RevPAR ради загрузки",
+                    f"Не опускаться ниже порога {REVPAR_RU} ради загрузки",
                     "Обновлять сбор цен еженедельно",
                 ],
                 severity="attention",
@@ -475,8 +485,8 @@ def _rule_based_cards(ctx: dict[str, Any]) -> list[InsightCard]:
             ),
             recommendations=[
                 "Календарь событий города в TL за 2–3 недели",
-                "Пиковые выходные — не занижать ADR заранее",
-                "Будни midweek — пакеты для business stay",
+                f"Пиковые выходные — не занижать {ADR_RU} заранее",
+                "Будни — пакеты для длительного проживания (business stay)",
             ],
             severity="info",
             source="web",
@@ -525,34 +535,83 @@ def _rule_based_cards(ctx: dict[str, Any]) -> list[InsightCard]:
     return cards
 
 
+def _build_llm_headers(api_key: str, folder_id: str = "") -> dict[str, str]:
+    """Заголовки Chat Completions: YandexGPT (Api-Key) или OpenAI (Bearer)."""
+    if folder_id:
+        return {
+            "Authorization": f"Api-Key {api_key}",
+            "Content-Type": "application/json",
+            "OpenAI-Project": folder_id,
+        }
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+
+def _resolve_llm_settings() -> tuple[str, str, str, str]:
+    """api_key, base_url, model, folder_id (LLM_* с фолбэком на OPENAI_*)."""
+    env = get_env_settings()
+    api_key = (
+        (getattr(env, "llm_api_key", "") or "")
+        or (getattr(env, "openai_api_key", "") or "")
+    ).strip()
+    folder_id = (getattr(env, "llm_folder_id", "") or "").strip()
+    base_url = (
+        (getattr(env, "llm_base_url", "") or "")
+        or (getattr(env, "openai_base_url", "") or "")
+        or "https://api.openai.com/v1"
+    ).strip()
+    model = (
+        (getattr(env, "llm_model", "") or "")
+        or (getattr(env, "openai_model", "") or "")
+        or "gpt-4o-mini"
+    ).strip()
+    if folder_id and "yandex" not in base_url:
+        base_url = "https://ai.api.cloud.yandex.net/v1"
+    if folder_id and (not model or model == "gpt-4o-mini"):
+        model = f"gpt://{folder_id}/yandexgpt-lite/latest"
+    return api_key, base_url, model, folder_id
+
+
 def _call_llm(
     topic: str,
     context: dict[str, Any],
     api_key: str,
     base_url: str,
     model: str,
+    folder_id: str = "",
 ) -> InsightCard | None:
-    """Один вызов OpenAI-compatible Chat Completions."""
+    """Один вызов OpenAI-compatible Chat Completions (YandexGPT / OpenAI)."""
     prompt = (
         "Ты аналитик апарт-отеля 1apart (Томск, 44 кв.). "
+        "Пиши ТОЛЬКО по-русски: title, summary и recommendations на русском. "
+        "Запрещены английские фразы вроде Occupancy Data, unavailable, Regulation. "
+        "Аббревиатуры расшифровывай: "
+        f"{ADR_RU}; {REVPAR_RU}; ALS (средний срок проживания). "
+        "Загрузку называй «загрузка», не Occupancy. "
         "По контексту верни ТОЛЬКО JSON без markdown:\n"
         '{"title":"...","summary":"1-2 предложения","recommendations":["...","..."],'
         '"severity":"info|attention|action"}\n'
         f"Тема: {topic}\nКонтекст: {json.dumps(context, ensure_ascii=False)[:3500]}"
     )
     url = base_url.rstrip("/") + "/chat/completions"
+    headers = _build_llm_headers(api_key, folder_id=folder_id)
     try:
         with httpx.Client(timeout=45.0) as client:
             resp = client.post(
                 url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=headers,
                 json={
                     "model": model,
                     "messages": [
-                        {"role": "system", "content": "Отвечай только валидным JSON."},
+                        {
+                            "role": "system",
+                            "content": (
+                                "Отвечай только валидным JSON. "
+                                "Весь текст полей — строго на русском языке."
+                            ),
+                        },
                         {"role": "user", "content": prompt},
                     ],
                     "temperature": 0.3,
@@ -564,7 +623,13 @@ def _call_llm(
         content = resp.json()["choices"][0]["message"]["content"]
         topic_meta = next((t for t in INSIGHT_TOPICS if t["id"] == topic), {})
         source = "web" if topic_meta.get("group") == "web" else "travelline"
-        return parse_llm_insight_json(content, topic, source, context.get("period", ""))
+        card = parse_llm_insight_json(content, topic, source, context.get("period", ""))
+        # Сбой модели (английский текст) — не сохраняем
+        sample = f"{card.title} {card.summary}"
+        if looks_mostly_english(sample):
+            logger.warning("LLM вернул английский текст для %s — отбрасываем", topic)
+            return None
+        return card
     except Exception as exc:  # noqa: BLE001
         logger.warning("LLM ошибка для %s: %s", topic, exc)
         return None
@@ -573,10 +638,7 @@ def _call_llm(
 def generate_insights(period_days: int = 14, use_llm: bool = True) -> list[InsightCard]:
     """Батч-генерация карточек: LLM при наличии ключа, иначе правила."""
     ctx = _collect_context(period_days=period_days)
-    env = get_env_settings()
-    api_key = (getattr(env, "openai_api_key", "") or "").strip()
-    base_url = (getattr(env, "openai_base_url", "") or "https://api.openai.com/v1").strip()
-    model = (getattr(env, "openai_model", "") or "gpt-4o-mini").strip()
+    api_key, base_url, model, folder_id = _resolve_llm_settings()
 
     if use_llm and api_key:
         cards: list[InsightCard] = []
@@ -597,7 +659,9 @@ def generate_insights(period_days: int = 14, use_llm: bool = True) -> list[Insig
                 "competitors": ctx["competitors"][:5],
                 "trends": ctx["trends"][:3],
             }
-            card = _call_llm(tid, slim, api_key, base_url, model)
+            card = _call_llm(
+                tid, slim, api_key, base_url, model, folder_id=folder_id
+            )
             if card is None:
                 # подставим rule-based по этой теме
                 rules = {c.topic: c for c in _rule_based_cards(ctx)}

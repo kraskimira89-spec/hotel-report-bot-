@@ -86,7 +86,7 @@ def _sample_report(*, estimated: bool = False) -> WeeklyReportData:
 def test_build_weekly_report_html_sections() -> None:
     html = build_weekly_report_html(_sample_report())
     assert "Еженедельный отчёт 1apart" in html
-    assert "Загрузка (Occupancy)" in html
+    assert "Загрузка" in html
     assert "Ключевые метрики" in html
     assert "Тренды рынка" in html
     assert "Конкуренты" in html
@@ -102,7 +102,8 @@ def test_build_weekly_report_html_estimated_marker() -> None:
 
 def test_build_weekly_report_plain_key_figures() -> None:
     plain = build_weekly_report_plain(_sample_report(estimated=True))
-    assert "ADR: 5 000 руб. (оценочный)" in plain
+    assert "ADR (средняя цена номера за сутки): 5 000 руб. (оценочный)" in plain
+    assert "RevPAR (доход на доступный номер): 3 400 руб. (оценочный)" in plain
     assert "Прямые: 55.0%" in plain
     assert "Спрос стабилен" in plain
 

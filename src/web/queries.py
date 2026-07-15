@@ -26,6 +26,8 @@ from src.storage.db import (
     insights_count,
 )
 from src.web.market_intel import build_competitor_cards
+from src.utils.category_labels import category_label
+from src.utils.metric_labels import expand_metric_abbrs, expand_metric_abbrs_list
 
 
 def fetch_latest_metrics() -> dict[str, Any] | None:
@@ -119,7 +121,7 @@ def fetch_dashboard_data() -> dict[str, Any]:
 
 
 def fetch_snapshot_rows(limit: int = 200) -> list[dict[str, Any]]:
-    """История snapshot цен."""
+    """История снимков цен с русскими названиями категорий."""
     with db_session() as conn:
         rows = conn.execute(
             """
@@ -130,7 +132,13 @@ def fetch_snapshot_rows(limit: int = 200) -> list[dict[str, Any]]:
             """,
             (limit,),
         ).fetchall()
-    return [dict(r) for r in rows]
+    slug_map = get_config().category_slug_map
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        item = dict(r)
+        item["category_label"] = category_label(str(item.get("category") or ""), slug_map)
+        out.append(item)
+    return out
 
 
 def fetch_snapshot_chart() -> list[dict[str, Any]]:
@@ -145,7 +153,15 @@ def fetch_snapshot_chart() -> list[dict[str, Any]]:
             LIMIT 84
             """
         ).fetchall()
-    return [dict(r) for r in rows]
+    slug_map = get_config().category_slug_map
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        item = dict(r)
+        label = category_label(str(item.get("category") or ""), slug_map)
+        item["category_label"] = label
+        item["category_short"] = (label[:9] + "…") if len(label) > 10 else label
+        out.append(item)
+    return out
 
 
 def fetch_metrics_rows(days: int = 90) -> list[dict[str, Any]]:
@@ -525,7 +541,7 @@ _SEVERITY_RANK = {"action": 0, "attention": 1, "info": 2}
 
 _TOPIC_LABELS = {
     "occupancy": "Загрузка и динамика",
-    "revenue": "Доход / ADR / RevPAR",
+    "revenue": "Доход / ADR (средняя цена) / RevPAR (доход на номер)",
     "channels": "Каналы продаж",
     "returning_guests": "Повторные гости",
     "cancellations": "Отмены",
@@ -550,9 +566,9 @@ def get_insights(
                 "id": r.id,
                 "topic": r.topic,
                 "topic_label": _TOPIC_LABELS.get(r.topic, r.topic),
-                "title": r.title,
-                "summary": r.summary,
-                "recommendations": r.recommendations,
+                "title": expand_metric_abbrs(r.title),
+                "summary": expand_metric_abbrs(r.summary),
+                "recommendations": expand_metric_abbrs_list(r.recommendations),
                 "severity": r.severity,
                 "source": r.source,
                 "source_label": {

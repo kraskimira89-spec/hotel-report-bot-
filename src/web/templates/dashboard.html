@@ -7,7 +7,7 @@
 <div class="card">
     <h2>Объект</h2>
     <p>{{ config.property.total_units }} квартир · {{ config.property.categories }} категорий</p>
-    <p>Dry-run: <span class="badge {% if config.dry_run %}badge-yellow{% else %}badge-green{% endif %}">
+    <p>Тестовый режим: <span class="badge {% if config.dry_run %}badge-yellow{% else %}badge-green{% endif %}">
         {{ "включён" if config.dry_run else "выключен" }}
     </span></p>
 </div>
@@ -16,7 +16,7 @@
     <h2>Текущая загрузка</h2>
     {% if data.latest_metrics %}
     <p class="big">{{ data.latest_metrics.occupancy_pct or "—" }}%</p>
-    <p>ADR: {{ data.latest_metrics.adr or "—" }} · RevPAR: {{ data.latest_metrics.revpar or "—" }}</p>
+    <p>ADR (средняя цена): {{ data.latest_metrics.adr or "—" }} · RevPAR (доход на номер): {{ data.latest_metrics.revpar or "—" }}</p>
     {% else %}
     <p class="muted">Нет метрик в БД</p>
     {% endif %}
@@ -28,7 +28,7 @@
     <h2>Последняя отправка Max</h2>
     {% if data.last_reports.max %}
     <p>Статус: <span class="badge badge-green">{{ data.last_reports.max.status }}</span></p>
-    <p>Дата: {{ data.last_reports.max.report_date }}{% if data.last_reports.max.dry_run %} (dry-run){% endif %}</p>
+    <p>Дата: {{ data.last_reports.max.report_date }}{% if data.last_reports.max.dry_run %} (тестовый режим){% endif %}</p>
     {% else %}
     <p class="muted">Ещё не отправлялось</p>
     {% endif %}
@@ -37,7 +37,7 @@
     <h2>Последний email</h2>
     {% if data.last_reports.email %}
     <p>Статус: <span class="badge badge-green">{{ data.last_reports.email.status }}</span></p>
-    <p>Дата: {{ data.last_reports.email.report_date }}{% if data.last_reports.email.dry_run %} (dry-run){% endif %}</p>
+    <p>Дата: {{ data.last_reports.email.report_date }}{% if data.last_reports.email.dry_run %} (тестовый режим){% endif %}</p>
     {% else %}
     <p class="muted">Ещё не отправлялось</p>
     {% endif %}
@@ -47,7 +47,7 @@
 <div class="card">
     <h2>Агрегаты</h2>
     <ul>
-        <li>Snapshot цен в БД: <strong>{{ data.snapshot_count }}</strong></li>
+        <li>Снимков цен в БД: <strong>{{ data.snapshot_count }}</strong></li>
         <li>Записей бронирований: <strong>{{ data.booking_count }}</strong></li>
         <li>Гостей (хеши): <strong>{{ data.guest_stats.total }}</strong>, повторных: <strong>{{ data.guest_stats.returning }}</strong></li>
     </ul>

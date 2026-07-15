@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Snapshot цен — hotel-report-bot{% endblock %}
+{% block title %}Снимки цен — hotel-report-bot{% endblock %}
 {% block content %}
-<h1>История snapshot цен</h1>
+<h1>История снимков цен</h1>
 
 {% if chart %}
 <div class="card">
     <h2>Динамика (последние точки)</h2>
     <div class="chart-bars">
     {% for row in chart[:28] %}
-        <div class="bar-wrap" title="{{ row.category }} {{ row.snapshot_date }}: {{ row.avg_price }}">
+        <div class="bar-wrap" title="{{ row.category_label }} {{ row.snapshot_date }}: {{ row.avg_price }}">
             <div class="bar" style="height: {{ (row.avg_price / 10000 * 100)|int }}%"></div>
-            <span class="bar-label">{{ row.category[:6] }}</span>
+            <span class="bar-label">{{ row.category_short }}</span>
         </div>
     {% endfor %}
     </div>
@@ -25,7 +25,7 @@
         {% for s in snapshots %}
         <tr>
             <td>{{ s.snapshot_date }}</td>
-            <td>{{ s.category }}</td>
+            <td>{{ s.category_label or s.category }}</td>
             <td>{{ s.price }} ₽</td>
             <td>{{ s.source }}</td>
             <td>{{ "да" if s.is_estimated else "нет" }}</td>
@@ -34,7 +34,7 @@
         </tbody>
     </table>
     {% else %}
-    <p class="muted">Нет данных snapshot.</p>
+    <p class="muted">Нет данных снимков цен.</p>
     {% endif %}
 </div>
 {% endblock %}

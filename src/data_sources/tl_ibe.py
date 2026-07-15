@@ -298,6 +298,9 @@ def parse_widget_with_screenshot(
             playwright_cm = sync_playwright().start()
             browser = playwright_cm.chromium.launch(headless=True)
 
+        if browser is None:
+            raise RuntimeError("Playwright browser is not available")
+
         context = browser.new_context(
             user_agent=site_cfg.user_agent,
             viewport={"width": 1366, "height": 900},

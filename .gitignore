@@ -4,6 +4,8 @@ config/settings.yaml
 config/primeval-rain-*.json
 *.db
 data/
+logs/*
+!logs/.gitkeep
 .venv/
 __pycache__/
 *.pyc

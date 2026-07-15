@@ -348,7 +348,7 @@ def parse_occupancy_rows(rows: list[list[str]]) -> OccupancySheetData:
     if unit_header_idx is not None:
         headers = rows[unit_header_idx]
         room_col = _column_index(headers, "номер", "квартира", "№") or 0
-        type_col = _column_index(headers, "тип", "категория")
+        unit_type_col = _column_index(headers, "тип", "категория")
         status_col = _column_index(headers, "статус")
 
         for row in rows[unit_header_idx + 1 :]:
@@ -358,8 +358,8 @@ def parse_occupancy_rows(rows: list[list[str]]) -> OccupancySheetData:
             if not room_id:
                 continue
             room_type = (
-                row[type_col].strip()
-                if type_col is not None and type_col < len(row)
+                row[unit_type_col].strip()
+                if unit_type_col is not None and unit_type_col < len(row)
                 else ""
             )
             status_raw = (

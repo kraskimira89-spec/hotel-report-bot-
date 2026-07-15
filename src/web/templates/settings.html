@@ -4,13 +4,13 @@
 <h1>Настройки</h1>
 
 <div class="card">
-    <h2>Dry-run</h2>
+    <h2>Тестовый режим</h2>
     <p>Текущее: <strong>{{ "включён" if config.dry_run else "выключен" }}</strong></p>
     <form method="post" action="/settings/dry-run">
         <input type="hidden" name="dry_run" value="{{ 'false' if config.dry_run else 'true' }}">
-        <button type="submit">{{ "Выключить" if config.dry_run else "Включить" }} dry-run</button>
+        <button type="submit">{{ "Выключить" if config.dry_run else "Включить" }} тестовый режим</button>
     </form>
-    <p class="muted">Сохраняется в SQLite и settings.yaml без перезапуска.</p>
+    <p class="muted">Без реальной отправки гостям/каналам. Сохраняется в SQLite и settings.yaml без перезапуска.</p>
 </div>
 
 <div class="card">
@@ -27,7 +27,7 @@
         </fieldset>
         <fieldset>
             <legend>Расписание (cron MSK)</legend>
-            <label>Snapshot цен <input name="price_snapshot_cron" value="{{ config.scheduler.price_snapshot_cron }}"></label>
+            <label>Снимок цен <input name="price_snapshot_cron" value="{{ config.scheduler.price_snapshot_cron }}"></label>
             <label>Сводка Max <input name="daily_summary_cron" value="{{ config.scheduler.daily_summary_cron }}"></label>
             <label>Email <input name="weekly_email_cron" value="{{ config.scheduler.weekly_email_cron }}"></label>
         </fieldset>

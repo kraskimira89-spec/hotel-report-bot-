@@ -255,11 +255,15 @@ def parse_reservation_search(
     reservations: list[ReservationSummary] = []
     for row in _extract_list(payload, "reservations", "bookingSummaries", "items"):
         source = row.get("source") or {}
+        source_code: str | None
+        source_type: str | None
         if isinstance(source, str):
             source_code, source_type = source, None
         else:
-            source_code = source.get("code") or source.get("name")
-            source_type = source.get("type")
+            raw_code = source.get("code") or source.get("name")
+            source_code = str(raw_code) if raw_code is not None else None
+            raw_type = source.get("type")
+            source_type = str(raw_type) if raw_type is not None else None
         reservations.append(
             ReservationSummary(
                 number=str(row.get("number") or row.get("bookingNumber") or ""),
@@ -364,7 +368,7 @@ class TravelLineClient:
     def _client(self) -> HttpClient:
         if self._http is not None:
             return self._http
-        return httpx.Client(timeout=30.0)
+        return httpx.Client(timeout=30.0)  # type: ignore[return-value]
 
     def authenticate(self, force: bool = False) -> str:
         """Получить Bearer JWT для Partner API (OAuth client credentials)."""
@@ -479,7 +483,8 @@ class TravelLineClient:
 
         if not response.content:
             return {}
-        return response.json()
+        data = response.json()
+        return data if isinstance(data, dict) else {"value": data}
 
     def _webpms_request(
         self,

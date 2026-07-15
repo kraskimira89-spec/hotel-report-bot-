@@ -327,8 +327,8 @@ def prepare_daily_summary_data(
         from src.data_sources.travelline import TravelLineError, run_daily_reconciliation
 
         recon_warnings = run_daily_reconciliation(report_date, config=cfg)
-        for item in recon_warnings:
-            warnings.append(item.message)
+        for warning in recon_warnings:
+            warnings.append(warning.message)
     except TravelLineError as exc:
         warnings.append(f"Сверка TravelLine: {exc}")
     except Exception as exc:

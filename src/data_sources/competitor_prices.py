@@ -8,7 +8,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import date
-from typing import Protocol
+from typing import Protocol, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -187,10 +187,10 @@ def fetch_static_competitor_price(
     """Скачать страницу и извлечь минимальную цену (только parser=static)."""
     path = urlparse(competitor.url).path or "/"
     own_client: httpx.Client | None = None
-    http = client
+    http: HttpClient | None = client
     if http is None:
         own_client = httpx.Client(timeout=30.0, follow_redirects=True)
-        http = own_client
+        http = cast(HttpClient, own_client)
 
     try:
         disallow = _robots_disallow(http, competitor.url, site_cfg)

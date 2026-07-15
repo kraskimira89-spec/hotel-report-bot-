@@ -488,6 +488,10 @@ def fetch_competitor_prices(
         live = live_map.get(item.name)
         live_price = live.price_from if live else None
         db_row = latest_db.get(item.name)
+        price: float | None
+        source: str
+        collected: date | None
+        screenshot: str | None
         if live_price is not None:
             price = live_price
             source = live.source if live else "dom"

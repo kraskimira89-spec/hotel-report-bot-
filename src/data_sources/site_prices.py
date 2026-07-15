@@ -9,7 +9,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
@@ -90,7 +90,8 @@ def parse_home_prices(html: str) -> list[PriceSnapshot]:
         spans = row.find_all("span")
         if len(spans) < 2:
             continue
-        href = (link_el.get("href") if link_el else "") or ""
+        href_raw = link_el.get("href") if link_el else None
+        href = href_raw if isinstance(href_raw, str) else ""
         slug = href.strip("/").split("/")[-1]
         if not slug:
             continue
@@ -122,7 +123,8 @@ def parse_category_html(
 
     price_el = soup.select_one(sel.data_price) or soup.select_one(sel.price_value)
     if price_el is not None:
-        raw = price_el.get("data-price") or price_el.get_text(" ", strip=True)
+        raw_attr = price_el.get("data-price")
+        raw = raw_attr if isinstance(raw_attr, str) else price_el.get_text(" ", strip=True)
         price = _extract_price_digits(raw)
         if price is not None:
             return _make_snapshot_stub(category_slug, price)
@@ -247,14 +249,14 @@ def collect_price_snapshots(
     now = _now_msk(cfg)
 
     own_client: httpx.Client | None = None
-    http = client
+    http: HttpClient | None = client
     if http is None:
         own_client = httpx.Client(
             headers={"User-Agent": site_cfg.user_agent},
             timeout=30.0,
             follow_redirects=True,
         )
-        http = own_client
+        http = cast(HttpClient, own_client)
 
     try:
         disallow_paths = _fetch_robots_disallow(http, site_cfg)
@@ -263,12 +265,12 @@ def collect_price_snapshots(
         if is_path_allowed("/", disallow_paths):
             try:
                 resp = _request_with_backoff(http, home_url, site_cfg)
-                for parsed in parse_home_prices(resp.text):
+                for home_parsed in parse_home_prices(resp.text):
                     wanted = _wanted_category_slugs(site_cfg)
-                    if wanted and parsed.category not in wanted:
+                    if wanted and home_parsed.category not in wanted:
                         continue
                     snapshots.append(
-                        parsed.model_copy(
+                        home_parsed.model_copy(
                             update={
                                 "snapshot_at": now,
                                 "url": home_url,
@@ -298,11 +300,11 @@ def collect_price_snapshots(
 
                 try:
                     resp = _request_with_backoff(http, url, site_cfg)
-                    parsed = parse_category_html(resp.text, slug, site_cfg)
-                    if parsed is None:
+                    category_parsed = parse_category_html(resp.text, slug, site_cfg)
+                    if category_parsed is None:
                         logger.warning("Не удалось распарсить цену: %s", url)
                         continue
-                    snapshot = parsed.model_copy(
+                    snapshot = category_parsed.model_copy(
                         update={
                             "snapshot_at": now,
                             "url": url,

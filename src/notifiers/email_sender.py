@@ -274,11 +274,11 @@ def build_weekly_report_html(data: WeeklyReportData) -> str:
     metrics_rows = ""
     if cur:
         metrics_rows = f"""
-        <tr><td>Occupancy</td><td>{_fmt_pct(cur.occupancy_pct)}</td>
+        <tr><td>Загрузка</td><td>{_fmt_pct(cur.occupancy_pct)}</td>
             <td>{_fmt_change(_pct_change(cur.occupancy_pct, prev_occ))}</td></tr>
-        <tr><td>ADR{_estimated_badge(estimated)}</td><td>{_fmt_num(cur.adr, ' ₽')}</td>
+        <tr><td>ADR (средняя цена номера за сутки){_estimated_badge(estimated)}</td><td>{_fmt_num(cur.adr, ' ₽')}</td>
             <td>{_fmt_change(_pct_change(cur.adr, prev.adr if prev else None), '₽')}</td></tr>
-        <tr><td>RevPAR{_estimated_badge(estimated)}</td><td>{_fmt_num(cur.revpar, ' ₽')}</td>
+        <tr><td>RevPAR (доход на доступный номер){_estimated_badge(estimated)}</td><td>{_fmt_num(cur.revpar, ' ₽')}</td>
             <td>{_fmt_change(_pct_change(cur.revpar, prev.revpar if prev else None), '₽')}</td></tr>
         <tr><td>ALS</td><td>{_fmt_num(cur.als, ' дн.')}</td>
             <td>{_fmt_change(_pct_change(cur.als, prev.als if prev else None), 'дн.')}</td></tr>
@@ -342,7 +342,7 @@ def build_weekly_report_html(data: WeeklyReportData) -> str:
   <h1>Еженедельный отчёт 1apart</h1>
   <p class="summary"><strong>Период:</strong> {html.escape(period)}</p>
 
-  <h2>Загрузка (Occupancy)</h2>
+  <h2>Загрузка</h2>
   <table>
     <thead><tr><th>Тип</th><th>Текущая</th><th>Δ к прошлой неделе</th></tr></thead>
     <tbody>{occ_rows}</tbody>
@@ -394,15 +394,15 @@ def build_weekly_report_plain(data: WeeklyReportData) -> str:
         lines.extend(
             [
                 "",
-                f"Occupancy: {_fmt_pct(cur.occupancy_pct)}",
-                f"ADR: {_fmt_num(cur.adr, ' руб.')}{est}",
-                f"RevPAR: {_fmt_num(cur.revpar, ' руб.')}{est}",
+                f"Загрузка: {_fmt_pct(cur.occupancy_pct)}",
+                f"ADR (средняя цена номера за сутки): {_fmt_num(cur.adr, ' руб.')}{est}",
+                f"RevPAR (доход на доступный номер): {_fmt_num(cur.revpar, ' руб.')}{est}",
                 f"ALS: {_fmt_num(cur.als, ' дн.')}",
             ]
         )
     if prev and cur:
         lines.append(
-            f"Δ Occupancy к прошлой неделе: "
+            f"Δ Загрузка к прошлой неделе: "
             f"{_fmt_change(_pct_change(cur.occupancy_pct, prev.occupancy_pct))}"
         )
 

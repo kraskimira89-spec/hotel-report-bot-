@@ -13,6 +13,7 @@ python-dotenv
 pyyaml
 pytest
 ruff
+mypy
 # runtime-зависимости FastAPI (сессии, формы) — не Playwright
 python-multipart
 itsdangerous

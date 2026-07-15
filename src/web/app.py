@@ -6,7 +6,7 @@ import logging
 import secrets
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, Form, Query, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -42,7 +42,8 @@ class HttpsRedirectMiddleware(BaseHTTPMiddleware):
             if proto != "https":
                 url = str(request.url).replace("http://", "https://", 1)
                 return RedirectResponse(url, status_code=status.HTTP_301_MOVED_PERMANENTLY)
-        return await call_next(request)
+        response = await call_next(request)
+        return cast(Response, response)
 
 
 app.add_middleware(HttpsRedirectMiddleware)
@@ -60,6 +61,9 @@ def _require_auth(request: Request) -> RedirectResponse | None:
 
 @app.on_event("startup")
 async def startup() -> None:
+    from src.utils.logging_setup import setup_logging
+
+    setup_logging()
     init_db()
     from src.data_sources.market_trends import seed_trends_if_empty
 

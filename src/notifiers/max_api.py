@@ -131,7 +131,8 @@ class MaxApiClient:
         body: dict[str, Any] = {"text": text, "format": format}
         if notify is not None:
             body["notify"] = notify
-        return self._request("POST", "/messages", params=params, json=body).json()
+        data = self._request("POST", "/messages", params=params, json=body).json()
+        return data if isinstance(data, dict) else {"value": data}
 
     def get_updates(
         self,
@@ -147,11 +148,13 @@ class MaxApiClient:
             params["marker"] = marker
         if types:
             params["types"] = ",".join(types)
-        return self._request("GET", "/updates", params=params).json()
+        data = self._request("GET", "/updates", params=params).json()
+        return data if isinstance(data, dict) else {"value": data}
 
     def list_subscriptions(self) -> dict[str, Any]:
         """GET /subscriptions."""
-        return self._request("GET", "/subscriptions").json()
+        data = self._request("GET", "/subscriptions").json()
+        return data if isinstance(data, dict) else {"value": data}
 
     def create_subscription(
         self,
@@ -167,15 +170,17 @@ class MaxApiClient:
         }
         if secret:
             body["secret"] = secret
-        return self._request("POST", "/subscriptions", json=body).json()
+        data = self._request("POST", "/subscriptions", json=body).json()
+        return data if isinstance(data, dict) else {"value": data}
 
     def delete_subscription(self, url: str) -> dict[str, Any]:
         """DELETE /subscriptions — отписка webhook."""
-        return self._request(
+        data = self._request(
             "DELETE",
             "/subscriptions",
             params={"url": url},
         ).json()
+        return data if isinstance(data, dict) else {"value": data}
 
 
 def build_max_api_client(config: AppConfig | None = None) -> MaxApiClient | None:

@@ -390,11 +390,11 @@ def save_booking_daily(
 
     if conn is not None:
         cur = conn.execute(sql, params)
-        return int(cur.lastrowid)
+        return int(cur.lastrowid or 0)
 
     with db_session() as connection:
         cur = connection.execute(sql, params)
-        return int(cur.lastrowid)
+        return int(cur.lastrowid or 0)
 
 
 def get_bookings_daily(
@@ -574,11 +574,11 @@ def save_report_log(
 
     if conn is not None:
         cur = conn.execute(sql, params)
-        return int(cur.lastrowid)
+        return int(cur.lastrowid or 0)
 
     with db_session() as connection:
         cur = connection.execute(sql, params)
-        return int(cur.lastrowid)
+        return int(cur.lastrowid or 0)
 
 
 def get_report_log(report_id: int) -> ReportLogRecord | None:
@@ -684,11 +684,11 @@ def save_error_log(
     try:
         if conn is not None:
             cur = conn.execute(sql, params)
-            return int(cur.lastrowid)
+            return int(cur.lastrowid or 0)
 
         with db_session() as connection:
             cur = connection.execute(sql, params)
-            return int(cur.lastrowid)
+            return int(cur.lastrowid or 0)
     except sqlite3.OperationalError as exc:
         logger.debug("errors_log недоступен: %s", exc)
         return 0

@@ -12,11 +12,9 @@ import uvicorn
 
 from src.config import get_config
 from src.scheduler import start_scheduler
+from src.utils.logging_setup import setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -28,6 +26,7 @@ def run_web() -> None:
         host=cfg.web.host,
         port=cfg.web.port,
         log_level="info",
+        log_config=None,  # не перетирать наши handlers (logs/ + консоль)
     )
 
 

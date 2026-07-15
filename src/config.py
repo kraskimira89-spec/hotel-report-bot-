@@ -290,6 +290,14 @@ class EnvSettings(BaseSettings):
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    # YandexGPT (Issue #9) — предпочтительнее OPENAI_* при заполнении
+    llm_api_key: str = Field(default="", alias="LLM_API_KEY")
+    llm_folder_id: str = Field(default="", alias="LLM_FOLDER_ID")
+    llm_base_url: str = Field(
+        default="https://ai.api.cloud.yandex.net/v1",
+        alias="LLM_BASE_URL",
+    )
+    llm_model: str = Field(default="", alias="LLM_MODEL")
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

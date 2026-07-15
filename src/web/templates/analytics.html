@@ -62,7 +62,13 @@
                 <summary>Подробнее ▼</summary>
                 <div class="detail-block">
                     {% if card.detail_payload.series %}
-                    <h3>Динамика</h3>
+                    <h3>Динамика загрузки</h3>
+                    {% if card.detail_payload.current is not none or card.detail_payload.previous is not none %}
+                    <p class="muted">
+                        Сейчас: {% if card.detail_payload.current is not none %}{{ "%.1f"|format(card.detail_payload.current) }}%{% else %}—{% endif %}
+                        · Ранее: {% if card.detail_payload.previous is not none %}{{ "%.1f"|format(card.detail_payload.previous) }}%{% else %}—{% endif %}
+                    </p>
+                    {% endif %}
                     <div class="sparkline">
                         {% set vals = card.detail_payload.series %}
                         {% set ns = namespace(max_v=1) %}
@@ -70,7 +76,7 @@
                           {% if (p.occupancy_pct or 0) > ns.max_v %}{% set ns.max_v = p.occupancy_pct %}{% endif %}
                         {% endfor %}
                         {% for p in vals %}
-                        <span class="spark-bar" style="height: {{ ((p.occupancy_pct or 0) / ns.max_v * 100)|int }}%" title="{{ p.date }}: {{ p.occupancy_pct }}%"></span>
+                        <span class="spark-bar" style="height: {{ ((p.occupancy_pct or 0) / ns.max_v * 100)|int }}%" title="{{ p.date }}: загрузка {{ p.occupancy_pct }}%"></span>
                         {% endfor %}
                     </div>
                     {% endif %}

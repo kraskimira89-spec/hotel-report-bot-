@@ -9,9 +9,9 @@
     <table>
         <thead><tr><th>Показатель</th><th>Сейчас</th><th>Неделю назад</th></tr></thead>
         <tbody>
-        <tr><td>Occupancy</td><td>{{ comparison.occupancy_pct or "—" }}%</td><td>{{ comparison.prev_occupancy_pct or "—" }}%</td></tr>
-        <tr><td>ADR</td><td>{{ comparison.adr or "—" }}{% if comparison.is_estimated %} *{% endif %}</td><td>{{ comparison.prev_adr or "—" }}</td></tr>
-        <tr><td>RevPAR</td><td>{{ comparison.revpar or "—" }}</td><td>{{ comparison.prev_revpar or "—" }}</td></tr>
+        <tr><td>Загрузка</td><td>{{ comparison.occupancy_pct or "—" }}%</td><td>{{ comparison.prev_occupancy_pct or "—" }}%</td></tr>
+        <tr><td>ADR (средняя цена номера за сутки)</td><td>{{ comparison.adr or "—" }}{% if comparison.is_estimated %} *{% endif %}</td><td>{{ comparison.prev_adr or "—" }}</td></tr>
+        <tr><td>RevPAR (доход на доступный номер)</td><td>{{ comparison.revpar or "—" }}</td><td>{{ comparison.prev_revpar or "—" }}</td></tr>
         </tbody>
     </table>
 </div>
@@ -21,7 +21,7 @@
     <h2>По неделям</h2>
     {% if weekly %}
     <table>
-        <thead><tr><th>Неделя</th><th>Occ %</th><th>ADR</th><th>RevPAR</th><th>ALS</th><th>Доход</th></tr></thead>
+        <thead><tr><th>Неделя</th><th>Загрузка %</th><th>ADR (ср. цена)</th><th>RevPAR (доход/номер)</th><th>ALS (ср. срок)</th><th>Доход</th></tr></thead>
         <tbody>
         {% for w in weekly %}
         <tr>
@@ -44,7 +44,7 @@
     <h2>По дням</h2>
     {% if metrics %}
     <table>
-        <thead><tr><th>Дата</th><th>Occupancy %</th><th>ADR</th><th>RevPAR</th><th>ALS</th><th>Доход</th></tr></thead>
+        <thead><tr><th>Дата</th><th>Загрузка %</th><th>ADR (ср. цена)</th><th>RevPAR (доход/номер)</th><th>ALS (ср. срок)</th><th>Доход</th></tr></thead>
         <tbody>
         {% for m in metrics %}
         <tr>
