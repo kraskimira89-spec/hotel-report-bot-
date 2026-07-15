@@ -118,6 +118,17 @@ def test_analytics_requires_auth(analytics_client: TestClient) -> None:
     assert "/login" in resp.headers.get("location", "")
 
 
+def test_normalize_period_days() -> None:
+    from src.web.queries import normalize_period_days
+
+    assert normalize_period_days(None) == 14
+    assert normalize_period_days(7) == 7
+    assert normalize_period_days("30") == 30
+    assert normalize_period_days("custom") == 14
+    assert normalize_period_days(0) == 1
+    assert normalize_period_days(999) == 365
+
+
 def test_analytics_ok_and_layout(analytics_client: TestClient) -> None:
     analytics_client.post(
         "/login",
@@ -129,6 +140,22 @@ def test_analytics_ok_and_layout(analytics_client: TestClient) -> None:
     assert "Аналитика" in resp.text
     assert "insight-grid" in resp.text
     assert "Рекомендации" in resp.text
+    assert "Период" in resp.text
+    assert "2 недели" in resp.text
+
+
+def test_analytics_period_query(analytics_client: TestClient) -> None:
+    analytics_client.post(
+        "/login",
+        data={"username": "admin", "password": "admin"},
+        follow_redirects=False,
+    )
+    resp = analytics_client.get("/analytics?period_days=30")
+    assert resp.status_code == 200
+    assert "30 дн." in resp.text
+    resp_custom = analytics_client.get("/analytics?period_custom=21")
+    assert resp_custom.status_code == 200
+    assert "21 дн." in resp_custom.text
 
 
 def test_root_redirects_to_analytics(analytics_client: TestClient) -> None:

@@ -167,11 +167,19 @@ async def analytics_page(
     request: Request,
     source: str | None = Query(default="all"),
     topic: str | None = Query(default=None),
+    period_days: str | None = Query(default=None),
+    period_custom: str | None = Query(default=None),
 ) -> Response:
     redirect = _require_auth(request)
     if redirect:
         return redirect
-    data = queries.fetch_analytics_bundle(source=source, topic=topic or None)
+    raw = (period_custom or "").strip() or period_days
+    days = queries.normalize_period_days(raw, default=14)
+    data = queries.fetch_analytics_bundle(
+        source=source,
+        topic=topic or None,
+        period_days=days,
+    )
     return templates.TemplateResponse(
         request,
         "analytics.html",
@@ -180,14 +188,25 @@ async def analytics_page(
 
 
 @app.post("/analytics/refresh")
-async def analytics_refresh(request: Request) -> Response:
+async def analytics_refresh(
+    request: Request,
+    period_days: str = Form(default="14"),
+    period_custom: str = Form(default=""),
+    source: str = Form(default="all"),
+    topic: str = Form(default=""),
+) -> Response:
     redirect = _require_auth(request)
     if redirect:
         return redirect
     from src.analytics.ai_insights import run_insights_refresh
 
-    run_insights_refresh()
-    return RedirectResponse(url="/analytics", status_code=status.HTTP_302_FOUND)
+    raw = period_custom.strip() if period_custom and period_custom.strip() else period_days
+    days = queries.normalize_period_days(raw, default=14)
+    run_insights_refresh(period_days=days)
+    q = f"?source={source}&period_days={days}"
+    if topic:
+        q += f"&topic={topic}"
+    return RedirectResponse(url=f"/analytics{q}", status_code=status.HTTP_302_FOUND)
 
 
 @app.get("/snapshots", response_class=HTMLResponse)

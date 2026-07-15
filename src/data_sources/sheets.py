@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any, Protocol
 
@@ -791,6 +791,26 @@ class GoogleSheetsClient:
             logger.warning("read_occupancy_daily: %s", exc)
             return OccupancyDay(date=target_date)
 
+    def read_occupancy_range(self, start: date, end: date) -> list[OccupancyDay]:
+        """Заселяемость по дням [start..end] — один запрос к листу."""
+        if end < start:
+            return []
+        sheets_cfg = self.config.sheets
+        try:
+            rows = self._fetch_rows(
+                sheets_cfg.occupancy_sheet_gid,
+                sheets_cfg.occupancy_sheet,
+            )
+        except SheetsReadError as exc:
+            logger.warning("read_occupancy_range: %s", exc)
+            return []
+        days: list[OccupancyDay] = []
+        cursor = start
+        while cursor <= end:
+            days.append(parse_occupancy_daily_rows(rows, cursor))
+            cursor += timedelta(days=1)
+        return days
+
     def read_bookings_for_date(self, target_date: date) -> list[BookingSourceDay]:
         """Брони по источникам за день."""
         sheets_cfg = self.config.sheets
@@ -803,6 +823,40 @@ class GoogleSheetsClient:
         except SheetsReadError as exc:
             logger.warning("read_bookings_for_date: %s", exc)
             return []
+
+    def read_bookings_records_range(
+        self,
+        start: date,
+        end: date,
+    ) -> list[BookingRecord]:
+        """Дневные записи броней за период (по месячным блокам листа)."""
+        if end < start:
+            return []
+        sheets_cfg = self.config.sheets
+        try:
+            rows = self._fetch_rows(
+                sheets_cfg.bookings_sheet_gid,
+                sheets_cfg.bookings_sheet,
+            )
+        except SheetsReadError as exc:
+            logger.warning("read_bookings_records_range: %s", exc)
+            return []
+
+        months: set[tuple[int, int]] = set()
+        cursor = start
+        while cursor <= end:
+            months.add((cursor.year, cursor.month))
+            if cursor.month == 12:
+                cursor = date(cursor.year + 1, 1, 1)
+            else:
+                cursor = date(cursor.year, cursor.month + 1, 1)
+
+        records: list[BookingRecord] = []
+        for year, month in sorted(months):
+            for rec in bookings_records_for_month(rows, year, month):
+                if start <= rec.report_date <= end:
+                    records.append(rec)
+        return records
 
     def read_bookings_month(self, year: int, month: int) -> BookingsMonth:
         """Брони по источникам за месяц."""

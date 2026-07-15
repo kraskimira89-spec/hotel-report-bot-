@@ -12,6 +12,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from src.config import get_config, get_env_settings
+from src.data_sources.sheets import GoogleSheetsClient, OccupancyDay
 from src.metrics.guests import classify_channel
 from src.storage.db import (
     get_bookings_daily,
@@ -97,15 +98,119 @@ def _avg(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 1)
 
 
+def _occ_day_pct(day: OccupancyDay) -> float | None:
+    """Загрузка дня: приоритет строки TravelLine, иначе итог > 0."""
+    if day.travelline_pct is not None:
+        return float(day.travelline_pct)
+    if day.total_pct is not None and float(day.total_pct) > 0:
+        return float(day.total_pct)
+    # Пустые/нулевые дни в таблице не считаем данными (ещё не заполнены)
+    return None
+
+
+def _series_from_occ_days(days: list[OccupancyDay]) -> list[dict[str, Any]]:
+    series: list[dict[str, Any]] = []
+    for day in days:
+        pct = _occ_day_pct(day)
+        if pct is None:
+            continue
+        series.append({"date": day.date.isoformat(), "occupancy_pct": round(pct, 1)})
+    return series
+
+
+def _collect_sheets_overlay(
+    start: date,
+    end: date,
+    prev_start: date,
+    prev_end: date,
+) -> dict[str, Any]:
+    """Живые данные Google Sheets для аналитики (фолбэк, если SQLite пуст)."""
+    out: dict[str, Any] = {
+        "occupancy_series": [],
+        "occupancy_current": None,
+        "occupancy_previous": None,
+        "by_type": [],
+        "channels": None,
+        "available": False,
+    }
+    try:
+        sheets = GoogleSheetsClient(get_config())
+        cur_days = sheets.read_occupancy_range(start, end)
+        prev_days = sheets.read_occupancy_range(prev_start, prev_end)
+        cur_series = _series_from_occ_days(cur_days)
+        prev_series = _series_from_occ_days(prev_days)
+        out["occupancy_series"] = cur_series
+        out["occupancy_current"] = _avg([p["occupancy_pct"] for p in cur_series])
+        out["occupancy_previous"] = _avg([p["occupancy_pct"] for p in prev_series])
+
+        # Последний день с типами — для детализации карточки
+        for day in reversed(cur_days):
+            if day.by_type and (
+                day.travelline_pct is not None
+                or (day.total_pct is not None and float(day.total_pct) > 0)
+                or any(r.occupancy_pct is not None for r in day.by_type)
+            ):
+                out["by_type"] = [
+                    {
+                        "room_type": r.room_type,
+                        "occupancy_pct": r.occupancy_pct,
+                        "units": r.units,
+                    }
+                    for r in day.by_type
+                ][:12]
+                break
+
+        records = sheets.read_bookings_records_range(start, end)
+        if records:
+            cfg = get_config()
+            direct = 0
+            aggregator = 0
+            total = 0
+            for rec in records:
+                n = max(int(rec.bookings_count or 0), 0)
+                if n <= 0:
+                    continue
+                total += n
+                kind = classify_channel(rec.source, cfg.channels_map)
+                if kind == "direct":
+                    direct += n
+                elif kind == "aggregator":
+                    aggregator += n
+            if total:
+                out["channels"] = {
+                    "direct_pct": round(direct / total * 100, 1),
+                    "aggregator_pct": round(aggregator / total * 100, 1),
+                    "total": total,
+                    "source": "sheets",
+                }
+
+        out["available"] = bool(cur_series or out["channels"] or out["by_type"])
+        if out["available"]:
+            logger.info(
+                "Sheets для аналитики: occ_days=%s avg=%s bookings=%s",
+                len(cur_series),
+                out["occupancy_current"],
+                (out["channels"] or {}).get("total", 0),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Sheets overlay для аналитики недоступен: %s", exc)
+    return out
+
+
 def _collect_context(period_days: int = 14) -> dict[str, Any]:
-    """Собрать контекст из уже имеющихся данных SQLite."""
+    """Контекст аналитики: SQLite + Google Sheets (загрузка/каналы)."""
     end = date.today()
     start = end - timedelta(days=period_days)
     prev_end = start
     prev_start = prev_end - timedelta(days=period_days)
 
-    cur_metrics = get_metrics_daily(start, end, metric_type="daily")
-    prev_metrics = get_metrics_daily(prev_start, prev_end, metric_type="daily")
+    cur_metrics = []
+    prev_metrics = []
+    try:
+        cur_metrics = get_metrics_daily(start, end, metric_type="daily")
+        prev_metrics = get_metrics_daily(prev_start, prev_end, metric_type="daily")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("metrics_daily недоступны: %s", exc)
 
     def _metric_vals(rows: list, field: str) -> list[float]:
         out: list[float] = []
@@ -124,7 +229,12 @@ def _collect_context(period_days: int = 14) -> dict[str, Any]:
     cur_als = _avg(_metric_vals(cur_metrics, "als"))
     prev_als = _avg(_metric_vals(prev_metrics, "als"))
 
-    channels_agg = {"direct_pct": 0.0, "aggregator_pct": 0.0, "total": 0}
+    channels_agg: dict[str, Any] = {
+        "direct_pct": 0.0,
+        "aggregator_pct": 0.0,
+        "total": 0,
+        "source": "sqlite",
+    }
     try:
         bookings = get_bookings_daily(start, end)
         direct = 0
@@ -141,11 +251,16 @@ def _collect_context(period_days: int = 14) -> dict[str, Any]:
             "direct_pct": round(direct / total * 100, 1) if total else 0.0,
             "aggregator_pct": round(aggregator / total * 100, 1) if total else 0.0,
             "total": total,
+            "source": "sqlite",
         }
     except Exception as exc:  # noqa: BLE001
-        logger.debug("Каналы недоступны: %s", exc)
+        logger.debug("Каналы SQLite недоступны: %s", exc)
 
-    guests = get_guest_stats()
+    guests: dict[str, Any] = {"total": 0, "returning": 0}
+    try:
+        guests = get_guest_stats()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("gostats недоступны: %s", exc)
     competitors = []
     try:
         competitors = [
@@ -180,12 +295,31 @@ def _collect_context(period_days: int = 14) -> dict[str, Any]:
         for m in sorted(cur_metrics, key=lambda x: x.report_date)
         if m.occupancy_pct is not None
     ]
+    occ_source = "sqlite"
+
+    sheets = _collect_sheets_overlay(start, end, prev_start, prev_end)
+    # Sheets приоритетнее для загрузки и каналов, если там есть цифры
+    if sheets["occupancy_series"]:
+        occ_series = sheets["occupancy_series"]
+        cur_occ = sheets["occupancy_current"]
+        prev_occ = sheets["occupancy_previous"]
+        occ_source = "sheets"
+    if sheets["channels"] and (
+        not channels_agg.get("total") or channels_agg.get("total", 0) == 0
+    ):
+        channels_agg = sheets["channels"]
 
     period_label = f"{start.isoformat()} — {end.isoformat()}"
     return {
         "period": period_label,
         "period_days": period_days,
-        "occupancy": {"current": cur_occ, "previous": prev_occ, "series": occ_series},
+        "occupancy": {
+            "current": cur_occ,
+            "previous": prev_occ,
+            "series": occ_series,
+            "by_type": sheets.get("by_type") or [],
+            "source": occ_source,
+        },
         "revenue": {
             "adr": cur_adr,
             "prev_adr": prev_adr,
@@ -197,6 +331,11 @@ def _collect_context(period_days: int = 14) -> dict[str, Any]:
         "als": {"current": cur_als, "previous": prev_als},
         "competitors": competitors,
         "trends": trends,
+        "data_sources": {
+            "occupancy": occ_source,
+            "channels": channels_agg.get("source", "sqlite"),
+            "sheets_available": bool(sheets.get("available")),
+        },
     }
 
 
@@ -248,6 +387,8 @@ def _rule_based_cards(ctx: dict[str, Any]) -> list[InsightCard]:
                 "series": occ["series"],
                 "current": occ["current"],
                 "previous": occ["previous"],
+                "by_type": occ.get("by_type") or [],
+                "source": occ.get("source", "sqlite"),
             },
             updated_at=now,
         )
@@ -648,11 +789,20 @@ def generate_insights(period_days: int = 14, use_llm: bool = True) -> list[Insig
             slim = {
                 "period": ctx["period"],
                 "topic": tid,
-                "occupancy": ctx["occupancy"],
+                "data_sources": ctx.get("data_sources"),
+                "occupancy": {
+                    "current": ctx["occupancy"].get("current"),
+                    "previous": ctx["occupancy"].get("previous"),
+                    "source": ctx["occupancy"].get("source"),
+                    "by_type": (ctx["occupancy"].get("by_type") or [])[:8],
+                    "series": (ctx["occupancy"].get("series") or [])[-14:],
+                },
                 "revenue": ctx["revenue"],
                 "channels": {
                     "direct_pct": ctx["channels"].get("direct_pct"),
                     "aggregator_pct": ctx["channels"].get("aggregator_pct"),
+                    "total": ctx["channels"].get("total"),
+                    "source": ctx["channels"].get("source"),
                 },
                 "guests": ctx["guests"],
                 "als": ctx["als"],
@@ -692,12 +842,15 @@ def insight_card_to_record(card: InsightCard) -> InsightRecord:
     )
 
 
-def run_insights_refresh(period_days: int = 14) -> int:
-    """Пересчитать карточки и заменить кеш в БД."""
+def run_insights_refresh(period_days: int | None = None) -> int:
+    """Пересчитать карточки и заменить кеш в БД.
+
+    period_days: явный период с UI; если None — из settings.analytics.period_days (14).
+    """
     cfg = get_config()
-    days = period_days
-    if hasattr(cfg, "analytics") and getattr(cfg.analytics, "period_days", None):
-        days = cfg.analytics.period_days
+    if period_days is None:
+        period_days = getattr(getattr(cfg, "analytics", None), "period_days", None) or 14
+    days = max(1, min(int(period_days), 365))
     cards = generate_insights(period_days=days, use_llm=True)
     records = [insight_card_to_record(c) for c in cards]
     saved = replace_insights(records)

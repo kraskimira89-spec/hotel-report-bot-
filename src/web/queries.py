@@ -601,27 +601,57 @@ def get_top_insights(limit: int = 2) -> list[dict[str, Any]]:
     return all_cards[:limit]
 
 
+# Пресеты периода аналитики (дней).
+ANALYTICS_PERIOD_OPTIONS: list[dict[str, Any]] = [
+    {"days": 7, "label": "7 дней"},
+    {"days": 14, "label": "2 недели"},
+    {"days": 30, "label": "30 дней"},
+    {"days": 60, "label": "60 дней"},
+    {"days": 90, "label": "90 дней"},
+]
+
+
+def normalize_period_days(value: int | str | None, default: int = 14) -> int:
+    """Нормализовать период: 1…365 дней, по умолчанию 14."""
+    if value is None:
+        return default
+    raw = str(value).strip().lower()
+    if raw in {"", "custom", "none"}:
+        return default
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(days, 365))
+
+
 def fetch_analytics_bundle(
     source: str | None = None,
     topic: str | None = None,
+    period_days: int | None = None,
 ) -> dict[str, Any]:
     """Данные для страницы «Аналитика»."""
     if source == "all":
         source = None
     if not topic:
         topic = None
+    days = normalize_period_days(period_days, default=14)
     if insights_count() == 0:
         from src.analytics.ai_insights import run_insights_refresh
 
-        run_insights_refresh()
+        run_insights_refresh(period_days=days)
     cards = get_insights(source=source, topic=topic)
+    preset_days = {o["days"] for o in ANALYTICS_PERIOD_OPTIONS}
     return {
         "top": get_top_insights(2),
         "cards": cards,
         "topics": [{"id": k, "label": v} for k, v in _TOPIC_LABELS.items()],
+        "period_options": ANALYTICS_PERIOD_OPTIONS,
         "filters": {
             "source": source or "all",
             "topic": topic or "",
+            "period_days": days,
+            "period_is_custom": days not in preset_days,
         },
         "count": len(cards),
     }

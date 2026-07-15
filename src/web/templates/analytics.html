@@ -4,13 +4,22 @@
 <h1>Аналитика</h1>
 <p class="muted">Лента ИИ-выводов и рекомендаций. Сырые таблицы TravelLine не дублируем — детали в «Подробнее».</p>
 
-<form method="post" action="/analytics/refresh" style="margin-bottom:1rem">
-    <button type="submit" class="btn-small">🔄 Обновить сейчас</button>
-</form>
-
 <div class="card">
     <h2>Фильтры</h2>
-    <form method="get" action="/analytics" class="filters-form">
+    <form method="get" action="/analytics" class="filters-form" id="analytics-filters">
+        <label>Период
+            <select name="period_days" id="period_days">
+                {% for opt in data.period_options %}
+                <option value="{{ opt.days }}" {% if data.filters.period_days == opt.days and not data.filters.period_is_custom %}selected{% endif %}>{{ opt.label }}</option>
+                {% endfor %}
+                <option value="custom" {% if data.filters.period_is_custom %}selected{% endif %}>Свой период…</option>
+            </select>
+        </label>
+        <label id="period_custom_wrap" style="{% if not data.filters.period_is_custom %}display:none{% endif %}">Дней
+            <input type="number" name="period_custom" id="period_custom" min="1" max="365"
+                   value="{% if data.filters.period_is_custom %}{{ data.filters.period_days }}{% endif %}"
+                   placeholder="1–365">
+        </label>
         <label>Источник
             <select name="source">
                 <option value="all" {% if data.filters.source == 'all' %}selected{% endif %}>Все</option>
@@ -27,8 +36,28 @@
             </select>
         </label>
         <button type="submit">Применить</button>
+        <button type="submit" class="btn-small" formaction="/analytics/refresh" formmethod="post">🔄 Обновить за период</button>
     </form>
+    <p class="muted" style="margin-top:.75rem">Сейчас выбран период: <strong>{{ data.filters.period_days }} дн.</strong> (по умолчанию 2 недели). «Обновить» пересчитает карточки за этот срок.</p>
 </div>
+<script>
+(function () {
+  var sel = document.getElementById('period_days');
+  var wrap = document.getElementById('period_custom_wrap');
+  var custom = document.getElementById('period_custom');
+  function sync() {
+    var isCustom = sel.value === 'custom';
+    wrap.style.display = isCustom ? '' : 'none';
+    if (!isCustom) custom.value = '';
+  }
+  sel.addEventListener('change', sync);
+  document.getElementById('analytics-filters').addEventListener('submit', function () {
+    if (sel.value === 'custom' && custom.value) {
+      /* period_custom уходит в query/post; period_days=custom игнорируется нормализатором через period_custom */
+    }
+  });
+})();
+</script>
 
 {% if data.top %}
 <div class="card">
@@ -79,6 +108,20 @@
                         <span class="spark-bar" style="height: {{ ((p.occupancy_pct or 0) / ns.max_v * 100)|int }}%" title="{{ p.date }}: загрузка {{ p.occupancy_pct }}%"></span>
                         {% endfor %}
                     </div>
+                    {% endif %}
+                    {% if card.detail_payload.by_type %}
+                    <h3>По типам (Google Sheets)</h3>
+                    <table>
+                        <thead><tr><th>Тип</th><th class="num">Загрузка %</th></tr></thead>
+                        <tbody>
+                        {% for t in card.detail_payload.by_type %}
+                        <tr>
+                            <td>{{ t.room_type }}</td>
+                            <td class="num">{% if t.occupancy_pct is not none %}{{ "%.1f"|format(t.occupancy_pct) }}{% else %}—{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
                     {% endif %}
                     {% if card.detail_payload.competitors %}
                     <h3>Конкуренты</h3>
