@@ -493,13 +493,22 @@ def send_html_report(
         if smtp_factory:
             server = smtp_factory()
             server.sendmail(cfg.email.from_address, recipients, msg.as_string())
+            if hasattr(server, "quit"):
+                server.quit()
         else:
-            with smtplib.SMTP(env.smtp_host, env.smtp_port) as server:
-                if env.smtp_use_tls:
-                    server.starttls()
-                if env.smtp_user:
-                    server.login(env.smtp_user, env.smtp_password)
-                server.sendmail(cfg.email.from_address, recipients, msg.as_string())
+            use_ssl = bool(env.smtp_use_ssl) or int(env.smtp_port) == 465
+            if use_ssl:
+                with smtplib.SMTP_SSL(env.smtp_host, env.smtp_port) as server:
+                    if env.smtp_user:
+                        server.login(env.smtp_user, env.smtp_password)
+                    server.sendmail(cfg.email.from_address, recipients, msg.as_string())
+            else:
+                with smtplib.SMTP(env.smtp_host, env.smtp_port) as server:
+                    if env.smtp_use_tls:
+                        server.starttls()
+                    if env.smtp_user:
+                        server.login(env.smtp_user, env.smtp_password)
+                    server.sendmail(cfg.email.from_address, recipients, msg.as_string())
     except smtplib.SMTPException as exc:
         logger.error("Ошибка SMTP: %s", exc)
         save_error_log(

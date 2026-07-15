@@ -278,6 +278,7 @@ class EnvSettings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
     admin_password: str = "admin"
     admin_token: str = ""
     secret_key: str = "change-me"
