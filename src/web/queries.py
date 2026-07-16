@@ -27,6 +27,7 @@ from src.storage.db import (
 )
 from src.web.market_intel import build_competitor_cards
 from src.utils.category_labels import category_label
+from src.utils.dates import format_date_ru, format_period_label, format_period_ru
 from src.utils.metric_labels import expand_metric_abbrs, expand_metric_abbrs_list
 
 
@@ -60,7 +61,7 @@ def fetch_metrics_comparison() -> dict[str, Any] | None:
     if cur is None:
         return None
     return {
-        "report_date": ref_date.isoformat(),
+        "report_date": format_date_ru(ref_date),
         "occupancy_pct": cur.occupancy_pct,
         "adr": cur.adr,
         "revpar": cur.revpar,
@@ -85,7 +86,7 @@ def fetch_last_reports() -> dict[str, dict[str, Any] | None]:
         return {
             "id": item.id,
             "status": item.status,
-            "report_date": item.report_date.isoformat(),
+            "report_date": format_date_ru(item.report_date),
             "dry_run": item.dry_run,
             "preview": (item.preview or "")[:120],
         }
@@ -137,6 +138,7 @@ def fetch_snapshot_rows(limit: int = 200) -> list[dict[str, Any]]:
     for r in rows:
         item = dict(r)
         item["category_label"] = category_label(str(item.get("category") or ""), slug_map)
+        item["snapshot_date"] = format_date_ru(item.get("snapshot_date"))
         out.append(item)
     return out
 
@@ -160,6 +162,7 @@ def fetch_snapshot_chart() -> list[dict[str, Any]]:
         label = category_label(str(item.get("category") or ""), slug_map)
         item["category_label"] = label
         item["category_short"] = (label[:9] + "…") if len(label) > 10 else label
+        item["snapshot_date"] = format_date_ru(item.get("snapshot_date"))
         out.append(item)
     return out
 
@@ -176,7 +179,12 @@ def fetch_metrics_rows(days: int = 90) -> list[dict[str, Any]]:
             """,
             (start.isoformat(),),
         ).fetchall()
-    return [dict(r) for r in rows]
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        item = dict(r)
+        item["report_date"] = format_date_ru(item.get("report_date"))
+        out.append(item)
+    return out
 
 
 def fetch_weekly_metrics() -> list[dict[str, Any]]:
@@ -288,7 +296,7 @@ def fetch_logs_bundle(limit: int = 100) -> dict[str, list[dict[str, Any]]]:
         "reports": [
             {
                 "id": r.id,
-                "created_at": r.run_date.isoformat(),
+                "created_at": format_date_ru(r.run_date),
                 "report_type": r.report_type,
                 "status": r.status,
                 "dry_run": r.dry_run,
@@ -354,7 +362,7 @@ def get_competitor_latest() -> list[dict[str, Any]]:
                 "our_category_slug": mapped_slug,
                 "our_price": our_price,
                 "delta_pct": delta_pct,
-                "updated_at": rec_date.isoformat() if rec_date else None,
+                "updated_at": format_date_ru(rec_date) if rec_date else None,
                 "status_emoji": emoji,
                 "status_label": status_label,
                 "source": rec.source if rec else comp.parser,
@@ -370,7 +378,7 @@ def get_competitor_history(name: str, days: int = 90) -> list[dict[str, Any]]:
     records = get_competitor_prices_history(name, days=days)
     return [
         {
-            "date": r.date.isoformat(),
+            "date": format_date_ru(r.date),
             "price_from": r.price_from,
             "available": r.available,
             "source": r.source,
@@ -523,10 +531,10 @@ def fetch_trends_bundle(
         "trends": get_trends(region, category, days),
         "idea_of_week": get_idea_of_week(),
         "auto_trends": auto_trends,
-        "period_start": period_start.isoformat(),
-        "period_end": period_end.isoformat(),
-        "prev_start": prev_start.isoformat(),
-        "prev_end": prev_end.isoformat(),
+        "period_start": format_date_ru(period_start),
+        "period_end": format_date_ru(period_end),
+        "prev_start": format_date_ru(prev_start),
+        "prev_end": format_date_ru(prev_end),
         "aggregates": aggregates,
         "categories": TREND_CATEGORIES,
         "filters": {
@@ -553,6 +561,36 @@ _TOPIC_LABELS = {
 }
 
 
+def _localize_detail_dates(payload: dict[str, Any]) -> dict[str, Any]:
+    """Даты в detail_payload → ДД.ММ.ГГГГ (series / sources)."""
+    if not payload:
+        return {}
+    out = dict(payload)
+    series = out.get("series")
+    if isinstance(series, list):
+        fixed = []
+        for point in series:
+            if isinstance(point, dict) and "date" in point:
+                item = dict(point)
+                item["date"] = format_date_ru(item.get("date"))
+                fixed.append(item)
+            else:
+                fixed.append(point)
+        out["series"] = fixed
+    sources = out.get("sources")
+    if isinstance(sources, list):
+        fixed_src = []
+        for src in sources:
+            if isinstance(src, dict) and src.get("date"):
+                item = dict(src)
+                item["date"] = format_date_ru(item.get("date"))
+                fixed_src.append(item)
+            else:
+                fixed_src.append(src)
+        out["sources"] = fixed_src
+    return out
+
+
 def get_insights(
     source: str | None = None,
     topic: str | None = None,
@@ -576,11 +614,11 @@ def get_insights(
                     "web": "Интернет",
                     "mixed": "Смешанный",
                 }.get(r.source, r.source),
-                "period": r.period,
-                "detail_payload": r.detail_payload or {},
-                "updated_at": r.updated_at.isoformat(sep=" ", timespec="minutes")
-                if r.updated_at
-                else "",
+                "period": format_period_label(r.period),
+                "detail_payload": _localize_detail_dates(r.detail_payload or {}),
+                "updated_at": (
+                    r.updated_at.strftime("%d.%m.%Y %H:%M") if r.updated_at else ""
+                ),
             }
         )
     rows.sort(

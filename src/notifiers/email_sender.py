@@ -379,7 +379,7 @@ def build_weekly_report_plain(data: WeeklyReportData) -> str:
     prev = data.prev_week_metrics
     lines = [
         f"Еженедельный отчёт 1apart: "
-        f"{data.period_start} — {data.period_end}",
+        f"{data.period_start.strftime('%d.%m.%Y')} — {data.period_end.strftime('%d.%m.%Y')}",
         "",
         "Загрузка по типам:",
     ]

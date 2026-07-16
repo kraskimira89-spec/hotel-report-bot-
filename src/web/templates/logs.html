@@ -11,7 +11,7 @@
         <tbody>
         {% for e in bundle.reconcile %}
         <tr>
-            <td>{{ e.created_at }}</td>
+            <td>{{ e.created_at|date_ru }}</td>
             <td>{{ e.source }}</td>
             <td>{{ e.message }}</td>
         </tr>
@@ -31,7 +31,7 @@
         <tbody>
         {% for e in bundle.errors %}
         <tr>
-            <td>{{ e.created_at }}</td>
+            <td>{{ e.created_at|date_ru }}</td>
             <td>{{ e.source }}</td>
             <td>{{ e.error_type }}</td>
             <td>{{ e.message }}</td>
@@ -52,7 +52,7 @@
         <tbody>
         {% for r in bundle.reports %}
         <tr>
-            <td>{{ r.created_at }}</td>
+            <td>{{ r.created_at|date_ru }}</td>
             <td>{{ r.report_type }}</td>
             <td>{{ r.status }}</td>
             <td>{{ "да" if r.dry_run else "нет" }}</td>

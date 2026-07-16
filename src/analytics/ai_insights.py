@@ -23,6 +23,7 @@ from src.storage.db import (
     replace_insights,
 )
 from src.storage.models import InsightRecord
+from src.utils.dates import format_date_ru, format_period_ru
 from src.utils.metric_labels import (
     ADR_RU,
     REVPAR_RU,
@@ -114,7 +115,7 @@ def _series_from_occ_days(days: list[OccupancyDay]) -> list[dict[str, Any]]:
         pct = _occ_day_pct(day)
         if pct is None:
             continue
-        series.append({"date": day.date.isoformat(), "occupancy_pct": round(pct, 1)})
+        series.append({"date": format_date_ru(day.date), "occupancy_pct": round(pct, 1)})
     return series
 
 
@@ -291,7 +292,7 @@ def _collect_context(period_days: int = 14) -> dict[str, Any]:
         logger.debug("Тренды недоступны: %s", exc)
 
     occ_series = [
-        {"date": m.report_date.isoformat(), "occupancy_pct": m.occupancy_pct}
+        {"date": format_date_ru(m.report_date), "occupancy_pct": m.occupancy_pct}
         for m in sorted(cur_metrics, key=lambda x: x.report_date)
         if m.occupancy_pct is not None
     ]
@@ -309,7 +310,7 @@ def _collect_context(period_days: int = 14) -> dict[str, Any]:
     ):
         channels_agg = sheets["channels"]
 
-    period_label = f"{start.isoformat()} — {end.isoformat()}"
+    period_label = format_period_ru(start, end)
     return {
         "period": period_label,
         "period_days": period_days,
@@ -637,7 +638,7 @@ def _rule_based_cards(ctx: dict[str, Any]) -> list[InsightCard]:
                     {
                         "title": "Локальная сезонность апарт-отеля",
                         "url": "https://1apart.ru",
-                        "date": date.today().isoformat(),
+                        "date": format_date_ru(date.today()),
                     }
                 ]
             },
@@ -666,7 +667,7 @@ def _rule_based_cards(ctx: dict[str, Any]) -> list[InsightCard]:
                     {
                         "title": "Федеральная тема размещения",
                         "url": "https://tourism.gov.ru/",
-                        "date": date.today().isoformat(),
+                        "date": format_date_ru(date.today()),
                     }
                 ]
             },

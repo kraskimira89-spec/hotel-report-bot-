@@ -11,8 +11,8 @@
         <tr>
             <td>{{ r.id }}</td>
             <td>{{ r.report_type }}</td>
-            <td>{{ r.report_date }}</td>
-            <td>{% if r.period_start %}{{ r.period_start }} — {{ r.period_end }}{% else %}—{% endif %}</td>
+            <td>{{ r.report_date|date_ru }}</td>
+            <td>{% if r.period_start %}{{ r.period_start|date_ru }} — {{ r.period_end|date_ru }}{% else %}—{% endif %}</td>
             <td>{{ r.status }}</td>
             <td>{{ "да" if r.dry_run else "нет" }}</td>
             <td>

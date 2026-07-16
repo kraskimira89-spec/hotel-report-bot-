@@ -21,6 +21,7 @@ from src.notifiers.email_sender import send_weekly_report
 from src.notifiers.max_bot import send_daily_summary
 from src.notifiers.max_webhook import handle_max_webhook, log_webhook_error, verify_webhook_secret
 from src.storage.db import get_report_log, init_db
+from src.utils.dates import format_date_ru, format_period_ru
 from src.web import queries
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 SCREENSHOTS_DIR = Path("data/screenshots")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates.env.filters["date_ru"] = format_date_ru
+templates.env.filters["period_ru"] = (
+    lambda start, end=None: format_period_ru(start, end) if end is not None else format_date_ru(start)
+)
 
 app = FastAPI(title="hotel-report-bot Admin", version="0.2.0")
 app.add_middleware(SessionMiddleware, secret_key=get_env_settings().secret_key)
