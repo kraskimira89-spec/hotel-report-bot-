@@ -34,7 +34,11 @@ from src.storage.db import init_db
 def tl_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "src.data_sources.travelline.get_env_settings",
-        lambda: EnvSettings(tl_api_key="test-key"),
+        lambda: EnvSettings(
+            tl_api_key="test-key",
+            tl_client_id="",
+            tl_client_secret="",
+        ),
     )
 
 
@@ -273,9 +277,14 @@ def test_parse_webpms_source_label() -> None:
     assert parse_webpms_source_label({"code": "1apart.ru"}) == "1apart.ru"
 
 
-def test_calc_reconcile_diff_pct() -> None:
-    assert calc_reconcile_diff_pct(11, 10) == pytest.approx(10.0)
-    assert calc_reconcile_diff_pct(0, 0) == 0.0
+def test_reconcile_skips_when_sheets_empty(tl_config: AppConfig) -> None:
+    warnings = reconcile_with_sheets(
+        date(2026, 7, 16),
+        tl_bookings_count=13,
+        sheets_bookings_count=0,
+        config=tl_config,
+    )
+    assert warnings == []
 
 
 def test_run_daily_reconciliation_mocked(

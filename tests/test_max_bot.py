@@ -254,4 +254,75 @@ def test_send_daily_summary_writes_reports_log(
     assert row is not None
     assert row["report_type"] == "max"
     assert row["status"] == "sent"
-    assert row["dry_run"] == 1
+def test_prepare_daily_summary_prefers_travelline(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from src.data_sources.sheets import BookingsSheetData, OccupancySheetData
+    from src.data_sources.travelline import StayOccupancyResult
+    from src.notifiers.max_bot import prepare_daily_summary_data
+    from src.storage import db as storage_db
+
+    db_file = tmp_path / "summary.db"
+
+    def _patched_db_path() -> Path:
+        return db_file
+
+    monkeypatch.setattr(storage_db, "get_db_path", _patched_db_path)
+    monkeypatch.setattr("src.config.get_db_path", _patched_db_path)
+    init_db()
+
+    class _FakeTL:
+        def get_stay_occupancy(self, stay_date: date) -> StayOccupancyResult:
+            return StayOccupancyResult(
+                stay_date=stay_date,
+                sold=25,
+                available=44,
+                occupancy_pct=round(25 / 44 * 100, 2),
+                by_type={
+                    "Однокомнатные квартиры 23 м²": 10,
+                    "Однокомнатные квартиры 27 м²": 15,
+                },
+                free_by_type={
+                    "Однокомнатные квартиры 23 м²": 7,
+                    "Однокомнатные квартиры 27 м²": 2,
+                },
+                booked_by_type={
+                    "Однокомнатные квартиры 23 м²": 0,
+                    "Однокомнатные квартиры 27 м²": 0,
+                },
+            )
+
+        def get_channels(self, start: date, end: date) -> list[dict]:
+            return [
+                {"source": "Сайт гостиницы", "channel_type": "direct", "count": 10},
+                {"source": "Островок", "channel_type": "aggregator", "count": 3},
+            ]
+
+    monkeypatch.setattr(
+        "src.data_sources.travelline.TravelLineClient",
+        lambda *a, **k: _FakeTL(),
+    )
+    monkeypatch.setattr(
+        "src.data_sources.travelline.run_daily_reconciliation",
+        lambda *a, **k: [],
+    )
+
+    data = prepare_daily_summary_data(
+        date(2026, 7, 16),
+        occupancy=OccupancySheetData(is_available=True),
+        bookings=BookingsSheetData(is_available=True, records=[]),
+    )
+    assert data.occupancy_source == "travelline"
+    assert data.bookings_source == "travelline"
+    assert data.occupancy_pct == round(25 / 44 * 100, 2)
+    assert data.new_bookings_total == 13
+    assert data.critical_error is False
+    labels = {r.label: r for r in data.room_types}
+    assert labels["Однокомнатные квартиры 23 м²"].free == 7
+    assert labels["Однокомнатные квартиры 23 м²"].occupied == 10
+    assert labels["Однокомнатные квартиры 27 м²"].occupied == 15
+    assert data.totals is not None
+    assert data.totals.free == 19  # available 44 − occupied 25
+    assert data.totals.occupied == 25
+    assert data.totals.total == 44

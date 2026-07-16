@@ -30,7 +30,7 @@ def main() -> int:
         help="Дата отчёта YYYY-MM-DD (по умолчанию — сегодня MSK)",
     )
     parser.add_argument("--snapshot", action="store_true", help="Собрать snapshot цен")
-    parser.add_argument("--reconcile", action="store_true", help="Сверка TL ↔ Sheets")
+    parser.add_argument("--reconcile", action="store_true", help="Сверка TL ↔ ГуглТабл")
     parser.add_argument("--summary", action="store_true", help="Отправить сводку в Max")
     parser.add_argument(
         "--all",
@@ -54,7 +54,7 @@ def main() -> int:
         job_price_snapshot(report_date=report_date, run_date=run_date)
 
     if args.all or args.reconcile:
-        print("\n[2/3] Сверка TravelLine ↔ Sheets...")
+        print("\n[2/3] Сверка TravelLine ↔ ГуглТабл...")
         warnings = run_daily_reconciliation(report_date)
         if warnings:
             for w in warnings:
@@ -75,6 +75,8 @@ def main() -> int:
             "dry_run:", result.get("dry_run"),
             "occupancy:", data.occupancy_pct,
             "bookings:", data.new_bookings_total,
+            "occ_src:", data.occupancy_source,
+            "book_src:", data.bookings_source,
         )
 
     return 0

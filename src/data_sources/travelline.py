@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Protocol
 from zoneinfo import ZoneInfo
@@ -207,6 +208,73 @@ def _extract_list(payload: dict[str, Any], *keys: str) -> list[dict[str, Any]]:
     return []
 
 
+def _is_stay_service_row(row: dict[str, Any]) -> bool:
+    """Строка «Проживание» в analytics/services (kind=0 или имя)."""
+    kind = row.get("kind")
+    if kind == 0 or kind == "0":
+        return True
+    name = str(row.get("name") or "").strip().lower()
+    return name in {"проживание", "accommodation", "lodging"}
+
+
+def _looks_like_booking_number(value: str) -> bool:
+    """Номер вида YYYYMMDD-… (не внутренний reservationId)."""
+    prefix = value.split("-", 1)[0]
+    return prefix.isdigit() and len(prefix) == 8
+
+
+def _parse_room_stay_dates(stay: dict[str, Any]) -> tuple[date | None, date | None]:
+    """Даты заезда/выезда из WebPMS roomStay (checkIn/Out или arrival/departure)."""
+    raw_in = (
+        stay.get("checkInDateTime")
+        or stay.get("arrivalDate")
+        or stay.get("startDate")
+        or ""
+    )
+    raw_out = (
+        stay.get("checkOutDateTime")
+        or stay.get("departureDate")
+        or stay.get("endDate")
+        or ""
+    )
+
+    def _one(raw: Any) -> date | None:
+        text = str(raw or "").strip()
+        if not text:
+            return None
+        if "T" in text:
+            try:
+                return datetime.fromisoformat(text.replace("Z", "+00:00")[:19]).date()
+            except ValueError:
+                pass
+        return parse_tl_date(text[:8] if len(text) >= 8 and text[:8].isdigit() else text)
+
+    return _one(raw_in), _one(raw_out)
+
+
+def _room_stay_bucket(stay: dict[str, Any]) -> str:
+    """occupied / booked / skip для сводки св/зан/брон."""
+    status = str(stay.get("status") or stay.get("bookingStatus") or "").strip().lower()
+    if status in {
+        "cancelled",
+        "canceled",
+        "отменена",
+        "отменен",
+        "noshow",
+        "no-show",
+        "незаезд",
+        "checkedout",
+        "checked_out",
+    }:
+        return "skip"
+    if status in {"checkedin", "checked_in", "inhouse", "in-house"}:
+        return "occupied"
+    if status in {"new", "confirmed", "booked", "reserved"}:
+        return "booked"
+    # Нет статуса — считаем занятием ночи (как в analytics).
+    return "occupied"
+
+
 def parse_analytics_services(payload: dict[str, Any]) -> list[AnalyticsServiceItem]:
     """Разобрать ответ analytics/services."""
     items: list[AnalyticsServiceItem] = []
@@ -218,9 +286,12 @@ def parse_analytics_services(payload: dict[str, Any]) -> list[AnalyticsServiceIt
             or row.get("serviceAmount")
         )
         service_date = parse_tl_date(str(row.get("date") or row.get("serviceDate") or ""))
+        booking_number = row.get("bookingNumber") or row.get("number")
+        if booking_number is not None:
+            booking_number = str(booking_number)
         items.append(
             AnalyticsServiceItem(
-                booking_number=row.get("bookingNumber") or row.get("number"),
+                booking_number=booking_number,
                 amount=amount,
                 service_date=service_date,
                 raw=row,
@@ -321,7 +392,9 @@ class StayOccupancyResult(BaseModel):
     sold: int = 0
     available: int = 0
     occupancy_pct: float = 0.0
-    by_type: dict[str, int] = Field(default_factory=dict)  # label → занято
+    by_type: dict[str, int] = Field(default_factory=dict)  # label → занято (CheckedIn)
+    free_by_type: dict[str, int] = Field(default_factory=dict)
+    booked_by_type: dict[str, int] = Field(default_factory=dict)  # label → бронь (New)
     source: str = "travelline"
 
 
@@ -760,17 +833,31 @@ class TravelLineClient:
             )
 
         if date_kind == 2:
-            start_utc = msk_date_to_utc_start(start_date)
-            reservations = self.iter_reservations(last_modification_utc=start_utc)
-            end_utc = msk_date_to_utc_end(end_date)
-            filtered: list[ReservationSummary] = []
-            for item in reservations:
-                created = item.created_at
-                if created is None:
-                    continue
-                if start_utc <= created <= end_utc:
-                    filtered.append(item)
-            return self._enrich_channels(filtered)
+            try:
+                start_utc = msk_date_to_utc_start(start_date)
+                reservations = self.iter_reservations(last_modification_utc=start_utc)
+                end_utc = msk_date_to_utc_end(end_date)
+                filtered: list[ReservationSummary] = []
+                for item in reservations:
+                    created = item.created_at
+                    if created is None:
+                        continue
+                    if start_utc <= created <= end_utc:
+                        filtered.append(item)
+                return self._enrich_channels(filtered)
+            except TravelLineError as exc:
+                # OAuth есть, но Read Reservation недоступен (404 и т.п.) — WebPMS
+                if "404" not in str(exc):
+                    raise
+                logger.warning(
+                    "Read Reservation API недоступен (%s), сверка через WebPMS",
+                    exc,
+                )
+                return self._get_reservations_via_webpms(
+                    start_date,
+                    end_date,
+                    fetch_details=fetch_details,
+                )
 
         services = self.get_analytics_services(start_date, end_date, date_kind=date_kind)
         numbers = {s.booking_number for s in services if s.booking_number}
@@ -941,97 +1028,244 @@ class TravelLineClient:
         )
         return parse_dynamic_prices(payload)
 
-    def get_stay_occupancy(self, stay_date: date) -> StayOccupancyResult:
-        """Загрузка на ночь stay_date из analytics/services (dateKind=1).
+    def get_rooms(self) -> list[dict[str, Any]]:
+        """Инвентарь квартир WebPMS ``/rooms``."""
+        payload = self._webpms_request("GET", "rooms")
+        value = payload.get("value")
+        if isinstance(value, list):
+            return [r for r in value if isinstance(r, dict)]
+        return _extract_list(payload, "rooms", "items", "value")
 
-        Считаем уникальные брони с проживанием в эту ночь; при деталях —
-        раскладываем по типам номеров из roomStays.
+    def _label_for_room_type_id(self, room_type_id: str | None) -> str:
+        from src.utils.category_labels import room_type_label
+
+        tid = str(room_type_id or "").strip()
+        mapped = self.config.travelline.room_type_id_map.get(tid)
+        if mapped:
+            return mapped
+        if tid:
+            return room_type_label(tid, self.config.room_type_aliases)
+        return "Прочее"
+
+    def _capacity_by_label(self) -> dict[str, int]:
+        capacity: dict[str, int] = {}
+        try:
+            rooms = self.get_rooms()
+        except TravelLineError as exc:
+            logger.warning("WebPMS /rooms недоступен: %s", exc)
+            return capacity
+        for room in rooms:
+            label = self._label_for_room_type_id(str(room.get("roomTypeId") or ""))
+            capacity[label] = capacity.get(label, 0) + 1
+        return capacity
+
+    def _collect_stay_ids_from_analytics(self, stay_date: date) -> set[int]:
+        services = self.get_analytics_services(stay_date, stay_date, date_kind=1)
+        ids: set[int] = set()
+        for item in services:
+            row = item.raw or {}
+            if not _is_stay_service_row(row):
+                continue
+            rid = row.get("reservationId")
+            if rid is None:
+                continue
+            try:
+                ids.add(int(rid))
+            except (TypeError, ValueError):
+                continue
+        return ids
+
+    def _match_stays_by_type(
+        self,
+        stay_date: date,
+        stay_ids: set[int],
+    ) -> tuple[dict[str, int], dict[str, int], set[int]]:
+        """Разнести проживания по категориям: occupied / booked.
+
+        Ищем roomStay.id ∈ stay_ids (analytics reservationId) среди Active броней.
+        """
+        import calendar
+
+        occupied: dict[str, int] = {}
+        booked: dict[str, int] = {}
+        matched: set[int] = set()
+        if not stay_ids:
+            return occupied, booked, matched
+
+        _, month_days = calendar.monthrange(stay_date.year, stay_date.month)
+        windows = [
+            (date(stay_date.year, stay_date.month, 1), date(stay_date.year, stay_date.month, month_days)),
+            (stay_date - timedelta(days=90), stay_date),
+        ]
+        seen_numbers: set[str] = set()
+
+        def _consume(booking: dict[str, Any]) -> None:
+            for stay in booking.get("roomStays") or []:
+                if not isinstance(stay, dict):
+                    continue
+                try:
+                    sid = int(stay.get("id"))
+                except (TypeError, ValueError):
+                    continue
+                if sid not in stay_ids or sid in matched:
+                    continue
+                bucket = _room_stay_bucket(stay)
+                if bucket == "skip":
+                    continue
+                label = self._label_for_room_type_id(str(stay.get("roomTypeId") or ""))
+                if bucket == "booked":
+                    booked[label] = booked.get(label, 0) + 1
+                else:
+                    occupied[label] = occupied.get(label, 0) + 1
+                matched.add(sid)
+
+        for start, end in windows:
+            if matched >= stay_ids:
+                break
+            try:
+                numbers = self.search_webpms_booking_numbers(start, end, state="Active")
+            except TravelLineError as exc:
+                logger.warning("Поиск броней WebPMS %s…%s: %s", start, end, exc)
+                continue
+            todo = [n for n in numbers if n not in seen_numbers]
+            seen_numbers.update(todo)
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                futures = {pool.submit(self.get_booking, n): n for n in todo}
+                for fut in as_completed(futures):
+                    try:
+                        booking = fut.result()
+                    except TravelLineError:
+                        continue
+                    _consume(booking)
+                    if matched >= stay_ids:
+                        break
+            if matched >= stay_ids:
+                break
+
+        return occupied, booked, matched
+
+    def get_stay_occupancy(self, stay_date: date) -> StayOccupancyResult:
+        """Загрузка на ночь stay_date с разбивкой по категориям.
+
+        1) analytics/services (dateKind=1) — эталон числа занятых ночей;
+        2) WebPMS bookings + /rooms — св / зан / брон по типам.
         """
         from src.utils.category_labels import room_type_label
 
         total_units = self.config.property.total_units
-        services = self.get_analytics_services(stay_date, stay_date, date_kind=1)
-        numbers = sorted({s.booking_number for s in services if s.booking_number})
-        by_type: dict[str, int] = {}
-        sold = 0
-        details_loaded = False
-        cancelled_statuses = {
-            "cancelled",
-            "canceled",
-            "отменена",
-            "отменен",
-            "noshow",
-            "no-show",
-            "незаезд",
-        }
+        stay_ids = self._collect_stay_ids_from_analytics(stay_date)
+        analytics_sold = len(stay_ids)
+        capacity = self._capacity_by_label()
+        available = sum(capacity.values()) or total_units
 
-        if not numbers:
-            return StayOccupancyResult(
-                stay_date=stay_date,
-                sold=0,
-                available=total_units,
-                occupancy_pct=0.0,
-                by_type={},
+        occupied_by: dict[str, int] = {}
+        booked_by: dict[str, int] = {}
+        if stay_ids:
+            occupied_by, booked_by, matched = self._match_stays_by_type(stay_date, stay_ids)
+            logger.info(
+                "Загрузка по категориям на %s: analytics=%s matched=%s",
+                stay_date,
+                analytics_sold,
+                len(matched),
             )
-
-        for number in numbers:
-            try:
-                booking = self.get_booking(number)
-                details_loaded = True
-            except TravelLineError:
-                sold += 1
-                by_type["Прочее"] = by_type.get("Прочее", 0) + 1
-                continue
-
-            status = str(booking.get("status") or "").strip().lower()
-            if status in cancelled_statuses:
-                continue
-
-            stays = [
-                s for s in (booking.get("roomStays") or []) if isinstance(s, dict)
-            ]
-            if not stays:
-                sold += 1
-                by_type["Прочее"] = by_type.get("Прочее", 0) + 1
-                continue
-
-            for stay in stays:
-                arrival = parse_tl_date(str(stay.get("arrivalDate") or stay.get("startDate") or ""))
-                departure = parse_tl_date(
-                    str(stay.get("departureDate") or stay.get("endDate") or "")
+            missing = analytics_sold - len(matched)
+            if missing > 0:
+                # Не плодим строку «Прочее» (ломает сумму 44); учтём в sold ниже.
+                logger.warning(
+                    "Не сопоставлены %s roomStay из analytics — в разбивке не показаны",
+                    missing,
                 )
-                if arrival and departure and not (arrival <= stay_date < departure):
+
+        # Старый путь: в analytics есть bookingNumber вида YYYYMMDD-…
+        if not stay_ids:
+            services = self.get_analytics_services(stay_date, stay_date, date_kind=1)
+            numbers = sorted(
+                {
+                    s.booking_number
+                    for s in services
+                    if s.booking_number and _looks_like_booking_number(s.booking_number)
+                }
+            )
+            cancelled_statuses = {
+                "cancelled",
+                "canceled",
+                "отменена",
+                "отменен",
+                "noshow",
+                "no-show",
+                "незаезд",
+            }
+            for number in numbers:
+                try:
+                    booking = self.get_booking(number)
+                except TravelLineError:
+                    occupied_by["Прочее"] = occupied_by.get("Прочее", 0) + 1
                     continue
-                room_type = stay.get("roomType") or {}
-                if isinstance(room_type, dict):
-                    raw_name = (
-                        room_type.get("name")
-                        or room_type.get("shortName")
-                        or room_type.get("code")
-                        or "Категория"
-                    )
-                else:
-                    raw_name = str(room_type or "Категория")
-                label = room_type_label(
-                    str(raw_name),
-                    self.config.room_type_aliases,
-                )
-                by_type[label] = by_type.get(label, 0) + 1
-                sold += 1
+                status = str(booking.get("status") or "").strip().lower()
+                if status in cancelled_statuses:
+                    continue
+                stays = [
+                    s for s in (booking.get("roomStays") or []) if isinstance(s, dict)
+                ]
+                if not stays:
+                    occupied_by["Прочее"] = occupied_by.get("Прочее", 0) + 1
+                    continue
+                for stay in stays:
+                    arrival, departure = _parse_room_stay_dates(stay)
+                    if arrival and departure and not (arrival <= stay_date < departure):
+                        continue
+                    bucket = _room_stay_bucket(stay)
+                    if bucket == "skip":
+                        continue
+                    room_type = stay.get("roomType") or {}
+                    if stay.get("roomTypeId"):
+                        label = self._label_for_room_type_id(str(stay.get("roomTypeId")))
+                    elif isinstance(room_type, dict):
+                        raw_name = (
+                            room_type.get("name")
+                            or room_type.get("shortName")
+                            or room_type.get("code")
+                            or "Категория"
+                        )
+                        label = room_type_label(str(raw_name), self.config.room_type_aliases)
+                    else:
+                        label = room_type_label(
+                            str(room_type or "Категория"),
+                            self.config.room_type_aliases,
+                        )
+                    if bucket == "booked":
+                        booked_by[label] = booked_by.get(label, 0) + 1
+                    else:
+                        occupied_by[label] = occupied_by.get(label, 0) + 1
 
-        if sold == 0 and numbers and not details_loaded:
-            # Детали недоступны — fallback: 1 бронь = 1 занятая квартира.
-            sold = len(numbers)
-            by_type = {"Все категории": sold}
+        sold = sum(occupied_by.values()) + sum(booked_by.values())
+        if analytics_sold and sold < analytics_sold:
+            sold = analytics_sold
+        if sold == 0 and analytics_sold:
+            sold = analytics_sold
+            occupied_by = {"Все категории": sold}
 
-        available = total_units
+        # Свободно по типам из инвентаря /rooms.
+        labels = sorted(set(capacity) | set(occupied_by) | set(booked_by))
+        free_by: dict[str, int] = {}
+        for label in labels:
+            cap = capacity.get(label, 0)
+            used = occupied_by.get(label, 0) + booked_by.get(label, 0)
+            if cap:
+                free_by[label] = max(cap - used, 0)
+            elif label == "Прочее":
+                free_by[label] = 0
+
         pct = round(sold / available * 100, 2) if available > 0 else 0.0
         return StayOccupancyResult(
             stay_date=stay_date,
             sold=sold,
             available=available,
             occupancy_pct=pct,
-            by_type=by_type,
+            by_type=occupied_by,
+            free_by_type=free_by,
+            booked_by_type=booked_by,
+            source="travelline",
         )
 
 
@@ -1043,10 +1277,22 @@ def reconcile_with_sheets(
     config: AppConfig | None = None,
     log: Callable[[ReconciliationWarning], None] | None = None,
 ) -> list[ReconciliationWarning]:
-    """Сверка TravelLine vs Google Sheets; лог при превышении порога."""
+    """Сверка TravelLine vs Google Sheets; лог при превышении порога.
+
+    Если Sheets за день пуст (0), расхождение не поднимаем — таблица ещё
+    не заполнена; эталон для сводки — TravelLine.
+    """
     cfg = config or get_config()
     threshold = threshold_pct or cfg.travelline.sheets_reconcile_threshold_pct
     warnings: list[ReconciliationWarning] = []
+
+    if sheets_bookings_count == 0:
+        logger.info(
+            "Сверка ГуглТабл пропущена за %s: ГуглТабл=0, TL=%s",
+            report_date,
+            tl_bookings_count,
+        )
+        return warnings
 
     diff_pct = calc_reconcile_diff_pct(
         float(tl_bookings_count),
@@ -1060,7 +1306,7 @@ def reconcile_with_sheets(
             diff_pct=round(diff_pct, 2),
             message=(
                 f"Расхождение новых броней за {report_date:%d.%m.%Y}: "
-                f"TL={tl_bookings_count}, Sheets={sheets_bookings_count} "
+                f"TL={tl_bookings_count}, ГуглТабл={sheets_bookings_count} "
                 f"({diff_pct:.1f}% > порога {threshold}%)"
             ),
         )

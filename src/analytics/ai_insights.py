@@ -188,13 +188,13 @@ def _collect_sheets_overlay(
         out["available"] = bool(cur_series or out["channels"] or out["by_type"])
         if out["available"]:
             logger.info(
-                "Sheets для аналитики: occ_days=%s avg=%s bookings=%s",
+                "ГуглТабл для аналитики: occ_days=%s avg=%s bookings=%s",
                 len(cur_series),
                 out["occupancy_current"],
                 (out["channels"] or {}).get("total", 0),
             )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Sheets overlay для аналитики недоступен: %s", exc)
+        logger.warning("ГуглТабл overlay для аналитики недоступен: %s", exc)
     return out
 
 

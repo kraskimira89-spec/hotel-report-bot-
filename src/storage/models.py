@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 TRENDS_RETENTION_DAYS = 180
 INSIGHTS_RETENTION_DAYS = 90
@@ -115,6 +115,7 @@ TABLES: list[str] = [
         source TEXT NOT NULL DEFAULT 'dom',
         screenshot_path TEXT,
         available INTEGER NOT NULL DEFAULT 0,
+        category TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
@@ -208,6 +209,7 @@ MIGRATIONS_V4: list[str] = [
         source TEXT NOT NULL DEFAULT 'dom',
         screenshot_path TEXT,
         available INTEGER NOT NULL DEFAULT 0,
+        category TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
@@ -251,6 +253,12 @@ MIGRATIONS_V5: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_insights_topic ON insights(topic)",
     "CREATE INDEX IF NOT EXISTS idx_insights_severity ON insights(severity)",
     "CREATE INDEX IF NOT EXISTS idx_insights_updated ON insights(updated_at)",
+]
+
+MIGRATIONS_V6: list[str] = [
+    "ALTER TABLE competitor_prices ADD COLUMN category TEXT NOT NULL DEFAULT ''",
+    "CREATE INDEX IF NOT EXISTS idx_competitor_prices_name_cat_date "
+    "ON competitor_prices(competitor_name, category, date)",
 ]
 
 
@@ -343,7 +351,11 @@ class PeriodComparison(BaseModel):
 
 
 class CompetitorPriceRecord(BaseModel):
-    """Снимок цены конкурента."""
+    """Снимок цены конкурента.
+
+    ``category`` пустой — агрегат «цена от» по объекту;
+    иначе — имя объекта/категории конкурента.
+    """
 
     competitor_name: str
     date: date
@@ -352,6 +364,7 @@ class CompetitorPriceRecord(BaseModel):
     source: str = "dom"
     screenshot_path: str | None = None
     available: bool = False
+    category: str = ""
     id: int | None = None
 
 

@@ -15,6 +15,7 @@ from src.data_sources.market_trends import (
 from src.storage.db import (
     compare_metrics_last_week,
     db_session,
+    get_competitor_category_prices,
     get_competitor_prices_history,
     get_competitor_prices_latest,
     get_guest_stats,
@@ -389,13 +390,25 @@ def get_competitor_history(name: str, days: int = 90) -> list[dict[str, Any]]:
 
 
 def _market_vs_block(rows: list[dict[str, Any]], comp_type: str) -> dict[str, Any]:
-    """Сводка «Мы vs рынок» для direct/indirect."""
+    """Сводка «Мы vs рынок» для direct/indirect.
+
+    Сравниваем только пары «конкурент ↔ наша категория» из competitor_category_map.
+    """
     cfg = get_config()
     our_prices = _our_latest_prices()
-    our_avg = round(mean(our_prices.values()), 0) if our_prices else None
 
     typed = [r for r in rows if r["type"] == comp_type and r.get("price_from")]
     market_avg = round(mean(r["price_from"] for r in typed), 0) if typed else None
+
+    comparable_ours: list[float] = []
+    for row in typed:
+        our_price = row.get("our_price")
+        if our_price is not None:
+            comparable_ours.append(float(our_price))
+    if not comparable_ours and our_prices:
+        # Фолбэк: средняя по всем нашим категориям, если карта пуста.
+        comparable_ours = list(our_prices.values())
+    our_avg = round(mean(comparable_ours), 0) if comparable_ours else None
 
     position: str | None = None
     position_pct: float | None = None
@@ -432,10 +445,22 @@ def fetch_competitors_bundle() -> dict[str, Any]:
     for row in overview:
         history = get_competitor_history(row["name"], days=90)
         slug = row.get("our_category_slug")
+        our_label = (
+            cfg.category_slug_map.get(slug, slug) if slug else None
+        )
+        products = get_competitor_category_prices(row["name"])
         details[row["name"]] = {
             "history": history,
             "category_slug": slug,
-            "category_label": slug or "—",
+            "category_label": our_label or slug or "—",
+            "our_price": row.get("our_price"),
+            "products": [
+                {
+                    "name": p.category,
+                    "price_from": p.price_from,
+                }
+                for p in products
+            ],
             "sparkline": [
                 h["price_from"] for h in reversed(history) if h.get("price_from")
             ],

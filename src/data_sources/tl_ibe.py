@@ -50,6 +50,14 @@ _DOM_PRICE_SELECTORS = (
 
 
 @dataclass
+class WidgetRoomPrice:
+    """Цена категории/номера из виджета."""
+
+    name: str
+    price_from: float
+
+
+@dataclass
 class WidgetPriceResult:
     """Результат сбора цены с виджета."""
 
@@ -59,6 +67,7 @@ class WidgetPriceResult:
     available: bool = False
     context: str | None = None
     error: str | None = None
+    products: list[WidgetRoomPrice] | None = None
 
 
 def detect_tl_context(html: str) -> str | None:
@@ -230,7 +239,7 @@ def read_price_from_vision(screenshot_path: Path) -> float | None:
 
 
 def _booking_widget_url(context: str, check_in: date, check_out: date) -> str:
-    """URL iframe TravelLine IBE с датами проживания."""
+    """Устаревший прямой IBE v1 (часто 403 без referer) — оставлен для тестов."""
     return (
         "https://ru-ibe.tlintegration.ru/booking?"
         f"context={context}"
@@ -238,6 +247,55 @@ def _booking_widget_url(context: str, check_in: date, check_out: date) -> str:
         f"&nights={(check_out - check_in).days}"
         "&adults=2"
     )
+
+
+# Типичные названия категорий booking2 → «от N ₽» рядом в тексте.
+_ROOM_NAME_RE = re.compile(
+    r"(?P<name>"
+    r"СТАНДАРТ\+?|КОМФОРТ|ЛЮКС|СУПЕРИОР|ПОЛУЛЮКС|АПАРТАМЕНТЫ?|СТУДИЯ|ЭКОНОМ|"
+    r"STANDARD\+?|COMFORT|LUXE?|SUITE|STUDIO|FAMILY|DELUXE|JUNIOR(?:\s+SUITE)?"
+    r")"
+    r".{0,80}?"
+    r"от\s+(?P<price>[\d\s\u00a0\u202f]{3,})\s*₽",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_ROOM_UI_NOISE = frozenset(
+    {
+        "rub",
+        "войти",
+        "заезд",
+        "выезд",
+        "найти",
+        "выбрать",
+        "выберите номер",
+        "наша лучшая цена",
+        "гарантия низкой цены",
+        "бронируйте выгоднее",
+    }
+)
+
+
+def extract_room_prices_from_text(text: str) -> list[WidgetRoomPrice]:
+    """Категории с «от N ₽» из текста результатов booking2."""
+    products: list[WidgetRoomPrice] = []
+    seen: set[str] = set()
+    for match in _ROOM_NAME_RE.finditer(text or ""):
+        name = re.sub(r"\s+", " ", match.group("name")).strip(" -–|")
+        name_l = name.lower()
+        if len(name) < 3 or name_l in _ROOM_UI_NOISE:
+            continue
+        if any(x in name_l for x in ("вместимость", "площадь", "удобств", "ночь")):
+            continue
+        price = _extract_price_digits(match.group("price"))
+        if price is None:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        products.append(WidgetRoomPrice(name=name, price_from=price))
+    return products
 
 
 def _anti_block_pause(
@@ -257,6 +315,109 @@ def _import_sync_playwright():
     return sync_playwright
 
 
+def _find_ibe_frame(page: Any) -> Any | None:
+    """Найти iframe TravelLine booking2 / IBE."""
+    for fr in page.frames:
+        url = (fr.url or "").lower()
+        if "booking2" in url or "tlintegration" in url or "ibe." in url:
+            return fr
+    return None
+
+
+def _open_booking_page(page: Any, competitor: CompetitorConfig) -> None:
+    """Открыть страницу с виджетом: booking_url или клик «Забронировать»."""
+    start_url = competitor.booking_url or competitor.url
+    page.goto(start_url, wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(2500)
+
+    if _find_ibe_frame(page) is not None:
+        return
+
+    for sel in (
+        "[data-tl-booking-open]",
+        ".tl-booking-open",
+        "a[href*='booking']",
+        "a[href*='ibe.tlintegration']",
+        "a[href*='tlintegration']",
+        "a:has-text('Забронировать')",
+        "button:has-text('Забронировать')",
+        "a:has-text('Бронирование')",
+        "button:has-text('Бронирование')",
+        "text=БРОНИРОВАНИЕ",
+    ):
+        try:
+            loc = page.locator(sel).first
+            if loc.count() == 0:
+                continue
+            loc.click(timeout=4000)
+            page.wait_for_timeout(3500)
+            if _find_ibe_frame(page) is not None:
+                return
+        except Exception:  # noqa: BLE001
+            continue
+
+
+def _click_search_in_ibe(frame: Any, page: Any) -> bool:
+    """Нажать «НАЙТИ» в фильтре booking2 (после выбора дат)."""
+    try:
+        loc = frame.get_by_text(re.compile(r"найти", re.IGNORECASE))
+        if loc.count() > 0:
+            loc.first.click(timeout=5000)
+            page.wait_for_timeout(6000)
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        clicked = frame.evaluate(
+            """() => {
+              const nodes = Array.from(document.querySelectorAll(
+                'button, a, span, div[role="button"], .tl-btn, .p-search-filter__button'
+              ));
+              const el = nodes.find((e) => {
+                const t = (e.innerText || e.textContent || '').replace(/\\s+/g, ' ').trim();
+                return /^найти$/i.test(t);
+              });
+              if (!el) return false;
+              el.click();
+              return true;
+            }"""
+        )
+        if clicked:
+            page.wait_for_timeout(6000)
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def _read_prices_from_frames(page: Any) -> tuple[float | None, list[WidgetRoomPrice]]:
+    """Минимальная цена и категории из всех фреймов страницы."""
+    prices: list[float] = []
+    products: list[WidgetRoomPrice] = []
+    for fr in page.frames:
+        try:
+            text = fr.inner_text("body")
+        except Exception:  # noqa: BLE001
+            continue
+        value = extract_min_price_from_text(text)
+        if value is not None:
+            prices.append(value)
+        products.extend(extract_room_prices_from_text(text))
+        value_dom = read_price_from_dom(fr)
+        if value_dom is not None:
+            prices.append(value_dom)
+    # Дедуп продуктов по имени, оставляем min цену.
+    by_name: dict[str, WidgetRoomPrice] = {}
+    for item in products:
+        prev = by_name.get(item.name.casefold())
+        if prev is None or item.price_from < prev.price_from:
+            by_name[item.name.casefold()] = item
+    products = list(by_name.values())
+    if products and not prices:
+        prices = [p.price_from for p in products]
+    return (min(prices) if prices else None), products
+
+
 def parse_widget_with_screenshot(
     competitor: CompetitorConfig,
     check_in: date | None = None,
@@ -266,10 +427,17 @@ def parse_widget_with_screenshot(
     snapshot_date: date | None = None,
     browser: Any | None = None,
 ) -> WidgetPriceResult:
-    """Открыть виджет Playwright → скриншот → цена из DOM (vision-fallback)."""
+    """Сбор цены: сайт → iframe booking2 → НАЙТИ → DOM (+ vision-fallback).
+
+    Прямой URL ``/booking?context=…`` у TL часто отдаёт 403 — работаем
+    только через виджет на сайте конкурента (origin + referer).
+    ``check_in``/``check_out`` используются как целевые даты (виджет обычно
+    подставляет ближайшие доступные сам).
+    """
     snapshot_date = snapshot_date or date.today()
-    check_in = check_in or snapshot_date
+    check_in = check_in or (snapshot_date + timedelta(days=1))
     check_out = check_out or (check_in + timedelta(days=1))
+    _ = (check_in, check_out)  # даты задаёт UI виджета; параметры — для API/тестов
     site_cfg = site_cfg or get_config().site_prices
 
     rel = screenshot_rel_path(snapshot_date, competitor.name)
@@ -303,41 +471,42 @@ def parse_widget_with_screenshot(
 
         context = browser.new_context(
             user_agent=site_cfg.user_agent,
-            viewport={"width": 1366, "height": 900},
+            viewport={"width": 1400, "height": 1000},
             locale="ru-RU",
+            ignore_https_errors=True,
         )
         page = context.new_page()
         page.set_default_timeout(45_000)
 
-        page.goto(competitor.url, wait_until="domcontentloaded")
+        _open_booking_page(page, competitor)
         html = page.content()
         tl_context = detect_tl_context(html)
         result.context = tl_context
 
-        if competitor.parser == "tl_widget" and tl_context:
-            widget_url = _booking_widget_url(tl_context, check_in, check_out)
-            page.goto(widget_url, wait_until="networkidle")
-        elif competitor.parser == "tl_widget":
-            # Кнопка виджета на сайте, если context не нашли.
-            for sel in (
-                "[data-tl-booking-open]",
-                "a[href*='ibe.tlintegration']",
-                "button:has-text('Забронировать')",
-                "a:has-text('Забронировать')",
-            ):
-                btn = page.query_selector(sel)
-                if btn:
-                    btn.click()
-                    page.wait_for_timeout(2500)
-                    break
-        else:
-            # wubook_widget / прочее: ждём отрисовки формы на той же странице.
-            page.wait_for_timeout(3000)
+        ibe = _find_ibe_frame(page)
+        if ibe is None and competitor.parser in {"tl_widget", "widget"}:
+            # Повторная попытка: клик бронирования с главной.
+            page.goto(competitor.url, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(2000)
+            _open_booking_page(page, competitor)
+            ibe = _find_ibe_frame(page)
 
-        page.wait_for_timeout(2000)
+        if ibe is not None:
+            _click_search_in_ibe(ibe, page)
+            # Ждём появления цен (SPA).
+            for _ in range(8):
+                price_try, _ = _read_prices_from_frames(page)
+                if price_try is not None:
+                    break
+                page.wait_for_timeout(1500)
+        elif competitor.parser == "wubook_widget":
+            page.wait_for_timeout(4000)
+        else:
+            page.wait_for_timeout(2000)
+
         page.screenshot(path=str(abs_path), full_page=True)
 
-        price = read_price_from_dom(page)
+        price, products = _read_prices_from_frames(page)
         source = "dom"
         if price is None:
             price = read_price_from_vision(abs_path)
@@ -347,10 +516,12 @@ def parse_widget_with_screenshot(
         result.source = source
         result.available = price is not None
         result.screenshot_path = rel
+        result.products = products or None
         logger.info(
-            "Виджет %s: price=%s source=%s context=%s",
+            "Виджет %s: price=%s rooms=%s source=%s context=%s",
             competitor.name,
             price,
+            len(products),
             source,
             tl_context,
         )
@@ -384,8 +555,9 @@ def collect_widget_prices(
 ) -> dict[str, WidgetPriceResult]:
     """Последовательно собрать виджет-конкурентов (один браузер на прогон)."""
     snapshot_date = snapshot_date or date.today()
-    check_in = snapshot_date
-    check_out = snapshot_date + timedelta(days=1)
+    # Завтра + 1 ночь — меньше риск «сегодня всё занято».
+    check_in = snapshot_date + timedelta(days=1)
+    check_out = check_in + timedelta(days=1)
     widget_items = [
         c
         for c in competitors

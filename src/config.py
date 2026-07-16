@@ -120,6 +120,8 @@ class CompetitorConfig(BaseModel):
     url: str
     parser: str = "widget"  # static | tl_widget | wubook_widget | widget(fallback)
     selectors: dict[str, str] = Field(default_factory=dict)
+    # Страница с iframe booking2 (если отличается от url)
+    booking_url: str | None = None
 
 
 class MarketNewsConfig(BaseModel):
@@ -176,6 +178,8 @@ class TravelLineConfig(BaseModel):
     backoff_max_sec: float = 60.0
     sheets_reconcile_threshold_pct: float = 10.0
     reservation_page_size: int = 100
+    # WebPMS roomTypeId → русская подпись категории
+    room_type_id_map: dict[str, str] = Field(default_factory=dict)
 
 
 class MaxBotConfig(BaseModel):

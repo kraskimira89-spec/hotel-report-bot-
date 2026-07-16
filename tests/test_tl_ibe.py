@@ -13,6 +13,7 @@ from src.data_sources.tl_ibe import (
     competitor_slug,
     detect_tl_context,
     extract_min_price_from_text,
+    extract_room_prices_from_text,
     parse_widget_with_screenshot,
     screenshot_rel_path,
 )
@@ -36,6 +37,21 @@ def test_detect_tl_context_missing() -> None:
 
 def test_extract_min_price_from_text() -> None:
     assert extract_min_price_from_text("от 4 500 ₽ / ночь, люкс 12 000 руб") == 4500.0
+
+
+def test_extract_room_prices_from_ibe_text() -> None:
+    text = (
+        "Выберите номер СТАНДАРТ+ вместимость от 7 100 ₽ 1 ночь "
+        "КОМФОРТ от 7 800 ₽ ВЫБРАТЬ ЛЮКС от 9 700 ₽"
+    )
+    rooms = extract_room_prices_from_text(text)
+    by_name = {r.name.upper(): r.price_from for r in rooms}
+    assert by_name.get("СТАНДАРТ+") == 7100.0
+    assert by_name.get("КОМФОРТ") == 7800.0
+    assert by_name.get("ЛЮКС") == 9700.0
+    assert min(r.price_from for r in rooms) == 7100.0
+    # UI-мусор не должен попадать в категории.
+    assert not any("заезд" in r.name.lower() for r in rooms)
 
 
 def test_screenshot_rel_path() -> None:

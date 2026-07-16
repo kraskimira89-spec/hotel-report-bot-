@@ -430,21 +430,48 @@ def collect_and_save_competitor_prices(snapshot_date: date | None = None) -> int
         snapshot_date=snapshot_date,
         enable_widgets=True,
     )
-    from src.storage.db import get_competitor_prices_latest
+    from src.data_sources.competitor_prices import CompetitorProductPrice
+    from src.storage.db import (
+        db_session,
+        get_competitor_category_prices,
+        get_competitor_prices_latest,
+    )
 
     latest_db = {r.competitor_name: r for r in get_competitor_prices_latest()}
+    # Категории до DELETE — иначе при повторном сборе за день фолбэк их потеряет.
+    latest_products: dict[str, list[CompetitorProductPrice]] = {}
+    for name in latest_db:
+        rows = get_competitor_category_prices(name)
+        if rows:
+            latest_products[name] = [
+                CompetitorProductPrice(
+                    name=row.category,
+                    price_from=float(row.price_from),
+                )
+                for row in rows
+                if row.price_from is not None and row.category
+            ]
+    # Перезаписываем снимок за дату (иначе в latest остаются старые агрегаты).
+    with db_session() as conn:
+        conn.execute(
+            "DELETE FROM competitor_prices WHERE date = ?",
+            (snapshot_date.isoformat(),),
+        )
     records: list[CompetitorPriceRecord] = []
     for item in cfg.competitors:
         collected = prices_map.get(item.name)
         price = collected.price_from if collected else None
         source = collected.source if collected else "dom"
         screenshot = collected.screenshot_path if collected else None
+        products = collected.products if collected else None
         # Graceful: при сбое виджета — последний успешный snapshot.
         if price is None and item.name in latest_db and latest_db[item.name].available:
             prev = latest_db[item.name]
             price = prev.price_from
             source = prev.source
             screenshot = screenshot or prev.screenshot_path
+            if not products:
+                products = latest_products.get(item.name) or None
             logger.info(
                 "Фолбэк на последний snapshot для %s (цена=%s)",
                 item.name,
@@ -458,8 +485,22 @@ def collect_and_save_competitor_prices(snapshot_date: date | None = None) -> int
                 source=source,
                 screenshot_path=screenshot,
                 available=price is not None,
+                category="",
             )
         )
+        if products:
+            for product in products:
+                records.append(
+                    CompetitorPriceRecord(
+                        competitor_name=item.name,
+                        date=snapshot_date,
+                        price_from=product.price_from,
+                        source=source,
+                        screenshot_path=screenshot,
+                        available=True,
+                        category=product.name,
+                    )
+                )
     return save_competitor_prices(records)
 
 

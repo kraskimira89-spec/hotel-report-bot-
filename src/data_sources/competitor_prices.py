@@ -28,12 +28,21 @@ _WIDGET_PARSERS = frozenset({"widget", "tl_widget", "wubook_widget"})
 
 
 @dataclass
+class CompetitorProductPrice:
+    """Цена одного объекта/категории конкурента."""
+
+    name: str
+    price_from: float
+
+
+@dataclass
 class CollectedCompetitorPrice:
     """Результат сбора цены одного конкурента."""
 
     price_from: float | None = None
     source: str = "dom"
     screenshot_path: str | None = None
+    products: list[CompetitorProductPrice] | None = None
 
     @property
     def available(self) -> bool:
@@ -51,28 +60,70 @@ def _extract_price_digits(raw: str) -> float | None:
     return float(digits)
 
 
-def parse_petrovskie_html(html: str) -> float | None:
-    """Tilda: минимальная цена «1 сутки» из .t776__price-value."""
-    soup = BeautifulSoup(html, "lxml")
-    prices: list[float] = []
+def _extract_petrovskie_day_price(text: str) -> float | None:
+    """Цена за сутки: «1 сутки - N» или диапазон «2590-3490» (берём нижнюю)."""
     one_night = re.compile(
-        r"1\s*сут(?:ки|ок)?\s*[-–]\s*([\d\s]+)",
+        r"1\s*сут(?:ки|ок)?\s*[-–—−]\s*([\d\s\u00a0]+)",
         re.IGNORECASE,
     )
+    match = one_night.search(text)
+    if match:
+        return _extract_price_digits(match.group(1))
+    for part in text.split("|"):
+        part_match = one_night.search(part)
+        if part_match:
+            return _extract_price_digits(part_match.group(1))
+
+    # Диапазон «от-до» за сутки (актуальный формат каталога).
+    range_m = re.search(
+        r"(\d[\d\s\u00a0]*)\s*[-–—−]\s*(\d[\d\s\u00a0]*)",
+        text,
+    )
+    if range_m:
+        low = _extract_price_digits(range_m.group(1))
+        high = _extract_price_digits(range_m.group(2))
+        if low is not None and high is not None and 500 <= low <= high <= 200_000:
+            return low
+    return None
+
+
+def parse_petrovskie_products(html: str) -> list[CompetitorProductPrice]:
+    """Карточки Tilda (.js-product): имя объекта + цена «от» за сутки."""
+    soup = BeautifulSoup(html, "lxml")
+    products: list[CompetitorProductPrice] = []
+    cards = soup.select(".js-product") or soup.select("[class*='t776__product']")
+    for card in cards:
+        name_el = card.select_one(
+            ".js-product-name, .t776__title, [class*='product-name']"
+        )
+        price_el = card.select_one(".t776__price-value, .js-product-price")
+        if price_el is None:
+            continue
+        price = _extract_petrovskie_day_price(price_el.get_text(" ", strip=True))
+        if price is None:
+            continue
+        name = (
+            name_el.get_text(" ", strip=True)
+            if name_el is not None
+            else "Без названия"
+        )
+        products.append(CompetitorProductPrice(name=name, price_from=price))
+    return products
+
+
+def parse_petrovskie_html(html: str) -> float | None:
+    """Tilda: минимум по объектам (сутки / диапазон), не пакет «3 суток»."""
+    products = parse_petrovskie_products(html)
+    if products:
+        return min(p.price_from for p in products)
+
+    # Фолбэк без карточек — только price-блоки.
+    soup = BeautifulSoup(html, "lxml")
+    prices: list[float] = []
     for el in soup.select(".t776__price-value, .js-product-price"):
-        text = el.get_text(" ", strip=True)
-        match = one_night.search(text)
-        if match:
-            value = _extract_price_digits(match.group(1))
-            if value is not None:
-                prices.append(value)
-                continue
-        for part in text.split("|"):
-            part_match = one_night.search(part)
-            if part_match:
-                value = _extract_price_digits(part_match.group(1))
-                if value is not None:
-                    prices.append(value)
+        value = _extract_petrovskie_day_price(el.get_text(" ", strip=True))
+        if value is not None:
+            prices.append(value)
     return min(prices) if prices else None
 
 
@@ -183,7 +234,7 @@ def fetch_static_competitor_price(
     competitor: CompetitorConfig,
     site_cfg: SitePricesConfig,
     client: HttpClient | None = None,
-) -> float | None:
+) -> CollectedCompetitorPrice:
     """Скачать страницу и извлечь минимальную цену (только parser=static)."""
     path = urlparse(competitor.url).path or "/"
     own_client: httpx.Client | None = None
@@ -196,23 +247,38 @@ def fetch_static_competitor_price(
         disallow = _robots_disallow(http, competitor.url, site_cfg)
         if not is_path_allowed(path, disallow):
             logger.warning("Путь запрещён robots.txt: %s", competitor.url)
-            return None
+            return CollectedCompetitorPrice()
 
         _anti_block_pause(site_cfg)
         resp = _request_with_backoff(http, competitor.url, site_cfg)
         if resp.status_code != 200:
             logger.warning("HTTP %s для %s", resp.status_code, competitor.url)
-            return None
+            return CollectedCompetitorPrice()
 
-        price = parse_static_competitor_html(resp.text, competitor)
+        products: list[CompetitorProductPrice] | None = None
+        if "петровск" in competitor.name.lower():
+            products = parse_petrovskie_products(resp.text)
+            price = min((p.price_from for p in products), default=None)
+        else:
+            price = parse_static_competitor_html(resp.text, competitor)
+
         if price is None:
             logger.warning("Не удалось распарсить цену: %s", competitor.name)
         else:
-            logger.info("Цена конкурента %s: %s RUB", competitor.name, price)
-        return price
+            logger.info(
+                "Цена конкурента %s: %s RUB (объектов: %s)",
+                competitor.name,
+                price,
+                len(products or []),
+            )
+        return CollectedCompetitorPrice(
+            price_from=price,
+            source="dom",
+            products=products or None,
+        )
     except httpx.HTTPError as exc:
         logger.error("Ошибка сбора цены %s: %s", competitor.name, exc)
-        return None
+        return CollectedCompetitorPrice()
     finally:
         if own_client is not None:
             own_client.close()
@@ -234,10 +300,8 @@ def collect_competitor_prices(
         if item.parser != "static":
             result[item.name] = CollectedCompetitorPrice()
             continue
-        price = fetch_static_competitor_price(item, site_cfg, client=client)
-        result[item.name] = CollectedCompetitorPrice(
-            price_from=price,
-            source="dom",
+        result[item.name] = fetch_static_competitor_price(
+            item, site_cfg, client=client
         )
 
     widget_map = collect_widget_prices(
@@ -247,10 +311,17 @@ def collect_competitor_prices(
         enable_widgets=enable_widgets,
     )
     for name, widget in widget_map.items():
+        products = None
+        if widget.products:
+            products = [
+                CompetitorProductPrice(name=p.name, price_from=p.price_from)
+                for p in widget.products
+            ]
         result[name] = CollectedCompetitorPrice(
             price_from=widget.price_from,
             source=widget.source if widget.price_from is not None else "dom",
             screenshot_path=widget.screenshot_path,
+            products=products,
         )
     # Гарантируем ключ для каждого конкурента из конфига.
     for item in competitors:

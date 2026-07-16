@@ -664,10 +664,10 @@ class GoogleSheetsClient:
             return client.open(sheets_cfg.spreadsheet_title)
         except SpreadsheetNotFound as exc:
             logger.error("Таблица не найдена: %s", sheets_cfg.spreadsheet_title)
-            raise SheetsReadError("Таблица Google Sheets не найдена") from exc
+            raise SheetsReadError("Таблица ГуглТабл не найдена") from exc
         except APIError as exc:
-            logger.error("Ошибка доступа к Google Sheets: %s", exc)
-            raise SheetsReadError("Нет доступа к Google Sheets") from exc
+            logger.error("Ошибка доступа к ГуглТабл: %s", exc)
+            raise SheetsReadError("Нет доступа к ГуглТабл") from exc
 
     def _get_worksheet(self, gid: int, title: str) -> Any:
         spreadsheet = self._open_spreadsheet()
@@ -730,7 +730,7 @@ class GoogleSheetsClient:
             )
             return OccupancySheetData(
                 is_available=False,
-                errors=[f"Неожиданная ошибка Google Sheets: {exc}"],
+                errors=[f"Неожиданная ошибка ГуглТабл: {exc}"],
             )
 
     def read_bookings_stats(
@@ -775,7 +775,7 @@ class GoogleSheetsClient:
             )
             return BookingsSheetData(
                 is_available=False,
-                errors=[f"Неожиданная ошибка Google Sheets: {exc}"],
+                errors=[f"Неожиданная ошибка ГуглТабл: {exc}"],
             )
 
     def read_occupancy_daily(self, target_date: date) -> OccupancyDay:

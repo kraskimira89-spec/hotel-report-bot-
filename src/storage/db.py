@@ -15,6 +15,7 @@ from src.storage.models import (
     MIGRATIONS_V3,
     MIGRATIONS_V4,
     MIGRATIONS_V5,
+    MIGRATIONS_V6,
     SCHEMA_VERSION,
     TABLES,
     TRENDS_RETENTION_DAYS,
@@ -125,6 +126,12 @@ def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
                 logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
     if current < 5:
         for ddl in MIGRATIONS_V5:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 6:
+        for ddl in MIGRATIONS_V6:
             try:
                 conn.execute(ddl)
             except sqlite3.OperationalError as exc:
@@ -764,7 +771,7 @@ def save_competitor_prices(
     records: Iterable[CompetitorPriceRecord],
     conn: sqlite3.Connection | None = None,
 ) -> int:
-    """Сохранить снимки цен конкурентов (по одной записи на конкурента и дату)."""
+    """Сохранить снимки цен конкурентов (агрегат + опционально категории)."""
     items = list(records)
     if not items:
         return 0
@@ -772,8 +779,8 @@ def save_competitor_prices(
     sql = """
         INSERT INTO competitor_prices (
             competitor_name, date, price_from, currency, source,
-            screenshot_path, available
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            screenshot_path, available, category
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """
 
     def _save(connection: sqlite3.Connection) -> int:
@@ -789,6 +796,7 @@ def save_competitor_prices(
                     item.source,
                     item.screenshot_path,
                     int(item.available),
+                    item.category or "",
                 ),
             )
             count += 1
@@ -802,6 +810,7 @@ def save_competitor_prices(
 
 
 def _row_to_competitor_price(row: sqlite3.Row) -> CompetitorPriceRecord:
+    keys = row.keys()
     return CompetitorPriceRecord(
         id=row["id"],
         competitor_name=row["competitor_name"],
@@ -811,19 +820,22 @@ def _row_to_competitor_price(row: sqlite3.Row) -> CompetitorPriceRecord:
         source=row["source"] or "dom",
         screenshot_path=row["screenshot_path"],
         available=bool(row["available"]),
+        category=(row["category"] if "category" in keys else "") or "",
     )
 
 
 def get_competitor_prices_latest() -> list[CompetitorPriceRecord]:
-    """Последняя запись по каждому конкуренту."""
+    """Последний агрегат («цена от») по каждому конкуренту."""
     sql = """
         SELECT cp.* FROM competitor_prices cp
-        INNER JOIN (
-            SELECT competitor_name, MAX(date) AS max_date
-            FROM competitor_prices
-            GROUP BY competitor_name
-        ) latest ON cp.competitor_name = latest.competitor_name
-            AND cp.date = latest.max_date
+        WHERE COALESCE(cp.category, '') = ''
+          AND cp.id = (
+            SELECT c2.id FROM competitor_prices c2
+            WHERE c2.competitor_name = cp.competitor_name
+              AND COALESCE(c2.category, '') = ''
+            ORDER BY c2.date DESC, c2.id DESC
+            LIMIT 1
+          )
         ORDER BY cp.competitor_name
     """
     with db_session() as conn:
@@ -835,15 +847,45 @@ def get_competitor_prices_history(
     competitor_name: str,
     days: int = 90,
 ) -> list[CompetitorPriceRecord]:
-    """История цен конкурента за период."""
+    """История агрегатных цен конкурента за период."""
     start = date.today() - timedelta(days=days)
     sql = """
         SELECT * FROM competitor_prices
         WHERE competitor_name = ? AND date >= ?
+          AND COALESCE(category, '') = ''
         ORDER BY date DESC
     """
     with db_session() as conn:
         rows = conn.execute(sql, (competitor_name, _date_str(start))).fetchall()
+    return [_row_to_competitor_price(row) for row in rows]
+
+
+def get_competitor_category_prices(
+    competitor_name: str,
+    on_date: date | None = None,
+) -> list[CompetitorPriceRecord]:
+    """Цены по объектам/категориям конкурента на дату (последнюю, если не указана)."""
+    if on_date is None:
+        sql_date = """
+            SELECT MAX(date) AS max_date FROM competitor_prices
+            WHERE competitor_name = ? AND COALESCE(category, '') != ''
+        """
+        with db_session() as conn:
+            row = conn.execute(sql_date, (competitor_name,)).fetchone()
+        if row is None or row["max_date"] is None:
+            return []
+        on_date = _parse_date(row["max_date"])
+
+    sql = """
+        SELECT * FROM competitor_prices
+        WHERE competitor_name = ? AND date = ?
+          AND COALESCE(category, '') != ''
+        ORDER BY price_from ASC
+    """
+    with db_session() as conn:
+        rows = conn.execute(
+            sql, (competitor_name, _date_str(on_date))
+        ).fetchall()
     return [_row_to_competitor_price(row) for row in rows]
 
 

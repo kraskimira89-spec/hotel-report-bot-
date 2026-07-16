@@ -98,6 +98,7 @@ competitors:
 - name: Bon Apart (Банапарт)
   type: direct
   url: https://www.bon-apart.ru/
+  booking_url: https://www.bon-apart.ru/booking/
   parser: tl_widget
 - name: Центральный
   type: direct
@@ -171,6 +172,7 @@ travelline:
   backoff_initial_sec: 1
   backoff_max_sec: 60
   sheets_reconcile_threshold_pct: 10
+  room_type_id_map: {}
   reservation_page_size: 100
 max_bot:
   api_url: https://platform-api2.max.ru

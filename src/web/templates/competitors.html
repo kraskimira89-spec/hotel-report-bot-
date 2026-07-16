@@ -36,6 +36,7 @@
                 <th>Тип</th>
                 <th>Движок</th>
                 <th>Цена «от»</th>
+                <th>Категория 1apart</th>
                 <th>Δ к 1apart</th>
                 <th>Обновлено</th>
                 <th>Статус</th>
@@ -50,16 +51,33 @@
                 <td><span class="badge {% if row.type == 'direct' %}badge-green{% else %}badge-yellow{% endif %}">{{ row.type_label }}</span></td>
                 <td><code>{{ row.parser }}</code></td>
                 <td>{% if row.available and row.price_from %}{{ "%.0f"|format(row.price_from) }} ₽{% else %}<span class="muted">нет публичной цены</span>{% endif %}</td>
+                <td>{% if row.our_category_slug %}<code>{{ data.details[row.name].category_label }}</code>{% if row.our_price %} <span class="muted">({{ "%.0f"|format(row.our_price) }} ₽)</span>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
                 <td>{% if row.delta_pct is not none %}{{ row.delta_pct }}%{% else %}—{% endif %}</td>
                 <td>{{ row.updated_at or "—" }}</td>
                 <td>{{ row.status_emoji }} {{ row.status_label }}</td>
                 <td><a href="{{ row.url }}" target="_blank" rel="noopener">сайт</a></td>
             </tr>
             <tr class="comp-detail" id="detail-{{ loop.index }}" hidden>
-                <td colspan="9">
+                <td colspan="10">
                     {% set det = data.details[row.name] %}
                     <div class="detail-grid">
                         <div>
+                            {% if det.products %}
+                            <h3>Объекты / категории конкурента</h3>
+                            <table>
+                                <thead><tr><th>Объект</th><th>Цена «от»</th><th>vs {{ det.category_label }}</th></tr></thead>
+                                <tbody>
+                                {% for p in det.products %}
+                                <tr>
+                                    <td>{{ p.name }}</td>
+                                    <td>{% if p.price_from %}{{ "%.0f"|format(p.price_from) }} ₽{% else %}—{% endif %}</td>
+                                    <td>{% if p.price_from and det.our_price %}{{ (((p.price_from - det.our_price) / det.our_price) * 100)|round(1) }}%{% else %}—{% endif %}</td>
+                                </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                            <p class="muted">Δ считается к нашей категории из competitor_category_map ({{ det.category_label }}{% if det.our_price %}: {{ "%.0f"|format(det.our_price) }} ₽{% endif %}).</p>
+                            {% endif %}
                             <h3>История 90 дней</h3>
                             {% if det.history %}
                             <table>

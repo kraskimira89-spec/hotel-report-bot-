@@ -183,7 +183,7 @@ def prepare_weekly_report_data(
     critical = False
     if not occupancy.is_available:
         critical = True
-        warnings.append("Google Sheets недоступен: лист «Заселяемость».")
+        warnings.append("ГуглТабл недоступен: лист «Заселяемость».")
 
     occupancy_by_type = _occupancy_from_sheets(occupancy)
     current_records = get_metrics_daily(period_start, period_end)
@@ -547,7 +547,7 @@ def send_weekly_report(
 
         send_incident(
             "Критическая ошибка источника",
-            "\n".join(data.warnings) or "Google Sheets недоступен.",
+            "\n".join(data.warnings) or "ГуглТабл недоступен.",
             config=cfg,
             source="email_sender",
         )

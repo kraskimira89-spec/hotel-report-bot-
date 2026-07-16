@@ -14,6 +14,7 @@ from src.data_sources.competitor_prices import (
     parse_gogol_html,
     parse_kuhterin_html,
     parse_petrovskie_html,
+    parse_petrovskie_products,
     parse_static_competitor_html,
 )
 from src.data_sources.market_trends import fetch_competitor_prices
@@ -27,7 +28,13 @@ def _read_fixture(name: str) -> str:
 
 def test_parse_petrovskie_fixture() -> None:
     html = _read_fixture("petrovskie.html")
-    assert parse_petrovskie_html(html) == 12000.0
+    # Минимум по объектам: диапазон 2590-3490, не пакет «1 сутки 12000».
+    assert parse_petrovskie_html(html) == 2590.0
+    products = parse_petrovskie_products(html)
+    assert len(products) == 4
+    by_name = {p.name: p.price_from for p in products}
+    assert by_name["ПУШКИНА 61/2"] == 2590.0
+    assert by_name["НОВЫЙ КИРЕЕВСК"] == 12000.0
 
 
 def test_parse_gogol_fixture() -> None:
@@ -62,7 +69,7 @@ def test_parse_static_by_config_selectors() -> None:
         parser="static",
         selectors={"price_block": ".price"},
     )
-    assert parse_static_competitor_html(_read_fixture("petrovskie.html"), petrovskie) == 12000.0
+    assert parse_static_competitor_html(_read_fixture("petrovskie.html"), petrovskie) == 2590.0
     assert parse_static_competitor_html(_read_fixture("gogol.html"), gogol) == 3600.0
     assert parse_static_competitor_html(_read_fixture("kuhterin.html"), kuhterin) == 4500.0
 

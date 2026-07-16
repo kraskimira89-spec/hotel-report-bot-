@@ -43,7 +43,7 @@ def test_daily_summary_critical_sheets(monkeypatch: pytest.MonkeyPatch, tmp_path
         report_date=date(2026, 7, 7),
         room_types=[RoomStatusSummary(label="1room", free=1, occupied=1, booked=1)],
         totals=RoomStatusSummary(label="Итого", free=1, occupied=1, booked=1),
-        warnings=["Google Sheets недоступен: лист «Заселяемость»."],
+        warnings=["ГуглТабл недоступен: лист «Заселяемость»."],
         critical_error=True,
     )
 
@@ -71,7 +71,7 @@ def test_weekly_report_critical_sheets(monkeypatch: pytest.MonkeyPatch, tmp_path
         period_start=date(2026, 7, 1),
         period_end=date(2026, 7, 7),
         occupancy_by_type=[],
-        warnings=["Google Sheets недоступен: лист «Заселяемость»."],
+        warnings=["ГуглТабл недоступен: лист «Заселяемость»."],
         critical_error=True,
     )
 

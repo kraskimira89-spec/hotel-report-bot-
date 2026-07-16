@@ -74,8 +74,10 @@ class DailySummaryData(BaseModel):
     totals: RoomStatusSummary | None = None
     occupancy_pct: float = 0.0
     occupancy_light: str = "🟡"
+    occupancy_source: str = "none"
     new_bookings_total: int = 0
     new_bookings_light: str = "🟡"
+    bookings_source: str = "none"
     bookings_by_channel: list[ChannelBookingLine] = Field(default_factory=list)
     prices: list[CategoryPriceLine] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -149,28 +151,39 @@ def prepare_daily_summary_data(
     occupancy: OccupancySheetData | None = None,
     bookings: BookingsSheetData | None = None,
 ) -> DailySummaryData:
-    """Собрать данные сводки из Sheets и SQLite."""
+    """Собрать данные сводки: TravelLine основной, ГуглТабл — фолбэк."""
     cfg = config or get_config()
     sheets_client = GoogleSheetsClient(cfg)
     occ_day = None
+    sheets_occupancy_ok = True
+    sheets_bookings_ok = True
 
     if occupancy is None:
-        occ_day = sheets_client.read_occupancy_daily(report_date)
-        if occ_day.by_type:
-            occupancy = occupancy_day_to_sheet_data(occ_day)
-        else:
-            occupancy = sheets_client.read_occupancy()
+        try:
+            occ_day = sheets_client.read_occupancy_daily(report_date)
+            if occ_day.by_type:
+                occupancy = occupancy_day_to_sheet_data(occ_day)
+            else:
+                occupancy = sheets_client.read_occupancy()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ГуглТабл загрузка недоступна: %s", exc)
+            sheets_occupancy_ok = False
+            occupancy = OccupancySheetData(is_available=False)
     if bookings is None:
-        bookings = sheets_client.read_bookings_stats(report_date)
+        try:
+            bookings = sheets_client.read_bookings_stats(report_date)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ГуглТабл брони недоступны: %s", exc)
+            sheets_bookings_ok = False
+            bookings = BookingsSheetData(is_available=False)
 
     warnings: list[str] = []
-    critical = False
-    if not occupancy.is_available:
-        critical = True
-        warnings.append("Google Sheets недоступен: лист «Заселяемость».")
-    if not bookings.is_available:
-        critical = True
-        warnings.append("Google Sheets недоступен: лист «Брони статистика».")
+    if occupancy is not None and not occupancy.is_available:
+        sheets_occupancy_ok = False
+        warnings.append("ГуглТабл недоступен: лист «Заселяемость».")
+    if bookings is not None and not bookings.is_available:
+        sheets_bookings_ok = False
+        warnings.append("ГуглТабл недоступен: лист «Брони статистика».")
 
     room_types, totals = aggregate_room_status(occupancy)
     sold = totals.occupied + totals.booked
@@ -183,7 +196,7 @@ def prepare_daily_summary_data(
         from src.data_sources.travelline import TravelLineClient, TravelLineError
 
         tl_occ = TravelLineClient(cfg).get_stay_occupancy(report_date)
-        # Если API пустой, а в Sheets уже есть ненулевая загрузка — не затираем.
+        # Если API пустой, а в ГуглТабл уже есть ненулевая загрузка — не затираем.
         sheets_hint = 0.0
         if occ_day and occ_day.travelline_pct is not None:
             sheets_hint = float(occ_day.travelline_pct)
@@ -194,19 +207,30 @@ def prepare_daily_summary_data(
 
         if tl_occ.sold == 0 and sheets_hint > 0:
             warnings.append(
-                "TravelLine вернул 0 занятых при ненулевых данных Sheets — "
-                "используем Sheets."
+                "TravelLine вернул 0 занятых при ненулевых данных ГуглТабл — "
+                "используем ГуглТабл."
             )
         else:
             free_total = max(tl_occ.available - tl_occ.sold, 0)
+            labels = sorted(
+                set(tl_occ.by_type)
+                | set(tl_occ.free_by_type)
+                | set(tl_occ.booked_by_type)
+            )
             room_types = [
                 RoomStatusSummary(
                     label=label,
-                    free=0,
-                    occupied=occupied,
-                    booked=0,
+                    free=int(tl_occ.free_by_type.get(label, 0)),
+                    occupied=int(tl_occ.by_type.get(label, 0)),
+                    booked=int(tl_occ.booked_by_type.get(label, 0)),
                 )
-                for label, occupied in sorted(tl_occ.by_type.items())
+                for label in labels
+                if label != "Прочее"
+                and (
+                    tl_occ.by_type.get(label, 0)
+                    or tl_occ.free_by_type.get(label, 0)
+                    or tl_occ.booked_by_type.get(label, 0)
+                )
             ]
             if not room_types:
                 room_types = [
@@ -217,11 +241,15 @@ def prepare_daily_summary_data(
                         booked=0,
                     )
                 ]
+            occ_total = sum(r.occupied for r in room_types)
+            book_total = sum(r.booked for r in room_types)
+            # Свободные = инвентарь − (зан+брон); эталон фонда — total_units /rooms.
+            free_total = max(tl_occ.available - occ_total - book_total, 0)
             totals = RoomStatusSummary(
                 label="Итого",
                 free=free_total,
-                occupied=tl_occ.sold,
-                booked=0,
+                occupied=occ_total,
+                booked=book_total,
             )
             occupancy_pct = tl_occ.occupancy_pct
             occupancy_source = "travelline"
@@ -233,12 +261,12 @@ def prepare_daily_summary_data(
                 tl_occ.available,
             )
     except TravelLineError as exc:
-        warnings.append(f"Загрузка TravelLine недоступна, берём Sheets: {exc}")
+        warnings.append(f"Загрузка TravelLine недоступна, берём ГуглТабл: {exc}")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Загрузка TravelLine пропущена: %s", exc)
-        warnings.append("Загрузка TravelLine недоступна, используются данные Sheets.")
+        warnings.append("Загрузка TravelLine недоступна, используются данные ГуглТабл.")
 
-    # 2) Фолбэк Sheets: строка «% из Traveline», иначе счётчики / общее кол-во.
+    # 2) Фолбэк ГуглТабл: строка «% из Traveline», иначе счётчики / общее кол-во.
     if occupancy_source != "travelline":
         room_types, totals = aggregate_room_status(occupancy)
         room_types = [
@@ -275,20 +303,14 @@ def prepare_daily_summary_data(
         occupancy_pct, cfg.traffic_light, metric="occupancy"
     )
     if occupancy_source == "travelline":
-        warnings.append("Загрузка и статусы номеров — по TravelLine.")
+        logger.info("Загрузка и статусы номеров — по TravelLine (source=%s).", occupancy_source)
     elif occupancy_source == "sheets_travelline_row":
-        warnings.append("Загрузка — строка «% из Traveline» из Sheets.")
+        warnings.append("Загрузка — строка «% из Traveline» из ГуглТабл.")
 
-    day_bookings = [
-        b for b in bookings.records if b.report_date == report_date
-    ]
-    new_bookings_total = sum(b.bookings_count for b in day_bookings)
-    new_bookings_light = traffic_light(
-        float(new_bookings_total),
-        cfg.traffic_light,
-        metric="new_bookings",
-    )
-
+    # 3) Новые брони: TL (WebPMS) основной, ГуглТабл — фолбэк.
+    day_bookings = [b for b in bookings.records if b.report_date == report_date]
+    sheets_bookings_total = sum(b.bookings_count for b in day_bookings)
+    new_bookings_total = sheets_bookings_total
     bookings_by_channel: list[ChannelBookingLine] = []
     for record in day_bookings:
         bookings_by_channel.append(
@@ -298,7 +320,61 @@ def prepare_daily_summary_data(
                 count=record.bookings_count,
             )
         )
+    bookings_source = "sheets" if day_bookings else "none"
+
+    try:
+        from src.data_sources.travelline import TravelLineClient, TravelLineError
+
+        tl_channels = TravelLineClient(cfg).get_channels(report_date, report_date)
+        tl_total = sum(int(ch.get("count") or 0) for ch in tl_channels)
+        if tl_total > 0 or (tl_channels is not None and sheets_bookings_total == 0):
+            # Не затираем ненулевые ГуглТабл, если TL вернул 0.
+            if tl_total == 0 and sheets_bookings_total > 0:
+                warnings.append(
+                    "TravelLine вернул 0 новых броней при ненулевых ГуглТабл — "
+                    "используем ГуглТабл."
+                )
+                bookings_source = "sheets"
+            else:
+                new_bookings_total = tl_total
+                bookings_by_channel = [
+                    ChannelBookingLine(
+                        source=str(ch.get("source") or "unknown"),
+                        channel_type=str(ch.get("channel_type") or "unknown"),
+                        count=int(ch.get("count") or 0),
+                    )
+                    for ch in tl_channels
+                    if int(ch.get("count") or 0) > 0
+                ]
+                bookings_source = "travelline"
+                logger.info(
+                    "Новые брони из TravelLine на %s: %s (source=travelline)",
+                    report_date,
+                    new_bookings_total,
+                )
+                if sheets_bookings_total and sheets_bookings_total != tl_total:
+                    logger.info(
+                        "Брони: TL=%s, ГуглТабл=%s (в сводке — TravelLine).",
+                        tl_total,
+                        sheets_bookings_total,
+                    )
+        elif sheets_bookings_total > 0:
+            bookings_source = "sheets"
+            warnings.append("TravelLine без броней — используем ГуглТабл.")
+    except TravelLineError as exc:
+        warnings.append(f"Брони TravelLine недоступны, берём ГуглТабл: {exc}")
+        bookings_source = "sheets" if sheets_bookings_total else bookings_source
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Брони TravelLine пропущены: %s", exc)
+        warnings.append("Брони TravelLine недоступны, используются данные ГуглТабл.")
+        bookings_source = "sheets" if sheets_bookings_total else bookings_source
+
     bookings_by_channel.sort(key=lambda x: (-x.count, x.source))
+    new_bookings_light = traffic_light(
+        float(new_bookings_total),
+        cfg.traffic_light,
+        metric="new_bookings",
+    )
 
     price_lines: list[CategoryPriceLine] = []
     for item in compare_prices_yesterday(report_date):
@@ -334,14 +410,26 @@ def prepare_daily_summary_data(
     except Exception as exc:
         logger.warning("Сверка TravelLine пропущена: %s", exc)
 
+    # Критично только если нет ни TL, ни ГуглТабл по обоим метрикам.
+    critical = (
+        occupancy_source.startswith("sheets")
+        and not sheets_occupancy_ok
+        and bookings_source in {"sheets", "none"}
+        and not sheets_bookings_ok
+    )
+    if occupancy_source == "travelline" or bookings_source == "travelline":
+        critical = False
+
     return DailySummaryData(
         report_date=report_date,
         room_types=room_types,
         totals=totals,
         occupancy_pct=occupancy_pct,
         occupancy_light=occupancy_light,
+        occupancy_source=occupancy_source,
         new_bookings_total=new_bookings_total,
         new_bookings_light=new_bookings_light,
+        bookings_source=bookings_source,
         bookings_by_channel=bookings_by_channel,
         prices=price_lines,
         warnings=warnings,
@@ -529,7 +617,7 @@ def send_daily_summary(
 
         send_incident(
             "Критическая ошибка источника",
-            "\n".join(data.warnings) or "Google Sheets недоступен.",
+            "\n".join(data.warnings) or "ГуглТабл недоступен.",
             config=cfg,
             source="max_bot",
         )
