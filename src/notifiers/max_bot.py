@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Protocol
 
 import httpx
@@ -23,6 +23,7 @@ from src.metrics.occupancy import calc_occupancy, traffic_light
 from src.notifiers.max_api import build_max_api_client
 from src.storage.db import (
     compare_prices_yesterday,
+    get_metrics_for_date,
     get_price_snapshots_by_date,
     save_error_log,
     save_report_log,
@@ -84,6 +85,8 @@ class DailySummaryData(BaseModel):
     bookings_source: str = "none"
     bookings_by_channel: list[ChannelBookingLine] = Field(default_factory=list)
     prices: list[CategoryPriceLine] = Field(default_factory=list)
+    revenue: float | None = None
+    revenue_change_pct: float | None = None
     warnings: list[str] = Field(default_factory=list)
     is_partial: bool = False
     critical_error: bool = False
@@ -403,6 +406,47 @@ def prepare_daily_summary_data(
     if any(s.is_fallback for s in snapshots):
         warnings.append("Часть данных по ценам из последнего снимка.")
 
+    revenue: float | None = None
+    revenue_change_pct: float | None = None
+    try:
+        from src.data_sources.travelline import TravelLineClient, TravelLineError
+
+        tl_client = TravelLineClient(cfg)
+        rev_today = tl_client.get_revenue(report_date, report_date, date_kind=1)
+        revenue = rev_today.revenue
+        yesterday = report_date - timedelta(days=1)
+        yest_metrics = get_metrics_for_date(yesterday)
+        yest_revenue = yest_metrics.revenue if yest_metrics else None
+        if yest_revenue is None or yest_revenue <= 0:
+            try:
+                yest_revenue = tl_client.get_revenue(
+                    yesterday, yesterday, date_kind=1
+                ).revenue
+            except TravelLineError:
+                yest_revenue = None
+        if revenue is not None and yest_revenue and yest_revenue > 0:
+            revenue_change_pct = round((revenue - yest_revenue) / yest_revenue * 100, 1)
+    except TravelLineError as exc:
+        warnings.append(f"Выручка TravelLine недоступна: {exc}")
+        metrics_today = get_metrics_for_date(report_date)
+        if metrics_today and metrics_today.revenue is not None:
+            revenue = metrics_today.revenue
+            yest_metrics = get_metrics_for_date(report_date - timedelta(days=1))
+            if yest_metrics and yest_metrics.revenue and yest_metrics.revenue > 0:
+                revenue_change_pct = round(
+                    (revenue - yest_metrics.revenue) / yest_metrics.revenue * 100, 1
+                )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Выручка для сводки пропущена: %s", exc)
+        metrics_today = get_metrics_for_date(report_date)
+        if metrics_today and metrics_today.revenue is not None:
+            revenue = metrics_today.revenue
+            yest_metrics = get_metrics_for_date(report_date - timedelta(days=1))
+            if yest_metrics and yest_metrics.revenue and yest_metrics.revenue > 0:
+                revenue_change_pct = round(
+                    (revenue - yest_metrics.revenue) / yest_metrics.revenue * 100, 1
+                )
+
     try:
         from src.data_sources.travelline import TravelLineError, run_daily_reconciliation
 
@@ -436,33 +480,69 @@ def prepare_daily_summary_data(
         bookings_source=bookings_source,
         bookings_by_channel=bookings_by_channel,
         prices=price_lines,
+        revenue=revenue,
+        revenue_change_pct=revenue_change_pct,
         warnings=warnings,
         is_partial=bool(warnings),
         critical_error=critical,
     )
 
 
+def _format_price_rub(price: float) -> str:
+    """Формат цены: 5 800."""
+    return f"{price:,.0f}".replace(",", " ")
+
+
+def _price_by_short_label(prices: list[CategoryPriceLine]) -> dict[str, CategoryPriceLine]:
+    """Индекс цен по короткой подписи категории."""
+    result: dict[str, CategoryPriceLine] = {}
+    for price in prices:
+        key = category_short_label(price.category)
+        result[key] = price
+    return result
+
+
 def build_daily_summary_sections(data: DailySummaryData) -> list[str]:
     """Сформировать сводку в виде отдельных разделов."""
     sections: list[str] = []
+    prices_map = _price_by_short_label(data.prices)
 
     section_occupancy = [
         f"📊 *Сводка за {data.report_date.strftime('%d.%m.%Y')}*",
         f"*Загрузка:* {data.occupancy_light} {data.occupancy_pct:.1f}%",
         "",
-        "*Статус номеров* (св / зан / брон):",
+        "*Категории* (цена «от» / св / зан / брон):",
     ]
     for row in data.room_types:
-        section_occupancy.append(
-            f"• {category_short_label(row.label)}: "
-            f"{row.free} / {row.occupied} / {row.booked}"
-        )
+        short = category_short_label(row.label)
+        price = prices_map.get(short)
+        if price is not None:
+            section_occupancy.append(
+                f"• {short}. за {_format_price_rub(price.price)} ₽  "
+                f"{row.free} / {row.occupied} / {row.booked}"
+            )
+        else:
+            section_occupancy.append(
+                f"• {short}.  —  {row.free} / {row.occupied} / {row.booked}"
+            )
     if data.totals:
         t = data.totals
-        section_occupancy.append(
+        total_line = (
             f"*Итого:* {t.free} / {t.occupied} / {t.booked} "
             f"(всего {t.total})"
         )
+        if data.revenue is not None:
+            total_line += f" · выручка {_format_price_rub(data.revenue)} ₽"
+            if (
+                data.revenue_change_pct is not None
+                and abs(data.revenue_change_pct) >= 0.1
+            ):
+                sign = "+" if data.revenue_change_pct > 0 else ""
+                light = "🟢" if data.revenue_change_pct > 0 else "🔴"
+                total_line += (
+                    f" · {light} {sign}{data.revenue_change_pct:.1f}% к вчера"
+                )
+        section_occupancy.append(total_line)
     sections.append("\n".join(section_occupancy))
 
     section_bookings = [f"*Новые брони:* {data.new_bookings_light} {data.new_bookings_total}"]
@@ -472,22 +552,6 @@ def build_daily_summary_sections(data: DailySummaryData) -> list[str]:
     else:
         section_bookings.append("- нет данных")
     sections.append("\n".join(section_bookings))
-
-    section_prices = ["*Цены «от» по категориям:*"]
-    if data.prices:
-        for price in data.prices:
-            if price.change_pct is None:
-                change_txt = "н/д"
-            else:
-                sign = "+" if price.change_pct > 0 else ""
-                change_txt = f"{sign}{price.change_pct:.1f}%"
-            section_prices.append(
-                f"{price.traffic_light} {category_short_label(price.category)}: "
-                f"{price.price:,.0f} ₽ ({change_txt})".replace(",", " ")
-            )
-    else:
-        section_prices.append("- нет snapshot")
-    sections.append("\n".join(section_prices))
 
     if data.warnings:
         section_notes = ["*Примечания:*"]

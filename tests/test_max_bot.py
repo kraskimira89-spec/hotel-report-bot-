@@ -118,6 +118,8 @@ def _sample_summary() -> DailySummaryData:
                 traffic_light="🟡",
             ),
         ],
+        revenue=185000.0,
+        revenue_change_pct=8.5,
     )
 
 
@@ -131,15 +133,28 @@ def test_build_daily_summary_text_contains_sections() -> None:
     assert "1apart.ru" in text
     assert "1-КК 23" in text
     assert "1room" not in text
-    assert "4 500" in text or "4500" in text
+    assert "за 4 500 ₽" in text
+    assert "1 / 4 / 1" in text
+    assert "выручка 185 000 ₽" in text
+    assert "🟢 +8.5% к вчера" in text
+    assert "Цены «от» по категориям" not in text
 
 
 def test_build_daily_summary_sections_split_by_blocks() -> None:
     sections = build_daily_summary_sections(_sample_summary())
-    assert len(sections) == 3
+    assert len(sections) == 2
     assert "Загрузка" in sections[0]
+    assert "за 4 500 ₽" in sections[0]
+    assert "выручка 185 000 ₽" in sections[0]
     assert "Новые брони" in sections[1]
-    assert "Цены «от»" in sections[2]
+
+
+def test_itoго_hides_status_when_no_revenue_change() -> None:
+    data = _sample_summary()
+    data.revenue_change_pct = 0.0
+    text = build_daily_summary_sections(data)[0]
+    assert "выручка 185 000 ₽" in text
+    assert "к вчера" not in text
 
 
 def test_aggregate_room_status_from_units() -> None:
@@ -251,9 +266,10 @@ def test_send_daily_summary_writes_reports_log(
 
     assert result["status"] == "sent"
     assert result["dry_run"] is True
-    assert result["parts"] == 3
-    assert len(client.calls) == 3
+    assert result["parts"] == 2
+    assert len(client.calls) == 2
     assert client.calls[0]["params"]["chat_id"] == 364502022
+    assert "за 4 500 ₽" in client.calls[0]["json"]["text"]
 
     conn = storage_db.get_connection()
     try:
