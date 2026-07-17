@@ -19,6 +19,30 @@ import tempfile
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
+# #region agent log
+_DEBUG_LOG = Path(__file__).resolve().parents[3] / "debug-a5fdfa.log"
+
+
+def _dbg(hypothesis_id: str, location: str, message: str, data: dict | None = None) -> None:
+    import time
+
+    payload = {
+        "sessionId": "a5fdfa",
+        "runId": os.environ.get("DEBUG_RUN_ID", "pre-fix"),
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data or {},
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with _DEBUG_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+# #endregion
 
 _DENY_NAMES = {
     ".env",
@@ -130,6 +154,28 @@ def _commit_message(paths: list[str]) -> str:
     return subject + "\n\n" + "\n".join(body_lines) + "\n"
 
 
+def _ahead_behind() -> tuple[int, int]:
+    proc = _git("rev-list", "--left-right", "--count", "origin/main...HEAD")
+    if proc.returncode != 0:
+        return -1, -1
+    parts = proc.stdout.strip().split()
+    if len(parts) != 2:
+        return -1, -1
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        return -1, -1
+
+
+def _push_enabled() -> bool:
+    return os.environ.get("CURSOR_AUTO_PUSH", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
 def main() -> int:
     # stdin от Cursor (JSON) — читаем и игнорируем ошибки
     try:
@@ -140,6 +186,22 @@ def main() -> int:
         pass
 
     dry_run = "--dry-run" in sys.argv
+    # #region agent log
+    behind0, ahead0 = _ahead_behind()
+    _dbg(
+        "H1",
+        "post_task_commit.py:main:entry",
+        "hook start",
+        {
+            "root": str(_ROOT),
+            "enabled": _enabled(),
+            "push_enabled_flag": _push_enabled(),
+            "behind": behind0,
+            "ahead": ahead0,
+            "docstring_says_no_push": "не делает push" in (__doc__ or ""),
+        },
+    )
+    # #endregion
     if not _enabled():
         print("post_task_commit: отключён (CURSOR_AUTO_COMMIT=0)", file=sys.stderr)
         return 0
@@ -150,11 +212,31 @@ def main() -> int:
 
     if _busy():
         print("post_task_commit: пропуск — идёт merge/rebase", file=sys.stderr)
+        # #region agent log
+        _dbg("H4", "post_task_commit.py:main:busy", "skipped due to merge/rebase", {})
+        # #endregion
         return 0
 
     paths = _porcelain_paths()
+    # #region agent log
+    _dbg(
+        "H3",
+        "post_task_commit.py:main:paths",
+        "safe paths for commit",
+        {"count": len(paths), "sample": paths[:8]},
+    )
+    # #endregion
     if not paths:
         print("post_task_commit: нечего коммитить")
+        # #region agent log
+        behind, ahead = _ahead_behind()
+        _dbg(
+            "H1",
+            "post_task_commit.py:main:nothing",
+            "no commit; check if still ahead without push",
+            {"behind": behind, "ahead": ahead, "push_attempted": False},
+        )
+        # #endregion
         return 0
 
     msg = _commit_message(paths)
@@ -211,9 +293,25 @@ def main() -> int:
     short = _git("rev-parse", "--short", "HEAD").stdout.strip()
     subject = re.sub(r"\s+", " ", msg.splitlines()[0]).strip()
     print(f"post_task_commit: {short} {subject}")
-    return 0
 
+    # #region agent log
+    behind1, ahead1 = _ahead_behind()
+    _dbg(
+        "H1",
+        "post_task_commit.py:main:after_commit",
+        "commit done; push path status",
+        {
+            "short": short,
+            "behind": behind1,
+            "ahead": ahead1,
+            "push_attempted": False,
+            "reason": "push not implemented in hook yet",
+        },
+    )
+    # #endregion
+    return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
