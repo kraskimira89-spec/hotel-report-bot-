@@ -1268,6 +1268,26 @@ class TravelLineClient:
             source="travelline",
         )
 
+    def get_stay_occupancy_summary(self, stay_date: date) -> StayOccupancyResult:
+        """Быстрая загрузка только по analytics (без WebPMS bookings/{id}).
+
+        Для backfill сезонного прогноза: sold = число stay из analytics/services.
+        """
+        stay_ids = self._collect_stay_ids_from_analytics(stay_date)
+        sold = len(stay_ids)
+        available = self.config.property.total_units
+        pct = round(sold / available * 100, 2) if available > 0 else 0.0
+        return StayOccupancyResult(
+            stay_date=stay_date,
+            sold=sold,
+            available=available,
+            occupancy_pct=pct,
+            by_type={},
+            free_by_type={},
+            booked_by_type={},
+            source="travelline_fast",
+        )
+
 
 def reconcile_with_sheets(
     report_date: date,

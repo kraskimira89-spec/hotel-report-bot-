@@ -54,8 +54,13 @@ def collect_metrics_for_date(
     config: AppConfig | None = None,
     *,
     force: bool = False,
+    daily_only: bool = False,
 ) -> int:
-    """Сохранить дневные метрики объекта и по категориям из TravelLine."""
+    """Сохранить дневные метрики объекта и по категориям из TravelLine.
+
+    ``daily_only=True`` — быстрый режим: только metric_type=daily без
+    WebPMS-разбивки по категориям и без каналов (для backfill прогноза).
+    """
     cfg = config or get_config()
     if not force and get_metrics_for_date(report_date, METRIC_DAILY):
         return 0
@@ -64,10 +69,15 @@ def collect_metrics_for_date(
 
     try:
         client = TravelLineClient(cfg)
-        occ = client.get_stay_occupancy(report_date)
-        rev = client.get_revenue(report_date, report_date, date_kind=1)
-        channels = client.get_channels(report_date, report_date)
-        bookings_count = sum(int(ch.get("count") or 0) for ch in channels)
+        if daily_only:
+            occ = client.get_stay_occupancy_summary(report_date)
+            rev = client.get_revenue(report_date, report_date, date_kind=1)
+            bookings_count = None
+        else:
+            occ = client.get_stay_occupancy(report_date)
+            rev = client.get_revenue(report_date, report_date, date_kind=1)
+            channels = client.get_channels(report_date, report_date)
+            bookings_count = sum(int(ch.get("count") or 0) for ch in channels)
     except TravelLineError as exc:
         logger.warning("metrics_history: TL недоступен на %s: %s", report_date, exc)
         return 0
@@ -90,6 +100,10 @@ def collect_metrics_for_date(
         )
     )
     saved = 1
+
+    if daily_only:
+        logger.info("metrics_daily %s: fast daily-only, 1 запись", report_date)
+        return saved
 
     labels = sorted(
         set(occ.by_type) | set(occ.free_by_type) | set(occ.booked_by_type)
@@ -128,6 +142,7 @@ def backfill_metrics_history(
     *,
     force: bool = False,
     delay_sec: float = 0.15,
+    daily_only: bool = False,
     config: AppConfig | None = None,
 ) -> dict[str, int]:
     """Backfill metrics_daily за N дней из TravelLine."""
@@ -142,7 +157,9 @@ def backfill_metrics_history(
             if not force and get_metrics_for_date(current, METRIC_DAILY):
                 stats["skipped"] += 1
             else:
-                n = collect_metrics_for_date(current, cfg, force=force)
+                n = collect_metrics_for_date(
+                    current, cfg, force=force, daily_only=daily_only
+                )
                 if n:
                     stats["saved"] += n
                 else:
