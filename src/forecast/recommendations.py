@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 from src.forecast.engine import DayForecast
 from src.storage.models import PriceRecommendationRecord
@@ -26,8 +27,11 @@ def build_price_recommendation(
     max_price: float,
     max_change_pct: float,
     use_competitors: bool,
+    pickup_3d: int = 0,
+    approved_events: list[Any] | None = None,
 ) -> PriceRecommendationRecord | None:
     """Сформировать рекомендацию для даты и типа номера."""
+    from src.events.impact import impact_level
     if current_price is None or current_price <= 0:
         return PriceRecommendationRecord(
             room_type=forecast.room_type or "all",
@@ -84,6 +88,36 @@ def build_price_recommendation(
         rec_type = "decrease"
         delta_pct = -min(max_change_pct, 8.0)
         reason_parts.append("низкая прогнозная загрузка")
+
+    # События города: только подтверждённые с высоким impact
+    event_note: str | None = None
+    for ev in approved_events or []:
+        if getattr(ev, "status", None) != "approved":
+            continue
+        if ev.impact_score < 60:
+            continue
+        end_d = ev.end_at or ev.start_at
+        if not (ev.start_at <= forecast.forecast_date <= end_d):
+            continue
+        pickup_median_3d = max(2, pickup_7d * 3 / 7)
+        pickup_elevated = pickup_3d >= pickup_median_3d * 1.2
+        price_ok = market_gap_pct is None or market_gap_pct <= 10
+        if occ >= 65 and pickup_elevated and price_ok:
+            if rec_type == "hold" and delta_pct == 0:
+                rec_type = "increase"
+                delta_pct = min(max_change_pct, 8.0)
+            date_range = ev.start_at.strftime("%d.%m")
+            if end_d != ev.start_at:
+                date_range += f"–{end_d.strftime('%d.%m')}"
+            event_note = (
+                f"На {date_range} подтверждено «{ev.title}» "
+                f"(impact {ev.impact_score:.0f}, {impact_level(ev.impact_score)}). "
+                f"Прогноз загрузки {occ:.0f}%, pickup 3д выше медианы"
+            )
+            if market_gap_pct is not None:
+                event_note += f", цена vs рынок {market_gap_pct:+.0f}%"
+            reason_parts.append(event_note)
+            break
 
     target = current_price * (1 + delta_pct / 100)
     rec_min = _clamp_price(target * 0.98, min_price, max_price, max_change_pct, current_price)

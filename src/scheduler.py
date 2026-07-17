@@ -285,6 +285,28 @@ def job_forecast_refresh(
     )
 
 
+def job_events_pipeline(
+    run_date: date | None = None,
+    report_date: date | None = None,
+) -> None:
+    """Сбор событий Томска, dedup, impact и обновление прогноза."""
+    from src.events.service import run_events_pipeline
+
+    run_date = run_date or _msk_now().date()
+    report_date = report_date or run_date
+    cfg = get_config()
+    if not cfg.events.enabled:
+        logger.info("События отключены — job_events_pipeline пропущен")
+        return
+    logger.info("Задача events_pipeline: run_date=%s", run_date)
+    _run_job(
+        "events_pipeline",
+        run_date,
+        report_date,
+        lambda: run_events_pipeline(),
+    )
+
+
 T = TypeVar("T")
 
 
@@ -352,6 +374,8 @@ def create_scheduler() -> BackgroundScheduler:
     mail_kw = _parse_cron(mail_cron)
     forecast_cron = getattr(cfg.forecast, "refresh_cron", "30 9 * * *")
     forecast_kw = _parse_cron(forecast_cron)
+    events_cron = getattr(cfg.events, "collect_cron", "0 6 * * *")
+    events_kw = _parse_cron(events_cron)
 
     scheduler.add_job(
         job_price_snapshot,
@@ -410,6 +434,13 @@ def create_scheduler() -> BackgroundScheduler:
             CronTrigger(timezone=tz, **forecast_kw),
             id="forecast_refresh",
             name="Прогноз",
+        )
+    if getattr(cfg.events, "enabled", False):
+        scheduler.add_job(
+            job_events_pipeline,
+            CronTrigger(timezone=tz, **events_kw),
+            id="events_pipeline",
+            name="События Томска",
         )
 
     scheduler.add_listener(_on_job_finished, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)

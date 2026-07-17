@@ -140,6 +140,8 @@ def test_dashboard_after_login(web_client: TestClient) -> None:
     assert "Аналитика" in page.text
     assert "📈 Прогноз" in page.text
     assert "/forecast" in page.text
+    assert "📅 События" in page.text
+    assert "/events" in page.text
 
 
 def test_snapshots_and_metrics_pages(web_client: TestClient) -> None:
@@ -151,6 +153,7 @@ def test_snapshots_and_metrics_pages(web_client: TestClient) -> None:
     assert web_client.get("/trends").status_code == 200
     assert web_client.get("/analytics").status_code == 200
     assert web_client.get("/forecast").status_code == 200
+    assert web_client.get("/events").status_code == 200
     assert web_client.get("/logs").status_code == 200
     assert web_client.get("/reports").status_code == 200
     assert web_client.get("/dashboard").status_code == 200
@@ -193,6 +196,14 @@ def test_forecast_page_content(web_client: TestClient) -> None:
     assert "📈 Прогноз" in response.text
     assert "Рекомендации по ценам" in response.text
     assert 'href="/forecast"' in response.text
+
+
+def test_events_page_content(web_client: TestClient) -> None:
+    _login(web_client)
+    response = web_client.get("/events")
+    assert response.status_code == 200
+    assert "📅 События Томска" in response.text
+    assert 'href="/events"' in response.text
 
 
 def test_forecast_redirect_without_auth(web_client: TestClient) -> None:

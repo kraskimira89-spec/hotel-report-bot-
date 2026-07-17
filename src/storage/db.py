@@ -20,13 +20,17 @@ from src.storage.models import (
     MIGRATIONS_V8,
     MIGRATIONS_V9,
     MIGRATIONS_V10,
+    MIGRATIONS_V11,
     FORECAST_RETENTION_DAYS,
     SCHEMA_VERSION,
     TABLES,
     TRENDS_RETENTION_DAYS,
     BookingDailyRecord,
+    CityEventRecord,
     CompetitorPriceRecord,
     ErrorLogRecord,
+    EventReviewLogRecord,
+    EventSourceRecord,
     ForecastDailyRecord,
     ForecastRunRecord,
     GuestRecord,
@@ -165,6 +169,12 @@ def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
                 logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
     if current < 10:
         for ddl in MIGRATIONS_V10:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 11:
+        for ddl in MIGRATIONS_V11:
             try:
                 conn.execute(ddl)
             except sqlite3.OperationalError as exc:
@@ -1650,3 +1660,362 @@ def get_forecast_accuracy_rows(start: date, end: date) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def _parse_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _row_to_city_event(row: sqlite3.Row) -> CityEventRecord:
+    return CityEventRecord(
+        id=row["id"],
+        title=row["title"],
+        normalized_title=row["normalized_title"],
+        category=row["category"],
+        start_at=_parse_date(row["start_at"]),
+        end_at=_parse_date(row["end_at"]) if row["end_at"] else None,
+        city=row["city"],
+        venue_name=row["venue_name"],
+        venue_address=row["venue_address"],
+        estimated_capacity=row["estimated_capacity"],
+        audience_scope=row["audience_scope"],
+        source_url=row["source_url"],
+        source_name=row["source_name"],
+        source_priority=row["source_priority"],
+        status=row["status"],
+        impact_score=row["impact_score"],
+        confidence=row["confidence"],
+        expected_guest_nights_min=row["expected_guest_nights_min"],
+        expected_guest_nights_max=row["expected_guest_nights_max"],
+        forecast_coefficient=row["forecast_coefficient"],
+        description=row["description"],
+        created_at=_parse_dt(row["created_at"]),
+        updated_at=_parse_dt(row["updated_at"]),
+    )
+
+
+def _row_to_event_source(row: sqlite3.Row) -> EventSourceRecord:
+    return EventSourceRecord(
+        id=row["id"],
+        event_id=row["event_id"],
+        source_name=row["source_name"],
+        source_url=row["source_url"],
+        source_event_id=row["source_event_id"],
+        captured_at=_parse_dt(row["captured_at"]),
+        raw_title=row["raw_title"],
+        raw_date=row["raw_date"],
+        raw_venue=row["raw_venue"],
+        is_primary=bool(row["is_primary"]),
+    )
+
+
+def _row_to_event_review(row: sqlite3.Row) -> EventReviewLogRecord:
+    return EventReviewLogRecord(
+        id=row["id"],
+        event_id=row["event_id"],
+        action=row["action"],
+        old_value=row["old_value"],
+        new_value=row["new_value"],
+        comment=row["comment"],
+        actor=row["actor"],
+        created_at=_parse_dt(row["created_at"]),
+    )
+
+
+def save_city_event(record: CityEventRecord) -> CityEventRecord:
+    """Создать или обновить событие."""
+    now = _dt_str(datetime.now())
+    with db_session() as conn:
+        if record.id:
+            conn.execute(
+                """
+                UPDATE city_events SET
+                    title=?, normalized_title=?, category=?, start_at=?, end_at=?,
+                    city=?, venue_name=?, venue_address=?, estimated_capacity=?,
+                    audience_scope=?, source_url=?, source_name=?, source_priority=?,
+                    status=?, impact_score=?, confidence=?,
+                    expected_guest_nights_min=?, expected_guest_nights_max=?,
+                    forecast_coefficient=?, description=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    record.title,
+                    record.normalized_title or record.title.lower(),
+                    record.category,
+                    _date_str(record.start_at),
+                    _date_str(record.end_at) if record.end_at else None,
+                    record.city,
+                    record.venue_name,
+                    record.venue_address,
+                    record.estimated_capacity,
+                    record.audience_scope,
+                    record.source_url,
+                    record.source_name,
+                    record.source_priority,
+                    record.status,
+                    record.impact_score,
+                    record.confidence,
+                    record.expected_guest_nights_min,
+                    record.expected_guest_nights_max,
+                    record.forecast_coefficient,
+                    record.description,
+                    now,
+                    record.id,
+                ),
+            )
+            record.updated_at = _parse_dt(now)
+            return record
+        cur = conn.execute(
+            """
+            INSERT INTO city_events (
+                title, normalized_title, category, start_at, end_at, city,
+                venue_name, venue_address, estimated_capacity, audience_scope,
+                source_url, source_name, source_priority, status, impact_score,
+                confidence, expected_guest_nights_min, expected_guest_nights_max,
+                forecast_coefficient, description, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                record.title,
+                record.normalized_title or record.title.lower(),
+                record.category,
+                _date_str(record.start_at),
+                _date_str(record.end_at) if record.end_at else None,
+                record.city,
+                record.venue_name,
+                record.venue_address,
+                record.estimated_capacity,
+                record.audience_scope,
+                record.source_url,
+                record.source_name,
+                record.source_priority,
+                record.status,
+                record.impact_score,
+                record.confidence,
+                record.expected_guest_nights_min,
+                record.expected_guest_nights_max,
+                record.forecast_coefficient,
+                record.description,
+                now,
+                now,
+            ),
+        )
+        record.id = cur.lastrowid
+        record.created_at = _parse_dt(now)
+        record.updated_at = _parse_dt(now)
+        return record
+
+
+def get_city_event(event_id: int) -> CityEventRecord | None:
+    with db_session() as conn:
+        row = conn.execute("SELECT * FROM city_events WHERE id=?", (event_id,)).fetchone()
+    return _row_to_city_event(row) if row else None
+
+
+def get_city_events(
+    start: date | None = None,
+    end: date | None = None,
+    status: str | None = None,
+    category: str | None = None,
+    min_impact: float | None = None,
+    source_name: str | None = None,
+    limit: int = 500,
+) -> list[CityEventRecord]:
+    """Список событий с фильтрами."""
+    clauses: list[str] = []
+    params: list[object] = []
+    if start:
+        clauses.append("(end_at IS NULL OR end_at >= ?) AND start_at <= ?")
+        params.extend([_date_str(start), _date_str(end or start)])
+    if end and not start:
+        clauses.append("start_at <= ?")
+        params.append(_date_str(end))
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    if category:
+        clauses.append("category = ?")
+        params.append(category)
+    if min_impact is not None:
+        clauses.append("impact_score >= ?")
+        params.append(min_impact)
+    if source_name:
+        clauses.append("source_name = ?")
+        params.append(source_name)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    with db_session() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM city_events {where}
+            ORDER BY start_at ASC, impact_score DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        ).fetchall()
+    return [_row_to_city_event(r) for r in rows]
+
+
+def get_city_events_for_dedup(start: date, end: date) -> list[CityEventRecord]:
+    return get_city_events(start=start, end=end, limit=2000)
+
+
+def get_approved_city_events(start: date, end: date) -> list[CityEventRecord]:
+    return get_city_events(start=start, end=end, status="approved", limit=500)
+
+
+def save_event_source(record: EventSourceRecord) -> EventSourceRecord:
+    with db_session() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO event_sources (
+                event_id, source_name, source_url, source_event_id,
+                captured_at, raw_title, raw_date, raw_venue, is_primary
+            ) VALUES (?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                record.event_id,
+                record.source_name,
+                record.source_url,
+                record.source_event_id,
+                _dt_str(record.captured_at or datetime.now()),
+                record.raw_title,
+                record.raw_date,
+                record.raw_venue,
+                1 if record.is_primary else 0,
+            ),
+        )
+        record.id = cur.lastrowid
+        return record
+
+
+def get_event_sources(event_id: int) -> list[EventSourceRecord]:
+    with db_session() as conn:
+        rows = conn.execute(
+            "SELECT * FROM event_sources WHERE event_id=? ORDER BY is_primary DESC, captured_at DESC",
+            (event_id,),
+        ).fetchall()
+    return [_row_to_event_source(r) for r in rows]
+
+
+def count_event_sources(event_id: int) -> int:
+    with db_session() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM event_sources WHERE event_id=?",
+            (event_id,),
+        ).fetchone()
+    return int(row["cnt"]) if row else 0
+
+
+def save_event_review_log(record: EventReviewLogRecord) -> EventReviewLogRecord:
+    with db_session() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO event_review_log (event_id, action, old_value, new_value, comment, actor)
+            VALUES (?,?,?,?,?,?)
+            """,
+            (
+                record.event_id,
+                record.action,
+                record.old_value,
+                record.new_value,
+                record.comment,
+                record.actor,
+            ),
+        )
+        record.id = cur.lastrowid
+        return record
+
+
+def get_event_review_log(event_id: int, limit: int = 50) -> list[EventReviewLogRecord]:
+    with db_session() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM event_review_log WHERE event_id=?
+            ORDER BY created_at DESC LIMIT ?
+            """,
+            (event_id, limit),
+        ).fetchall()
+    return [_row_to_event_review(r) for r in rows]
+
+
+def expire_city_events(before: date) -> int:
+    with db_session() as conn:
+        cur = conn.execute(
+            """
+            UPDATE city_events SET status='expired', updated_at=datetime('now')
+            WHERE status IN ('candidate', 'approved')
+              AND COALESCE(end_at, start_at) < ?
+            """,
+            (_date_str(before),),
+        )
+        return cur.rowcount
+
+
+def get_event_source_state(source_name: str) -> dict[str, str | None]:
+    with db_session() as conn:
+        row = conn.execute(
+            "SELECT * FROM event_source_state WHERE source_name=?",
+            (source_name,),
+        ).fetchone()
+    if not row:
+        return {}
+    return dict(row)
+
+
+def upsert_event_source_state(
+    source_name: str,
+    *,
+    last_success_at: datetime | None = None,
+    etag: str | None = None,
+    last_modified: str | None = None,
+    last_error: str | None = None,
+) -> None:
+    now = _dt_str(datetime.now())
+    with db_session() as conn:
+        existing = conn.execute(
+            "SELECT source_name FROM event_source_state WHERE source_name=?",
+            (source_name,),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """
+                UPDATE event_source_state SET
+                    last_success_at=COALESCE(?, last_success_at),
+                    etag=COALESCE(?, etag),
+                    last_modified=COALESCE(?, last_modified),
+                    last_error=?,
+                    last_error_at=CASE WHEN ? IS NOT NULL THEN ? ELSE last_error_at END
+                WHERE source_name=?
+                """,
+                (
+                    _dt_str(last_success_at) if last_success_at else None,
+                    etag,
+                    last_modified,
+                    last_error,
+                    last_error,
+                    now if last_error else None,
+                    source_name,
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO event_source_state (
+                    source_name, last_success_at, etag, last_modified, last_error, last_error_at
+                ) VALUES (?,?,?,?,?,?)
+                """,
+                (
+                    source_name,
+                    _dt_str(last_success_at) if last_success_at else None,
+                    etag,
+                    last_modified,
+                    last_error,
+                    now if last_error else None,
+                ),
+            )
+

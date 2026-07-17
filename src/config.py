@@ -275,6 +275,29 @@ class ForecastManualEvent(BaseModel):
     impact_pct: float = 5.0
 
 
+class EventSourceConfig(BaseModel):
+    """Источник событий города."""
+
+    name: str
+    url: str
+    type: str = "html"
+    priority: int = 1
+    enabled: bool = True
+
+
+class EventsConfig(BaseModel):
+    """Модуль «События Томска»."""
+
+    enabled: bool = True
+    horizon_days: int = 30
+    refresh_hour: int = 6
+    refresh_interval_hours: int = 12
+    require_approval_score: float = 60.0
+    max_forecast_uplift: float = 0.15
+    collect_cron: str = "0 6 * * *"
+    sources: list[EventSourceConfig] = Field(default_factory=list)
+
+
 class ForecastConfig(BaseModel):
     """Раздел «Прогноз»: горизонты, пороги, рекомендации по ценам."""
 
@@ -315,6 +338,7 @@ class AppConfig(BaseModel):
     analytics: AnalyticsConfig = Field(default_factory=AnalyticsConfig)
     mail_inbox: MailInboxConfig = Field(default_factory=MailInboxConfig)
     forecast: ForecastConfig = Field(default_factory=ForecastConfig)
+    events: EventsConfig = Field(default_factory=EventsConfig)
 
 
 class EnvSettings(BaseSettings):

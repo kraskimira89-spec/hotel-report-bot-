@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}События Томска — hotel-report-bot{% endblock %}
+{% block content %}
+<h1>📅 События Томска</h1>
+<p class="muted">Сбор афиш на {{ data.horizon_days }} дней. События с impact ≥ {{ data.require_approval_score|int }} требуют подтверждения. В прогноз попадают только подтверждённые.</p>
+
+{% if data.pending_high %}
+<div class="card" style="border-color: var(--warn);">
+    <p><strong>⚠️ Ожидают проверки:</strong> {{ data.pending_high }} событий с высоким impact.</p>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>Фильтры</h2>
+    <form method="get" action="/events" class="filters-form">
+        <label>Статус
+            <select name="status">
+                <option value="">Все</option>
+                {% for s in data.statuses %}
+                <option value="{{ s.id }}" {% if data.filters.status == s.id %}selected{% endif %}>{{ s.label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Категория
+            <select name="category">
+                <option value="">Все</option>
+                {% for c in data.categories %}
+                <option value="{{ c.id }}" {% if data.filters.category == c.id %}selected{% endif %}>{{ c.label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Impact ≥
+            <input type="number" name="min_impact" min="0" max="100" step="1" value="{{ data.filters.min_impact or '' }}" placeholder="0">
+        </label>
+        <button type="submit">Применить</button>
+        <button type="submit" class="btn-small" formaction="/events/refresh" formmethod="post">🔄 Обновить источники</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Календарь ({{ data.horizon_days }} дн.)</h2>
+    <div class="events-calendar">
+    {% for day in data.calendar_days %}
+        {% set items = data.calendar.get(day, []) %}
+        <div class="events-cal-day {% if items %}has-events{% endif %}">
+            <span class="events-cal-date">{{ day[8:10] }}.{{ day[5:7] }}</span>
+            {% if items %}
+            <span class="events-cal-count" title="{{ items|length }} событий">{{ items|length }}</span>
+            {% endif %}
+        </div>
+    {% endfor %}
+    </div>
+</div>
+
+<div class="grid-2">
+<div class="card">
+    <h2>Список событий</h2>
+    {% if data.events %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Даты</th>
+                <th>Название</th>
+                <th>Категория</th>
+                <th>Impact</th>
+                <th>Статус</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for e in data.events %}
+            <tr class="{% if e.needs_approval %}row-warn{% endif %}">
+                <td>{{ e.start_at[8:10] }}.{{ e.start_at[5:7] }}{% if e.end_at != e.start_at %}–{{ e.end_at[8:10] }}.{{ e.end_at[5:7] }}{% endif %}</td>
+                <td>
+                    <a href="/events?event_id={{ e.id }}">{{ e.title }}</a>
+                    {% if e.in_forecast %}<span class="badge badge-green" title="Учтено в прогнозе">📈</span>{% endif %}
+                </td>
+                <td>{{ e.category_label }}</td>
+                <td><strong>{{ e.impact_score }}</strong> <span class="muted">({{ e.impact_level }})</span></td>
+                <td>{{ e.status_label }}</td>
+                <td><a href="/events?event_id={{ e.id }}" class="btn-small">Открыть</a></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">📭 Нет событий в горизонте. Нажмите «Обновить источники» или добавьте вручную.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    {% if data.detail %}
+    {% set d = data.detail %}
+    <h2>Карточка события</h2>
+    <p><strong>{{ d.event.title }}</strong></p>
+    <p>{{ d.event.start_at }} — {{ d.event.end_at or d.event.start_at }} · {{ d.event.category }}</p>
+    <p>Площадка: {{ d.event.venue_name or '—' }}</p>
+    <p>Impact: <strong>{{ d.event.impact_score }}</strong> ({{ d.impact_level }}) · {{ d.event.confidence }}</p>
+    <p>Статус: {{ d.event.status }}{% if d.in_forecast %} · <span class="badge badge-green">учтено в прогнозе</span>{% endif %}</p>
+    {% if d.event.source_url %}<p><a href="{{ d.event.source_url }}" target="_blank" rel="noopener">Источник</a></p>{% endif %}
+    {% if d.event.description %}<p class="muted">{{ d.event.description }}</p>{% endif %}
+
+    <h3>Источники</h3>
+    <ul>
+    {% for s in d.sources %}
+        <li><a href="{{ s.source_url }}" target="_blank" rel="noopener">{{ s.source_name }}</a> {% if s.is_primary %}(основной){% endif %}</li>
+    {% endfor %}
+    </ul>
+
+    {% if d.event.status == 'candidate' %}
+    <form method="post" action="/events/{{ d.event.id }}/approve" style="display:inline">
+        <button type="submit">✅ Подтвердить</button>
+    </form>
+    <form method="post" action="/events/{{ d.event.id }}/reject" style="display:inline">
+        <button type="submit" class="btn-danger">❌ Отклонить</button>
+    </form>
+    {% endif %}
+    {% if d.event.status == 'approved' %}
+    <form method="post" action="/events/{{ d.event.id }}/cancel">
+        <button type="submit" class="btn-small">Пометить отменённым</button>
+    </form>
+    {% endif %}
+
+    <h3>Корректировка</h3>
+    <form method="post" action="/events/{{ d.event.id }}/adjust" class="filters-form">
+        <label>Impact <input type="number" name="impact_score" min="0" max="100" step="0.1" value="{{ d.event.impact_score }}"></label>
+        <label>Вместимость <input type="number" name="estimated_capacity" value="{{ d.event.estimated_capacity or '' }}"></label>
+        <label>Масштаб
+            <select name="audience_scope">
+                {% for scope in ['local','regional','national','international','unknown'] %}
+                <option value="{{ scope }}" {% if d.event.audience_scope == scope %}selected{% endif %}>{{ scope }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Начало <input type="date" name="start_at" value="{{ d.event.start_at.isoformat() }}"></label>
+        <label>Конец <input type="date" name="end_at" value="{{ (d.event.end_at or d.event.start_at).isoformat() }}"></label>
+        <label>Комментарий <input type="text" name="comment" placeholder="Причина изменения"></label>
+        <button type="submit">Сохранить</button>
+    </form>
+
+    {% if d.review_log %}
+    <h3>Журнал изменений</h3>
+    <ul class="muted">
+    {% for log in d.review_log %}
+        <li>{{ log.created_at }} · {{ log.action }} · {{ log.actor }}{% if log.comment %}: {{ log.comment }}{% endif %}</li>
+    {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% else %}
+    <h2>Добавить событие</h2>
+    <form method="post" action="/events/create" class="filters-form">
+        <label>Название <input type="text" name="title" required></label>
+        <label>Начало <input type="date" name="start_at" required></label>
+        <label>Конец <input type="date" name="end_at"></label>
+        <label>Категория
+            <select name="category">
+                {% for c in data.categories %}
+                <option value="{{ c.id }}">{{ c.label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Площадка <input type="text" name="venue_name"></label>
+        <label>Вместимость <input type="number" name="estimated_capacity" min="0"></label>
+        <label>Масштаб
+            <select name="audience_scope">
+                <option value="unknown">unknown</option>
+                <option value="local">local</option>
+                <option value="regional">regional</option>
+                <option value="national">national</option>
+                <option value="international">international</option>
+            </select>
+        </label>
+        <label>Описание <input type="text" name="description"></label>
+        <button type="submit">Создать (сразу подтверждено)</button>
+    </form>
+    {% endif %}
+</div>
+</div>
+
+<style>
+.events-calendar { display: flex; flex-wrap: wrap; gap: 4px; }
+.events-cal-day { width: 42px; text-align: center; padding: 4px 2px; border-radius: 4px; background: var(--surface-2); font-size: .75rem; }
+.events-cal-day.has-events { background: var(--primary-soft); border: 1px solid var(--primary); }
+.events-cal-count { display: block; font-weight: bold; color: var(--primary-h); }
+.row-warn { background: var(--warn-bg); }
+.badge-green { background: var(--ok-bg); color: var(--ok); padding: 2px 6px; border-radius: 4px; font-size: .75rem; }
+</style>
+{% endblock %}

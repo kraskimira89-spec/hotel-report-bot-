@@ -289,6 +289,20 @@
             left: 50%;
             transform: translateX(-50%);
         }
+        .event-markers {
+            position: absolute;
+            top: -2px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 2px;
+            z-index: 2;
+        }
+        .event-marker { font-size: .55rem; line-height: 1; }
+        .event-marker.event-critical { color: var(--err); }
+        .event-marker.event-high { color: var(--warn); }
+        .event-marker.event-medium { color: var(--primary); }
+        .event-marker.event-low { color: var(--text-muted); }
 
         .kpi-card .kpi-value { font-size: 1.75rem; font-weight: 700; margin: .25rem 0; }
 
@@ -467,6 +481,7 @@
         <span class="brand">🏨 Первый Апарт-отель</span>
         <a href="/analytics" class="nav-main {% if page == 'analytics' %}active{% endif %}">📊 Аналитика</a>
         <a href="/forecast" class="nav-main {% if page == 'forecast' %}active{% endif %}">📈 Прогноз</a>
+        <a href="/events" class="nav-main {% if page == 'events' %}active{% endif %}">📅 События</a>
         <a href="/competitors" class="nav-main {% if page == 'competitors' %}active{% endif %}">Конкуренты</a>
         <a href="/trends" class="nav-main {% if page == 'trends' %}active{% endif %}">Тренды</a>
         <a href="/reports" class="nav-main {% if page == 'reports' %}active{% endif %}">Отчёты</a>

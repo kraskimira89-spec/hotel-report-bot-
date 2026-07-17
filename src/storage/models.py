@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 TRENDS_RETENTION_DAYS = 180
 INSIGHTS_RETENTION_DAYS = 90
@@ -458,6 +458,77 @@ MIGRATIONS_V10: list[str] = [
     "ON competitor_prices(competitor_name, price_kind, date)",
 ]
 
+MIGRATIONS_V11: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS city_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        normalized_title TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'other',
+        start_at TEXT NOT NULL,
+        end_at TEXT,
+        city TEXT NOT NULL DEFAULT 'Томск',
+        venue_name TEXT,
+        venue_address TEXT,
+        estimated_capacity INTEGER,
+        audience_scope TEXT NOT NULL DEFAULT 'unknown',
+        source_url TEXT,
+        source_name TEXT,
+        source_priority INTEGER NOT NULL DEFAULT 3,
+        status TEXT NOT NULL DEFAULT 'candidate',
+        impact_score REAL NOT NULL DEFAULT 0,
+        confidence TEXT NOT NULL DEFAULT 'low',
+        expected_guest_nights_min INTEGER,
+        expected_guest_nights_max INTEGER,
+        forecast_coefficient REAL NOT NULL DEFAULT 0.05,
+        description TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS event_sources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id INTEGER NOT NULL,
+        source_name TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        source_event_id TEXT,
+        captured_at TEXT NOT NULL DEFAULT (datetime('now')),
+        raw_title TEXT,
+        raw_date TEXT,
+        raw_venue TEXT,
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (event_id) REFERENCES city_events(id) ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS event_review_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        old_value TEXT,
+        new_value TEXT,
+        comment TEXT,
+        actor TEXT NOT NULL DEFAULT 'admin',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (event_id) REFERENCES city_events(id) ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS event_source_state (
+        source_name TEXT PRIMARY KEY,
+        last_success_at TEXT,
+        etag TEXT,
+        last_modified TEXT,
+        last_error TEXT,
+        last_error_at TEXT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_city_events_dates ON city_events(start_at, end_at)",
+    "CREATE INDEX IF NOT EXISTS idx_city_events_status ON city_events(status, impact_score)",
+    "CREATE INDEX IF NOT EXISTS idx_event_sources_event ON event_sources(event_id)",
+]
+
 
 class PriceSnapshotRecord(BaseModel):
     """Запись snapshot цены."""
@@ -669,6 +740,62 @@ class PriceRecommendationRecord(BaseModel):
     decided_at: datetime | None = None
     forecast_id: int | None = None
     horizon_days: int | None = None
+    id: int | None = None
+
+
+class CityEventRecord(BaseModel):
+    """Событие города, влияющее на спрос."""
+
+    title: str
+    normalized_title: str = ""
+    category: str = "other"
+    start_at: date
+    end_at: date | None = None
+    city: str = "Томск"
+    venue_name: str | None = None
+    venue_address: str | None = None
+    estimated_capacity: int | None = None
+    audience_scope: str = "unknown"
+    source_url: str | None = None
+    source_name: str | None = None
+    source_priority: int = 3
+    status: str = "candidate"
+    impact_score: float = 0.0
+    confidence: str = "low"
+    expected_guest_nights_min: int | None = None
+    expected_guest_nights_max: int | None = None
+    forecast_coefficient: float = 0.05
+    description: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    id: int | None = None
+
+
+class EventSourceRecord(BaseModel):
+    """Ссылка на источник, где найдено событие."""
+
+    event_id: int
+    source_name: str
+    source_url: str
+    source_event_id: str | None = None
+    captured_at: datetime | None = None
+    raw_title: str | None = None
+    raw_date: str | None = None
+    raw_venue: str | None = None
+    is_primary: bool = False
+    id: int | None = None
+
+
+class EventReviewLogRecord(BaseModel):
+    """Журнал ручных действий по событию."""
+
+    event_id: int
+    action: str
+    old_value: str | None = None
+    new_value: str | None = None
+    comment: str | None = None
+    actor: str = "admin"
+    created_at: datetime | None = None
     id: int | None = None
 
 

@@ -56,6 +56,35 @@ forecast:
     date_from: "2026-08-07"
     date_to: "2026-08-07"
     impact_pct: 8
+events:
+  enabled: true
+  horizon_days: 30
+  refresh_hour: 6
+  refresh_interval_hours: 12
+  require_approval_score: 60
+  max_forecast_uplift: 0.15
+  collect_cron: "0 6 * * *"
+  sources:
+  - name: tomsk_kassy
+    url: https://tomsk.kassy.ru/
+    type: html
+    priority: 1
+    enabled: true
+  - name: ticketland_tomsk
+    url: https://tomsk.ticketland.ru/
+    type: html
+    priority: 1
+    enabled: true
+  - name: tomsk_philharmonic
+    url: https://tomskfil.ru/afisha/
+    type: html
+    priority: 1
+    enabled: true
+  - name: tusur_events
+    url: https://tusur.ru/ru/novosti-i-meropriyatiya
+    type: html
+    priority: 1
+    enabled: true
 deploy:
   enabled: false
   after_jobs: true

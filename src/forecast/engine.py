@@ -232,6 +232,48 @@ def manual_event_boost(
     return total, ", ".join(names)
 
 
+def _ev_field(ev: Any, name: str, default: Any = None) -> Any:
+    if isinstance(ev, dict):
+        return ev.get(name, default)
+    return getattr(ev, name, default)
+
+
+def city_events_boost(
+    target: date,
+    events: list[Any],
+    *,
+    max_uplift_pct: float = 15.0,
+) -> tuple[float, list[str]]:
+    """Консервативный uplift от подтверждённых событий города, %."""
+    from src.events.impact import confidence_factor
+
+    total = 0.0
+    notes: list[str] = []
+    for ev in events:
+        if _ev_field(ev, "status") != "approved":
+            continue
+        start = _ev_field(ev, "start_at")
+        end = _ev_field(ev, "end_at")
+        if isinstance(start, str):
+            start = date.fromisoformat(start[:10])
+        if isinstance(end, str):
+            end = date.fromisoformat(end[:10]) if end else None
+        if not start:
+            continue
+        end_d = end or start
+        if not (start <= target <= end_d):
+            continue
+        impact = float(_ev_field(ev, "impact_score", 0) or 0)
+        coef = float(_ev_field(ev, "forecast_coefficient", 0.05) or 0.05)
+        conf = str(_ev_field(ev, "confidence", "low") or "low")
+        uplift = coef * (impact / 100.0) * confidence_factor(conf) * 100.0
+        total += uplift
+        title = _ev_field(ev, "title", "?")
+        notes.append(f"{title} (+{uplift:.1f}%)")
+    capped = min(max_uplift_pct, total)
+    return round(capped, 2), notes
+
+
 def _baseline_occupancy(metrics: list[MetricsDailyRecord]) -> float:
     vals = [m.occupancy_pct for m in metrics if m.occupancy_pct is not None]
     if not vals:
@@ -258,6 +300,8 @@ def forecast_day(
     room_type: str = "",
     known_occupancy: float | None = None,
     manual_events: list[Any] | None = None,
+    city_events: list[Any] | None = None,
+    max_event_uplift_pct: float = 15.0,
 ) -> DayForecast:
     """Прогноз загрузки и выручки на одну дату."""
     by_date = _metrics_by_date(metrics)
@@ -315,10 +359,17 @@ def forecast_day(
             occ = min(100.0, max(0.0, occ * (1 + market_adj_pct / 100.0)))
             factors.notes.append(f"Корректировка по рынку: {market_adj_pct:+.1f}%")
         event_boost, event_name = manual_event_boost(target, manual_events or [])
-        if event_boost:
-            occ = min(100.0, max(0.0, occ * (1 + event_boost / 100.0)))
-            factors.event_boost_pct = round(event_boost, 2)
-            factors.notes.append(f"Событие «{event_name}»: {event_boost:+.1f}%")
+        city_boost, city_notes = city_events_boost(
+            target, city_events or [], max_uplift_pct=max_event_uplift_pct
+        )
+        combined_boost = event_boost + city_boost
+        if combined_boost:
+            occ = min(100.0, max(0.0, occ * (1 + combined_boost / 100.0)))
+            factors.event_boost_pct = round(combined_boost, 2)
+            if event_name:
+                factors.notes.append(f"Событие «{event_name}»: {event_boost:+.1f}%")
+            for note in city_notes:
+                factors.notes.append(f"Событие города: {note}")
 
     lower, upper = _uncertainty_band(occ, confidence, horizon_days, lead_days)
     adr = _median_adr(metrics)
@@ -365,6 +416,8 @@ def forecast_horizon(
     category_metrics: dict[str, list[MetricsDailyRecord]] | None = None,
     category_units: dict[str, int] | None = None,
     manual_events: list[Any] | None = None,
+    city_events: list[Any] | None = None,
+    max_event_uplift_pct: float = 15.0,
 ) -> list[DayForecast]:
     """Прогноз на горизонт для всех сценариев и типов номеров."""
     room_types = room_types if room_types is not None else [""]
@@ -393,6 +446,8 @@ def forecast_horizon(
                         market_adj_pct=market_adj_pct,
                         room_type=room_type,
                         manual_events=manual_events,
+                        city_events=city_events,
+                        max_event_uplift_pct=max_event_uplift_pct,
                     )
                 )
     return results

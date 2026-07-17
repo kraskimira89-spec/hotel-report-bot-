@@ -234,14 +234,17 @@ async def forecast_page(
     horizon_days: int = Query(default=7),
     scenario: str = Query(default="base"),
     room_type: str | None = Query(default=None),
+    include_events: str = Query(default="true"),
 ) -> Response:
     redirect = _require_auth(request)
     if redirect:
         return redirect
+    show_events = include_events.lower() not in ("false", "0", "no")
     data = queries.fetch_forecast_bundle(
         horizon_days=horizon_days,
         scenario=scenario,
         room_type=room_type or None,
+        include_events=show_events,
     )
     return templates.TemplateResponse(
         request,
@@ -334,6 +337,133 @@ async def forecast_reco_defer(
         url=_forecast_reco_redirect(horizon_days, scenario, room_type),
         status_code=status.HTTP_302_FOUND,
     )
+
+
+@app.get("/events", response_class=HTMLResponse)
+async def events_page(
+    request: Request,
+    status: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    min_impact: float | None = Query(default=None),
+    event_id: int | None = Query(default=None),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    data = queries.fetch_events_bundle(
+        status=status,
+        category=category,
+        min_impact=min_impact,
+        event_id=event_id,
+    )
+    return templates.TemplateResponse(
+        request,
+        "events.html",
+        {"request": request, "data": data, "page": "events"},
+    )
+
+
+@app.post("/events/refresh")
+async def events_refresh(request: Request) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.events.service import run_events_pipeline
+
+    run_events_pipeline(force=True)
+    return RedirectResponse(url="/events", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/events/create")
+async def events_create(
+    request: Request,
+    title: str = Form(...),
+    start_at: str = Form(...),
+    end_at: str = Form(default=""),
+    category: str = Form(default="other"),
+    venue_name: str = Form(default=""),
+    estimated_capacity: int | None = Form(default=None),
+    audience_scope: str = Form(default="unknown"),
+    description: str = Form(default=""),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.events.service import create_manual_event
+
+    end = date.fromisoformat(end_at) if end_at.strip() else None
+    create_manual_event(
+        title=title.strip(),
+        start_at=date.fromisoformat(start_at),
+        end_at=end,
+        category=category,
+        venue_name=venue_name.strip() or None,
+        estimated_capacity=estimated_capacity,
+        audience_scope=audience_scope,
+        description=description.strip() or None,
+    )
+    return RedirectResponse(url="/events", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/events/{event_id}/approve")
+async def events_approve(request: Request, event_id: int, comment: str = Form(default="")) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.events.service import approve_event
+
+    approve_event(event_id, comment=comment.strip() or None)
+    return RedirectResponse(url=f"/events?event_id={event_id}", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/events/{event_id}/reject")
+async def events_reject(request: Request, event_id: int, comment: str = Form(default="")) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.events.service import reject_event
+
+    reject_event(event_id, comment=comment.strip() or None)
+    return RedirectResponse(url=f"/events?event_id={event_id}", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/events/{event_id}/cancel")
+async def events_cancel(request: Request, event_id: int, comment: str = Form(default="")) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.events.service import cancel_event
+
+    cancel_event(event_id, comment=comment.strip() or None)
+    return RedirectResponse(url=f"/events?event_id={event_id}", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/events/{event_id}/adjust")
+async def events_adjust(
+    request: Request,
+    event_id: int,
+    impact_score: float | None = Form(default=None),
+    audience_scope: str = Form(default=""),
+    estimated_capacity: int | None = Form(default=None),
+    start_at: str = Form(default=""),
+    end_at: str = Form(default=""),
+    comment: str = Form(default=""),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.events.service import adjust_event
+
+    adjust_event(
+        event_id,
+        impact_score=impact_score,
+        audience_scope=audience_scope.strip() or None,
+        estimated_capacity=estimated_capacity,
+        start_at=date.fromisoformat(start_at) if start_at.strip() else None,
+        end_at=date.fromisoformat(end_at) if end_at.strip() else None,
+        comment=comment.strip() or None,
+    )
+    return RedirectResponse(url=f"/events?event_id={event_id}", status_code=status.HTTP_302_FOUND)
 
 
 @app.get("/snapshots", response_class=HTMLResponse)

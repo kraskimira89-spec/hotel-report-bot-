@@ -34,6 +34,10 @@
                 {% endfor %}
             </select>
         </label>
+        <input type="hidden" name="include_events" value="false">
+        <label class="checkbox-label">
+            <input type="checkbox" name="include_events" value="true" {% if data.include_events %}checked{% endif %}> Учитывать события на графике
+        </label>
         <button type="submit">Применить</button>
         <button type="submit" class="btn-small" formaction="/forecast/refresh" formmethod="post">🔄 Пересчитать</button>
     </form>
@@ -95,6 +99,13 @@
         {% set lo = (row.lower or 0) * 1.1 %}
         {% set hi = (row.upper or 100) * 1.1 %}
         <div class="bar-wrap" title="{{ row.date_label }}: {{ row.occupancy }}% ({{ row.lower }}–{{ row.upper }}%)">
+            {% if row.events %}
+            <div class="event-markers" title="{% for ev in row.events %}{{ ev.title }} ({{ ev.impact_score }}){% if not loop.last %}; {% endif %}{% endfor %}">
+                {% for ev in row.events %}
+                <span class="event-marker event-{{ ev.level }}">●</span>
+                {% endfor %}
+            </div>
+            {% endif %}
             <div class="bar-range" style="height: {{ hi }}px; bottom: {{ lo }}px;"></div>
             <div class="bar" style="height: {{ h }}px;{% if row.actual %} background: var(--success);{% endif %}"></div>
             <span class="bar-label">{{ row.date_label }}</span>
@@ -108,6 +119,24 @@
 </div>
 {% endif %}
 
+{% if data.approved_events %}
+<div class="card">
+    <h2>Факторы прогноза — события</h2>
+    {% if data.events_calibrated == false %}
+    <p class="muted">⚠️ Историческая калибровка коэффициентов ещё не накоплена — влияние консервативное.</p>
+    {% endif %}
+    <ul>
+    {% for ev in data.approved_events %}
+        <li>
+            <strong>{{ ev.title }}</strong> ({{ ev.start_at[8:10] }}.{{ ev.start_at[5:7] }}–{{ ev.end_at[8:10] }}.{{ ev.end_at[5:7] }})
+            · impact {{ ev.impact_score }}
+            {% if ev.in_forecast %}· <span class="muted">учтено в прогнозе</span>{% endif %}
+        </li>
+    {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
 {% if data.factors %}
 <div class="card">
     <h2>Почему такой прогноз</h2>
@@ -116,6 +145,7 @@
         {% if data.factors.dow_coef %}<li>День недели: ×{{ data.factors.dow_coef }}</li>{% endif %}
         {% if data.factors.pickup_expected_pct is not none %}<li>Ожидаемый pickup: +{{ data.factors.pickup_expected_pct }} п.п.</li>{% endif %}
         {% if data.factors.known_booked_pct is not none %}<li>Уже забронировано: {{ data.factors.known_booked_pct }}%</li>{% endif %}
+        {% if data.factors.event_boost_pct %}<li>События: +{{ data.factors.event_boost_pct }}% к загрузке</li>{% endif %}
         {% if data.factors.history_days %}<li>История: {{ data.factors.history_days }} дн.</li>{% endif %}
         {% for note in data.factors.notes or [] %}
         <li>{{ note }}</li>

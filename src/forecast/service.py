@@ -106,6 +106,13 @@ def _pickup_counts(as_of: date) -> dict[str, int]:
     return counts
 
 
+def _load_city_events(as_of: date, horizon: int) -> list:
+    from src.events.service import events_for_forecast
+
+    end = as_of + timedelta(days=horizon)
+    return events_for_forecast(as_of, end)
+
+
 def _data_quality_label(history_days: int, min_history: int) -> str:
     if history_days >= min_history:
         return "good"
@@ -162,6 +169,9 @@ def run_forecast_refresh(
     our_avg_price = statistics.mean(snapshots.values()) if snapshots else None
     market_adj = _market_adj_pct(our_avg_price, market_median)
     pickup_7d = _pickup_counts(as_of)["7d"]
+    pickup_3d = _pickup_counts(as_of)["3d"]
+    max_uplift = cfg.events.max_forecast_uplift * 100 if cfg.events.enabled else 15.0
+    city_events = _load_city_events(as_of, max(horizons) if horizons else 30)
 
     errors = calc_forecast_errors(30)
     quality_warn = should_warn_quality(errors, fc.max_mae_occupancy, fc.max_mape_revenue)
@@ -179,6 +189,8 @@ def run_forecast_refresh(
             category_metrics=category_metrics,
             category_units=category_units,
             manual_events=fc.manual_events,
+            city_events=city_events,
+            max_event_uplift_pct=max_uplift,
         )
         run = upsert_forecast_run(
             ForecastRunRecord(
@@ -207,10 +219,12 @@ def run_forecast_refresh(
                 current_price=price,
                 market_median=market_median,
                 pickup_7d=pickup_7d,
+                pickup_3d=pickup_3d,
                 min_price=fc.min_price,
                 max_price=fc.max_price,
                 max_change_pct=fc.max_price_change_pct,
                 use_competitors=fc.use_competitors,
+                approved_events=city_events,
             )
             if rec:
                 key = (day.forecast_date.isoformat(), day.room_type, "base")

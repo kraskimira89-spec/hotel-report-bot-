@@ -833,6 +833,7 @@ def fetch_forecast_bundle(
     horizon_days: int = 7,
     scenario: str = "base",
     room_type: str | None = None,
+    include_events: bool = True,
 ) -> dict[str, Any]:
     """Данные для страницы «Прогноз»."""
     from src.forecast.quality import calc_forecast_errors, should_warn_quality
@@ -857,6 +858,8 @@ def fetch_forecast_bundle(
 
     rt_filter = room_type if room_type else ""
     series: list[dict[str, Any]] = []
+    approved_events: list = []
+    events_by_date: dict[str, list[dict]] = {}
     kpi = {
         "occupancy_pct": None,
         "adr": None,
@@ -868,6 +871,27 @@ def fetch_forecast_bundle(
     factors_sample: dict = {}
     if run and run.id:
         rows = get_forecast_daily(run.id, scenario=scenario, room_type=rt_filter)
+        if include_events and cfg.events.enabled:
+            from src.events.impact import impact_level
+            from src.events.service import events_for_forecast
+
+            end_d = date.today() + timedelta(days=horizon)
+            approved_events = events_for_forecast(date.today(), end_d)
+            for ev in approved_events:
+                d = ev.start_at
+                while d <= (ev.end_at or ev.start_at):
+                    if d > end_d:
+                        break
+                    key = d.isoformat()
+                    events_by_date.setdefault(key, []).append(
+                        {
+                            "title": ev.title,
+                            "impact_score": ev.impact_score,
+                            "level": impact_level(ev.impact_score),
+                            "category": ev.category,
+                        }
+                    )
+                    d += timedelta(days=1)
         if rows:
             occ_vals = [r.occupancy_pct for r in rows if r.occupancy_pct is not None]
             rev_vals = [r.revenue for r in rows if r.revenue is not None]
@@ -885,6 +909,7 @@ def fetch_forecast_bundle(
                 )
             factors_sample = rows[0].factors_json or {}
         for r in rows:
+            day_events = events_by_date.get(r.forecast_date.isoformat(), [])
             series.append(
                 {
                     "date": r.forecast_date.isoformat(),
@@ -894,6 +919,7 @@ def fetch_forecast_bundle(
                     "upper": r.upper_bound,
                     "actual": r.actual_occupancy_pct,
                     "booked_hint": r.sold_unit_nights,
+                    "events": day_events,
                 }
             )
 
@@ -976,6 +1002,21 @@ def fetch_forecast_bundle(
         ),
         "competitor_median": comp_median,
         "competitor_count": len(comp_prices),
+        "approved_events": [
+            {
+                "id": e.id,
+                "title": e.title,
+                "start_at": e.start_at.isoformat(),
+                "end_at": (e.end_at or e.start_at).isoformat(),
+                "impact_score": e.impact_score,
+                "category": e.category,
+                "status": e.status,
+                "in_forecast": e.status == "approved" and e.impact_score >= 30,
+            }
+            for e in (approved_events if include_events else [])
+        ],
+        "include_events": include_events,
+        "events_calibrated": False,
     }
 
     from src.analytics.forecast_insights import (
@@ -990,3 +1031,112 @@ def fetch_forecast_bundle(
         "period_label": forecast_period_label(bundle),
     }
     return bundle
+
+
+_EVENT_CATEGORY_LABELS = {
+    "conference": "Конференция",
+    "concert": "Концерт",
+    "sport": "Спорт",
+    "festival": "Фестиваль",
+    "exhibition": "Выставка",
+    "holiday": "Праздник",
+    "other": "Другое",
+}
+
+_EVENT_STATUS_LABELS = {
+    "candidate": "Кандидат",
+    "approved": "Подтверждено",
+    "rejected": "Отклонено",
+    "cancelled": "Отменено",
+    "expired": "Прошло",
+}
+
+
+def fetch_events_bundle(
+    *,
+    status: str | None = None,
+    category: str | None = None,
+    min_impact: float | None = None,
+    event_id: int | None = None,
+) -> dict[str, Any]:
+    """Данные для страницы «События Томска»."""
+    from src.events.impact import impact_level
+    from src.events.service import event_detail_bundle
+    from src.storage.db import get_city_events
+
+    cfg = get_config()
+    today = date.today()
+    end = today + timedelta(days=cfg.events.horizon_days)
+    events = get_city_events(
+        start=today,
+        end=end,
+        status=status or None,
+        category=category or None,
+        min_impact=min_impact,
+    )
+    calendar: dict[str, list[dict]] = {}
+    rows = []
+    for ev in events:
+        level = impact_level(ev.impact_score)
+        item = {
+            "id": ev.id,
+            "title": ev.title,
+            "start_at": ev.start_at.isoformat(),
+            "end_at": (ev.end_at or ev.start_at).isoformat(),
+            "category": ev.category,
+            "category_label": _EVENT_CATEGORY_LABELS.get(ev.category, ev.category),
+            "status": ev.status,
+            "status_label": _EVENT_STATUS_LABELS.get(ev.status, ev.status),
+            "impact_score": ev.impact_score,
+            "impact_level": level,
+            "venue_name": ev.venue_name,
+            "source_name": ev.source_name,
+            "source_url": ev.source_url,
+            "confidence": ev.confidence,
+            "in_forecast": ev.status == "approved" and ev.impact_score >= 30,
+            "needs_approval": ev.status == "candidate" and ev.impact_score >= cfg.events.require_approval_score,
+        }
+        rows.append(item)
+        d = ev.start_at
+        while d <= (ev.end_at or ev.start_at):
+            if d > end:
+                break
+            calendar.setdefault(d.isoformat(), []).append(item)
+            d += timedelta(days=1)
+
+    detail = event_detail_bundle(event_id) if event_id else None
+    if detail:
+        ev = detail["event"]
+        detail["event_dict"] = {
+            "id": ev.id,
+            "title": ev.title,
+            "start_at": ev.start_at.isoformat(),
+            "end_at": (ev.end_at or ev.start_at).isoformat(),
+            "impact_score": ev.impact_score,
+            "status": ev.status,
+            "category": ev.category,
+            "venue_name": ev.venue_name,
+            "audience_scope": ev.audience_scope,
+            "estimated_capacity": ev.estimated_capacity,
+            "description": ev.description,
+        }
+
+    return {
+        "horizon_days": cfg.events.horizon_days,
+        "events": rows,
+        "calendar": calendar,
+        "calendar_days": [
+            (today + timedelta(days=i)).isoformat() for i in range(cfg.events.horizon_days + 1)
+        ],
+        "filters": {
+            "status": status or "",
+            "category": category or "",
+            "min_impact": min_impact,
+        },
+        "categories": [{"id": k, "label": v} for k, v in _EVENT_CATEGORY_LABELS.items()],
+        "statuses": [{"id": k, "label": v} for k, v in _EVENT_STATUS_LABELS.items()],
+        "require_approval_score": cfg.events.require_approval_score,
+        "detail": detail,
+        "selected_id": event_id,
+        "pending_high": len([e for e in rows if e["needs_approval"]]),
+    }
