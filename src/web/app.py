@@ -16,8 +16,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import Response
 
 from src.config import get_config, get_env_settings, reload_config
-from src.config_secrets import ensure_production_secret_key
 from src.config_runtime import persist_dry_run_to_yaml, save_runtime_overrides
+from src.config_secrets import ensure_production_secret_key
 from src.notifiers.email_sender import send_weekly_report
 from src.notifiers.max_bot import send_daily_summary
 from src.notifiers.max_webhook import handle_max_webhook, log_webhook_error, verify_webhook_secret
@@ -360,6 +360,49 @@ async def events_page(
         request,
         "events.html",
         {"request": request, "data": data, "page": "events"},
+    )
+
+
+def _public_events_url(request: Request, days: int) -> str:
+    base = str(request.base_url).rstrip("/")
+    return f"{base}/events/public?days={days}"
+
+
+@app.get("/events/print", response_class=HTMLResponse)
+async def events_print_page(
+    request: Request,
+    days: int = Query(default=10, ge=1, le=31),
+) -> Response:
+    """Гостевая афиша A4 для печати (без авторизации и навигации)."""
+    from src.events.poster import build_guest_poster_bundle
+
+    data = build_guest_poster_bundle(
+        days=days,
+        public_url=_public_events_url(request, days),
+    )
+    return templates.TemplateResponse(
+        request,
+        "events_print.html",
+        {"request": request, "data": data},
+    )
+
+
+@app.get("/events/public", response_class=HTMLResponse)
+async def events_public_page(
+    request: Request,
+    days: int = Query(default=10, ge=1, le=31),
+) -> Response:
+    """Мобильная гостевая афиша (QR с печатного листа)."""
+    from src.events.poster import build_guest_poster_bundle
+
+    data = build_guest_poster_bundle(
+        days=days,
+        public_url=_public_events_url(request, days),
+    )
+    return templates.TemplateResponse(
+        request,
+        "events_public.html",
+        {"request": request, "data": data},
     )
 
 

@@ -12,7 +12,7 @@ from src.metrics.revenue import calc_adr, calc_revpar, calc_revpar_from_adr_occu
 from src.storage.models import MetricsDailyRecord
 
 if False:  # pragma: no cover — только для type checkers
-    from src.config import ForecastManualEvent
+    pass
 
 Scenario = Literal["conservative", "base", "optimistic"]
 SCENARIOS: tuple[Scenario, ...] = ("conservative", "base", "optimistic")
@@ -245,12 +245,18 @@ def city_events_boost(
     max_uplift_pct: float = 15.0,
 ) -> tuple[float, list[str]]:
     """Консервативный uplift от подтверждённых событий города, %."""
-    from src.events.impact import confidence_factor
+    from src.events.impact import confidence_factor, event_affects_forecast
 
     total = 0.0
     notes: list[str] = []
     for ev in events:
-        if _ev_field(ev, "status") != "approved":
+        status = _ev_field(ev, "status")
+        impact = float(_ev_field(ev, "impact_score", 0) or 0)
+        # Полная проверка для CityEventRecord; для dict — базовые поля
+        if hasattr(ev, "is_online"):
+            if not event_affects_forecast(str(status), impact, ev):
+                continue
+        elif status != "approved":
             continue
         start = _ev_field(ev, "start_at")
         end = _ev_field(ev, "end_at")
@@ -263,14 +269,18 @@ def city_events_boost(
         end_d = end or start
         if not (start <= target <= end_d):
             continue
-        impact = float(_ev_field(ev, "impact_score", 0) or 0)
         from src.events.impact import MIN_FORECAST_IMPACT
 
         if impact < MIN_FORECAST_IMPACT:
             continue
+        if bool(_ev_field(ev, "is_online", False)):
+            continue
+        overnight = float(_ev_field(ev, "overnight_likelihood", 0.1) or 0.1)
+        if overnight <= 0:
+            continue
         coef = float(_ev_field(ev, "forecast_coefficient", 0.05) or 0.05)
         conf = str(_ev_field(ev, "confidence", "low") or "low")
-        uplift = coef * (impact / 100.0) * confidence_factor(conf) * 100.0
+        uplift = coef * (impact / 100.0) * confidence_factor(conf) * overnight * 100.0
         total += uplift
         title = _ev_field(ev, "title", "?")
         notes.append(f"{title} (+{uplift:.1f}%)")

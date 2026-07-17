@@ -14,6 +14,7 @@ pyyaml
 pytest
 ruff
 mypy
+qrcode
 # runtime-зависимости FastAPI (сессии, формы) — не Playwright
 python-multipart
 itsdangerous

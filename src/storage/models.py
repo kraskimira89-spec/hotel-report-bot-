@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 TRENDS_RETENTION_DAYS = 180
 INSIGHTS_RETENTION_DAYS = 90
@@ -529,6 +529,17 @@ MIGRATIONS_V11: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_event_sources_event ON event_sources(event_id)",
 ]
 
+MIGRATIONS_V12: list[str] = [
+    "ALTER TABLE city_events ADD COLUMN is_online INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE city_events ADD COLUMN registration_required INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE city_events ADD COLUMN expected_attendance INTEGER",
+    "ALTER TABLE city_events ADD COLUMN attendance_source TEXT NOT NULL DEFAULT 'unknown'",
+    "ALTER TABLE city_events ADD COLUMN tourism_relevance TEXT NOT NULL DEFAULT 'none'",
+    "ALTER TABLE city_events ADD COLUMN overnight_likelihood REAL NOT NULL DEFAULT 0.1",
+    "ALTER TABLE city_events ADD COLUMN is_public_holiday INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE city_events ADD COLUMN location_confirmed INTEGER NOT NULL DEFAULT 0",
+]
+
 
 class PriceSnapshotRecord(BaseModel):
     """Запись snapshot цены."""
@@ -766,6 +777,14 @@ class CityEventRecord(BaseModel):
     expected_guest_nights_max: int | None = None
     forecast_coefficient: float = 0.05
     description: str | None = None
+    is_online: bool = False
+    registration_required: bool = False
+    expected_attendance: int | None = None
+    attendance_source: str = "unknown"
+    tourism_relevance: str = "none"
+    overnight_likelihood: float = 0.1
+    is_public_holiday: bool = False
+    location_confirmed: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
     id: int | None = None

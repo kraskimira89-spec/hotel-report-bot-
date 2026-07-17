@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 
 
@@ -24,3 +24,11 @@ class ParsedEvent:
     audience_scope: str = "unknown"
     source_event_id: str | None = None
     raw_date: str | None = None
+    city: str = "Томск"
+    is_online: bool = False
+    registration_required: bool = False
+    expected_attendance: int | None = None
+    attendance_source: str = "unknown"
+    tourism_relevance: str = "none"
+    overnight_likelihood: float | None = None
+    is_public_holiday: bool = False

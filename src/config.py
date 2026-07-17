@@ -283,6 +283,32 @@ class EventSourceConfig(BaseModel):
     type: str = "html"
     priority: int = 1
     enabled: bool = True
+    category: str | None = None
+    verification_only: bool = False
+
+
+class EventsGuestPosterConfig(BaseModel):
+    """Гостевая афиша для вестибюля (печать A4)."""
+
+    default_days: int = 10
+    max_cards: int = 10
+    brand: str = "1APART"
+    headline: str = "ЧТО ПОСЕТИТЬ В ТОМСКЕ"
+    address: str = "Томск, 1apart"
+    wifi: str = ""
+    contacts: str = "https://1apart.ru"
+    disclaimer: str = "Уточняйте наличие билетов у организатора"
+    guest_categories: list[str] = Field(
+        default_factory=lambda: [
+            "concert",
+            "festival",
+            "exhibition",
+            "sport",
+            "holiday",
+            "city_holiday",
+            "fair",
+        ]
+    )
 
 
 class EventsConfig(BaseModel):
@@ -295,7 +321,11 @@ class EventsConfig(BaseModel):
     require_approval_score: float = 60.0
     max_forecast_uplift: float = 0.15
     collect_cron: str = "0 6 * * *"
+    notify_horizon_days: int = 14
+    notify_min_impact: float = 80.0
+    notify_min_overnight: float = 0.35
     sources: list[EventSourceConfig] = Field(default_factory=list)
+    guest_poster: EventsGuestPosterConfig = Field(default_factory=EventsGuestPosterConfig)
 
 
 class ForecastConfig(BaseModel):

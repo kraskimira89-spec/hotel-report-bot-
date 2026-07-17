@@ -31,14 +31,6 @@ def test_build_numeric_parts() -> None:
     assert "Рекомендац" in task or "рекомендац" in task.lower()
 
 
-def test_build_numeric_parts() -> None:
-    clear_prompt_cache()
-    system, task = build_llm_prompt_parts("numeric")
-    assert "достоверности" in system.lower() or "TravelLine" in system
-    assert "загрузка" in task.lower() or "ADR" in task
-    assert "Рекомендац" in task or "рекомендац" in task.lower()
-
-
 def test_build_forecast_parts() -> None:
     clear_prompt_cache()
     system, task = build_llm_prompt_parts("forecast")

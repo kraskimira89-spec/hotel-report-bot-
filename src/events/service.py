@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
-from src.config import EventSourceConfig, get_config
+from src.config import get_config
 from src.events.collector import collect_from_source
 from src.events.impact import (
     MIN_FORECAST_IMPACT,
     apply_impact_to_event,
     event_affects_forecast,
+    event_demand_score,
     forecast_coefficient_for_category,
     impact_level,
 )
@@ -48,8 +49,9 @@ def _parsed_to_record(parsed: ParsedEvent, status: str = "candidate") -> CityEve
         category=parsed.category,
         start_at=parsed.start_at,
         end_at=parsed.end_at,
-        city="Томск",
+        city=parsed.city or "Томск",
         venue_name=parsed.venue_name,
+        venue_address=parsed.venue_address,
         estimated_capacity=parsed.estimated_capacity,
         audience_scope=parsed.audience_scope,
         source_url=parsed.source_url,
@@ -58,6 +60,13 @@ def _parsed_to_record(parsed: ParsedEvent, status: str = "candidate") -> CityEve
         status=status,
         forecast_coefficient=coef,
         description=parsed.description,
+        is_online=parsed.is_online,
+        registration_required=parsed.registration_required,
+        expected_attendance=parsed.expected_attendance,
+        attendance_source=parsed.attendance_source,
+        tourism_relevance=parsed.tourism_relevance,
+        overnight_likelihood=parsed.overnight_likelihood or 0.1,
+        is_public_holiday=parsed.is_public_holiday,
     )
 
 
@@ -77,11 +86,28 @@ def _merge_parsed_into_event(
         existing.source_priority = parsed.source_priority
     if parsed.estimated_capacity and not existing.estimated_capacity:
         existing.estimated_capacity = parsed.estimated_capacity
+    if parsed.expected_attendance and not existing.expected_attendance:
+        existing.expected_attendance = parsed.expected_attendance
+        existing.attendance_source = parsed.attendance_source or existing.attendance_source
     if parsed.category != "other":
         existing.category = parsed.category
     if parsed.audience_scope != "unknown":
         existing.audience_scope = parsed.audience_scope
+    if parsed.is_online:
+        existing.is_online = True
+    if parsed.registration_required:
+        existing.registration_required = True
+    if parsed.city and parsed.city != "Томск":
+        existing.city = parsed.city
     return existing
+
+
+def _source_is_verification_only(source_name: str) -> bool:
+    cfg = get_config()
+    for src in cfg.events.sources:
+        if src.name == source_name:
+            return bool(src.verification_only)
+    return source_name == "ria_tomsk_events"
 
 
 def ingest_parsed_events(parsed_list: list[ParsedEvent], today: date | None = None) -> dict[str, int]:
@@ -114,9 +140,18 @@ def ingest_parsed_events(parsed_list: list[ParsedEvent], today: date | None = No
             stats["merged"] += 1
             continue
 
+        # verification_only — только подтверждение существующих, без новых карточек
+        if _source_is_verification_only(parsed.source_name):
+            stats["skipped"] += 1
+            continue
+
         record = _parsed_to_record(parsed)
+        # Вне Томска и онлайн — в очередь, но без автопрогноза
         src_cnt = 1
         apply_impact_to_event(record, src_cnt)
+        # Региональный/всероссийский бизнес и спорт — явно в модерацию
+        if record.impact_score >= get_config().events.require_approval_score:
+            record.status = "candidate"
         saved = save_city_event(record)
         assert saved.id is not None
         save_event_source(
@@ -205,32 +240,119 @@ def run_events_pipeline(today: date | None = None, *, force: bool = False) -> di
 
 
 def notify_critical_events(today: date | None = None) -> int:
-    """Уведомить о новых критичных событиях (impact >= 80)."""
+    """Уведомить о кандидатах на модерацию и подтверждённых с высоким overnight."""
     today = today or date.today()
-    end = today + timedelta(days=7)
+    cfg = get_config()
+    notified = 0
+
+    # Кандидаты с высоким impact — в очередь модерации
     pending = get_city_events(
         start=today,
-        end=end,
+        end=today + timedelta(days=7),
         status="candidate",
         min_impact=80,
         limit=20,
     )
-    if not pending:
-        return 0
+    if pending:
+        try:
+            from src.notifiers.incidents import send_incident
+
+            lines = [
+                f"• {e.title} ({e.start_at.isoformat()}, score={e.impact_score})"
+                for e in pending[:5]
+            ]
+            send_incident(
+                "Критичные события Томска",
+                "Требуется подтверждение в админке /events:\n" + "\n".join(lines),
+                source="city_events",
+            )
+            notified += len(pending)
+        except Exception as exc:
+            logger.warning("Не удалось отправить уведомление о событиях: %s", exc)
+
+    # Подтверждённые: impact ≥ 80, overnight ≥ 0.35, в горизонте 14 дней
+    horizon = today + timedelta(days=cfg.events.notify_horizon_days)
+    approved = get_city_events(
+        start=today,
+        end=horizon,
+        status="approved",
+        min_impact=cfg.events.notify_min_impact,
+        limit=20,
+    )
+    alertable = [
+        e
+        for e in approved
+        if float(e.overnight_likelihood or 0) >= cfg.events.notify_min_overnight
+        and not e.is_online
+    ]
+    if alertable:
+        try:
+            from src.notifiers.incidents import send_incident
+
+            for e in alertable[:5]:
+                end_d = e.end_at or e.start_at
+                period = (
+                    e.start_at.strftime("%d.%m")
+                    if e.start_at == end_d
+                    else f"{e.start_at.strftime('%d.%m')}–{end_d.strftime('%d.%m')}"
+                )
+                check_start = e.start_at - timedelta(days=1)
+                check_end = end_d + timedelta(days=1)
+                msg = (
+                    f"🟣 {period}: подтверждён {e.title}.\n"
+                    f"Ожидаемое влияние: {impact_level(e.impact_score)}. "
+                    f"overnight={e.overnight_likelihood:.2f}.\n"
+                    f"Проверьте цены и доступность квартир на "
+                    f"{check_start.strftime('%d.%m')}–{check_end.strftime('%d.%m')}."
+                )
+                send_incident(
+                    "Событие с высоким overnight",
+                    msg,
+                    source="city_events_overnight",
+                )
+            notified += len(alertable)
+        except Exception as exc:
+            logger.warning("Не удалось отправить overnight-уведомление: %s", exc)
+
+    return notified
+
+
+def _maybe_notify_approved_overnight(ev: CityEventRecord) -> None:
+    """Отдельное уведомление сразу после approve, если пороги выполнены."""
+    cfg = get_config()
+    today = date.today()
+    if ev.status != "approved":
+        return
+    if float(ev.impact_score or 0) < cfg.events.notify_min_impact:
+        return
+    if float(ev.overnight_likelihood or 0) < cfg.events.notify_min_overnight:
+        return
+    if ev.is_online:
+        return
+    if ev.start_at > today + timedelta(days=cfg.events.notify_horizon_days):
+        return
+    if ev.end_at and ev.end_at < today:
+        return
     try:
         from src.notifiers.incidents import send_incident
 
-        lines = [f"• {e.title} ({e.start_at.isoformat()}, score={e.impact_score})" for e in pending[:5]]
-        send_incident(
-            "Критичные события Томска",
-            "Требуется подтверждение в админке /events:\n" + "\n".join(lines),
-            source="city_events",
+        end_d = ev.end_at or ev.start_at
+        period = (
+            ev.start_at.strftime("%d.%m")
+            if ev.start_at == end_d
+            else f"{ev.start_at.strftime('%d.%m')}–{end_d.strftime('%d.%m')}"
         )
-        return len(pending)
+        send_incident(
+            "Событие с высоким overnight",
+            (
+                f"🟣 {period}: подтверждён {ev.title}.\n"
+                f"Ожидаемое влияние: {impact_level(ev.impact_score)}. "
+                f"Проверьте цены и доступность квартир."
+            ),
+            source="city_events_overnight",
+        )
     except Exception as exc:
-        logger.warning("Не удалось отправить уведомление о событиях: %s", exc)
-        return 0
-
+        logger.warning("Не удалось отправить overnight после approve: %s", exc)
 
 def _refresh_forecast_after_moderation() -> None:
     """Пересчитать прогноз после ручного изменения событий."""
@@ -265,6 +387,7 @@ def approve_event(event_id: int, actor: str = "admin", comment: str | None = Non
             actor=actor,
         )
     )
+    _maybe_notify_approved_overnight(ev)
     _refresh_forecast_after_moderation()
     return ev
 
@@ -381,10 +504,11 @@ def estimate_guest_nights_safe(ev: CityEventRecord) -> tuple[int | None, int | N
     from src.events.impact import estimate_guest_nights
 
     return estimate_guest_nights(
-        estimated_capacity=ev.estimated_capacity,
+        estimated_capacity=ev.estimated_capacity or ev.expected_attendance,
         start_at=ev.start_at,
         end_at=ev.end_at,
         audience_scope=ev.audience_scope,
+        overnight_likelihood=ev.overnight_likelihood,
     )
 
 
@@ -399,6 +523,9 @@ def create_manual_event(
     audience_scope: str = "unknown",
     description: str | None = None,
     actor: str = "admin",
+    city: str = "Томск",
+    location_confirmed: bool = False,
+    is_online: bool = False,
 ) -> CityEventRecord:
     cfg = get_config()
     record = CityEventRecord(
@@ -407,6 +534,7 @@ def create_manual_event(
         category=category,
         start_at=start_at,
         end_at=end_at or start_at,
+        city=city,
         venue_name=venue_name,
         estimated_capacity=estimated_capacity,
         audience_scope=audience_scope,
@@ -416,6 +544,8 @@ def create_manual_event(
         status="approved",
         description=description,
         forecast_coefficient=forecast_coefficient_for_category(category, cfg.events.max_forecast_uplift),
+        is_online=is_online,
+        location_confirmed=location_confirmed or city.strip().lower() in ("томск", "tomsk"),
     )
     apply_impact_to_event(record, 1)
     saved = save_city_event(record)
@@ -438,8 +568,9 @@ def create_manual_event(
             actor=actor,
         )
     )
-    if event_affects_forecast(saved.status, saved.impact_score):
+    if event_affects_forecast(saved.status, saved.impact_score, saved):
         _refresh_forecast_after_moderation()
+    _maybe_notify_approved_overnight(saved)
     return saved
 
 
@@ -449,7 +580,7 @@ def events_for_forecast(start: date, end: date) -> list[CityEventRecord]:
     if not cfg.events.enabled:
         return []
     events = get_approved_city_events(start, end)
-    return [e for e in events if event_affects_forecast(e.status, e.impact_score)]
+    return [e for e in events if event_affects_forecast(e.status, e.impact_score, e)]
 
 
 def event_detail_bundle(event_id: int) -> dict | None:
@@ -461,6 +592,13 @@ def event_detail_bundle(event_id: int) -> dict | None:
         "sources": get_event_sources(event_id),
         "review_log": get_event_review_log(event_id),
         "impact_level": impact_level(ev.impact_score),
-        "in_forecast": event_affects_forecast(ev.status, ev.impact_score),
+        "in_forecast": event_affects_forecast(ev.status, ev.impact_score, ev),
         "min_forecast_impact": MIN_FORECAST_IMPACT,
+        "event_demand_score": event_demand_score(
+            ev.impact_score,
+            ev.overnight_likelihood,
+            ev.start_at,
+            ev.end_at,
+            ev.audience_scope,
+        ),
     }

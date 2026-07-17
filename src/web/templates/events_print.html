@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ data.brand }} — афиша {{ data.period_label }}</title>
+    <style>
+        :root {
+            --ink: #1a1a1a;
+            --muted: #444;
+            --line: #222;
+            --accent: #1a5f4a;
+            --paper: #fff;
+        }
+        * { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: #e8e8e8;
+            color: var(--ink);
+            font-family: "Segoe UI", "PT Sans", "DejaVu Sans", Arial, sans-serif;
+            font-size: 12pt;
+            line-height: 1.35;
+        }
+        .toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            padding: 0.75rem 1rem;
+            background: #222;
+            color: #fff;
+        }
+        .toolbar a, .toolbar button {
+            appearance: none;
+            border: 1px solid #fff;
+            background: transparent;
+            color: #fff;
+            padding: 0.45rem 0.9rem;
+            font-size: 11pt;
+            cursor: pointer;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        .toolbar button.primary {
+            background: #fff;
+            color: #111;
+            font-weight: 600;
+        }
+        .sheet {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 12mm auto;
+            padding: 12mm;
+            background: var(--paper);
+            box-shadow: 0 2px 16px rgba(0,0,0,.18);
+        }
+        .brand-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            border-bottom: 2.5px solid var(--line);
+            padding-bottom: 8mm;
+            margin-bottom: 7mm;
+        }
+        .brand {
+            font-size: 20pt;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+        .headline {
+            margin: 0.15em 0 0;
+            font-size: 16pt;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+        .period {
+            margin: 0.35em 0 0;
+            font-size: 14pt;
+            font-weight: 600;
+        }
+        .updated {
+            font-size: 9pt;
+            color: var(--muted);
+            text-align: right;
+            white-space: nowrap;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 5mm 7mm;
+        }
+        .card {
+            break-inside: avoid;
+            padding-bottom: 3mm;
+            border-bottom: 1px solid #ccc;
+        }
+        .card-when {
+            font-size: 11pt;
+            font-weight: 700;
+            margin: 0 0 0.2em;
+        }
+        .card-icon {
+            font-style: normal;
+            margin-right: 0.15em;
+        }
+        .card-title {
+            margin: 0;
+            font-size: 12pt;
+            font-weight: 700;
+        }
+        .card-place {
+            margin: 0.2em 0 0;
+            font-size: 10.5pt;
+            color: var(--muted);
+        }
+        .empty {
+            grid-column: 1 / -1;
+            padding: 12mm 0;
+            text-align: center;
+            color: var(--muted);
+        }
+        .footer {
+            margin-top: 8mm;
+            padding-top: 5mm;
+            border-top: 2px solid var(--line);
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 6mm;
+            align-items: center;
+        }
+        .footer-meta {
+            font-size: 10pt;
+            color: var(--muted);
+        }
+        .footer-meta strong {
+            color: var(--ink);
+            font-size: 11pt;
+        }
+        .qr-block {
+            text-align: center;
+            width: 38mm;
+        }
+        .qr-block img {
+            width: 32mm;
+            height: 32mm;
+            display: block;
+            margin: 0 auto 2mm;
+        }
+        .qr-block span {
+            display: block;
+            font-size: 8pt;
+            color: var(--muted);
+            line-height: 1.25;
+        }
+        @media screen and (max-width: 900px) {
+            .sheet {
+                width: auto;
+                min-height: 0;
+                margin: 0;
+                padding: 16px;
+                box-shadow: none;
+            }
+            .grid { grid-template-columns: 1fr; }
+        }
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 10mm;
+            }
+            html, body {
+                background: #fff;
+                font-size: 11.5pt;
+            }
+            .toolbar { display: none !important; }
+            .sheet {
+                width: auto;
+                min-height: 0;
+                margin: 0;
+                padding: 0;
+                box-shadow: none;
+            }
+            a { color: inherit; text-decoration: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar no-print">
+        <button type="button" class="primary" onclick="window.print()">🖨️ Скачать PDF / Печать</button>
+        <a href="/events/public?days={{ data.days }}">📱 Публичная афиша</a>
+        <a href="/events">← К событиям</a>
+    </div>
+
+    <main class="sheet">
+        <header class="brand-row">
+            <div>
+                <div class="brand">{{ data.brand }}</div>
+                <h1 class="headline">{{ data.headline }}</h1>
+                <p class="period">{{ data.period_label }}</p>
+            </div>
+            <div class="updated">Обновлено<br>{{ data.updated_label }}</div>
+        </header>
+
+        <section class="grid">
+            {% if data.cards %}
+                {% for c in data.cards %}
+                <article class="card">
+                    <p class="card-when"><span class="card-icon" aria-hidden="true">{{ c.icon }}</span>{{ c.when }}</p>
+                    <h2 class="card-title">{{ c.title }}</h2>
+                    <p class="card-place">{{ c.place }}</p>
+                </article>
+                {% endfor %}
+            {% else %}
+                <p class="empty">На ближайшие {{ data.days }} дней пока нет подтверждённых событий для афиши.<br>
+                Подтвердите события в админке и обновите лист.</p>
+            {% endif %}
+        </section>
+
+        <footer class="footer">
+            <div class="footer-meta">
+                <strong>{{ data.address }}</strong><br>
+                {% if data.wifi %}Wi‑Fi: {{ data.wifi }}<br>{% endif %}
+                {% if data.contacts %}{{ data.contacts }}<br>{% endif %}
+                {{ data.disclaimer }}
+            </div>
+            <div class="qr-block">
+                <img src="{{ data.qr_src }}" alt="QR-код афиши" width="120" height="120">
+                <span>Сканируйте QR-код:<br>полная афиша и билеты</span>
+            </div>
+        </footer>
+    </main>
+</body>
+</html>

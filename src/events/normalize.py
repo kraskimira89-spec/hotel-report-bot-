@@ -48,7 +48,9 @@ def find_matching_event(
 ) -> CityEventRecord | None:
     """Найти существующее событие для дедупликации."""
     for ev in existing_events:
-        if ev.city != "Томск":
+        p_city = (parsed.city or "Томск").strip().lower()
+        e_city = (ev.city or "Томск").strip().lower()
+        if p_city != e_city:
             continue
         if title_similarity(parsed.title, ev.title) < min_similarity:
             continue
@@ -63,12 +65,15 @@ def find_matching_event(
 def infer_category(title: str, description: str | None = None) -> str:
     text = f"{title} {description or ''}".lower()
     rules = (
-        ("conference", ("конферен", "форум", "сессия", "олимпиад", "хакатон", "защит")),
+        ("business", ("мой бизнес", "семинар", "обучающ", "предпринимат", "бизнес-форум")),
+        ("conference", ("конферен", "форум", "сессия", "олимпиад", "хакатон", "защит", "круглый стол")),
         ("concert", ("концерт", "филармон", "оркестр", "dj", "stand-up", "стендап")),
-        ("sport", ("матч", "чемпион", "турнир", "спорт", "хоккей", "футбол")),
-        ("festival", ("фестив", "ярмарк")),
+        ("sport", ("матч", "чемпион", "турнир", "спорт", "хоккей", "футбол", "марафон", "забег", "вело")),
+        ("festival", ("фестив", "сабантуй", "праздник топора")),
+        ("fair", ("ярмарк",)),
         ("exhibition", ("выстав", "экspo", "экспо")),
-        ("holiday", ("праздник", "день города", "выходн")),
+        ("city_holiday", ("день города", "маслениц", "день победы", "новый год", "новогодн")),
+        ("holiday", ("праздник", "выходн")),
     )
     for cat, keys in rules:
         if any(k in text for k in keys):
@@ -80,10 +85,45 @@ def infer_audience_scope(title: str, description: str | None = None) -> str:
     text = f"{title} {description or ''}".lower()
     if any(w in text for w in ("международ", "international", "world")):
         return "international"
-    if any(w in text for w in ("всеросс", "российск", "national")):
+    if any(w in text for w in ("всеросс", "российск", "national", "межрегион")):
         return "national"
-    if any(w in text for w in ("регион", "сибир", "област")):
+    if any(w in text for w in ("межмуницип", "регион", "сибир", "област")):
         return "regional"
-    if any(w in text for w in ("томск", "город")):
+    if any(w in text for w in ("томск", "городск", "муницип")):
         return "local"
     return "unknown"
+
+
+_NON_TOMSK_CITIES = (
+    "колпашево",
+    "стрежевой",
+    "асино",
+    "северск",
+    "кедровый",
+    "кожевниково",
+    "парабель",
+    "каргасок",
+    "молчаново",
+    "подгорное",
+    "белый яр",
+)
+
+
+def is_online_event(text: str) -> bool:
+    low = text.lower()
+    return any(
+        w in low
+        for w in ("онлайн", "online", "вебинар", "zoom", "дистанцион", "в сети", "трансляц")
+    )
+
+
+def infer_city(text: str, default: str = "Томск") -> str:
+    """Определить город проведения; вне Томска — для ручного подтверждения."""
+    low = text.lower()
+    for name in _NON_TOMSK_CITIES:
+        if name in low:
+            return name.title() if name != "белый яр" else "Белый Яр"
+    if "томск" in low or default == "Томск":
+        return "Томск"
+    return default
+

@@ -64,6 +64,18 @@ events:
   require_approval_score: 60
   max_forecast_uplift: 0.15
   collect_cron: "0 6 * * *"
+  notify_horizon_days: 14
+  notify_min_impact: 80
+  notify_min_overnight: 0.35
+  guest_poster:
+    default_days: 10
+    max_cards: 10
+    brand: 1APART
+    headline: ЧТО ПОСЕТИТЬ В ТОМСКЕ
+    address: Томск · 1apart
+    wifi: ''
+    contacts: https://1apart.ru
+    disclaimer: Уточняйте наличие билетов у организатора
   sources:
   - name: tomsk_kassy
     url: https://tomsk.kassy.ru/
@@ -85,6 +97,37 @@ events:
     type: html
     priority: 1
     enabled: true
+  - name: my_business_tomsk
+    url: https://www.mb.tomsk.ru/meropriyatiya/
+    type: html
+    priority: 1
+    enabled: true
+    category: business
+  - name: tomsk_sport_calendar
+    url: https://sport-v-tomske.ru/calendar
+    type: html
+    priority: 1
+    enabled: true
+    category: sport
+  - name: tomsk_region_events
+    url: https://alsadm.gosuslugi.ru/
+    type: html
+    priority: 1
+    enabled: true
+    category: government
+  - name: tomsk_library_events
+    url: https://lib.tomsk.ru/sobytiya/
+    type: html
+    priority: 2
+    enabled: true
+    category: culture
+  - name: ria_tomsk_events
+    url: https://www.riatomsk.ru/
+    type: html
+    priority: 3
+    enabled: true
+    category: media
+    verification_only: true
 deploy:
   enabled: false
   after_jobs: true

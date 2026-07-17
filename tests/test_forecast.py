@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -15,7 +14,6 @@ from src.forecast.engine import (
     calc_dow_coefficients,
     calc_seasonal_coefficients,
     forecast_day,
-    forecast_horizon,
     manual_event_boost,
     pickup_for_scenario,
 )
@@ -30,7 +28,7 @@ from src.storage.db import (
     save_metrics_daily,
     update_price_recommendation_status,
 )
-from src.storage.models import MetricsDailyRecord, SCHEMA_VERSION
+from src.storage.models import SCHEMA_VERSION, MetricsDailyRecord
 
 
 @pytest.fixture

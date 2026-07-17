@@ -34,6 +34,8 @@
         </label>
         <button type="submit">Применить</button>
         <button type="submit" class="btn-small" formaction="/events/refresh" formmethod="post">🔄 Обновить источники</button>
+        <a class="btn-small" href="/events/print?days=10" target="_blank" rel="noopener">🖨️ Печать афиши</a>
+        <a class="btn-small" href="/events/public?days=10" target="_blank" rel="noopener">📱 Публичная афиша</a>
     </form>
 </div>
 
@@ -93,11 +95,12 @@
     {% set d = data.detail %}
     <h2>Карточка события</h2>
     <p><strong>{{ d.event.title }}</strong></p>
-    <p>{{ d.event.start_at }} — {{ d.event.end_at or d.event.start_at }} · {{ d.event.category }}</p>
+    <p>{{ d.event.start_at }} — {{ d.event.end_at or d.event.start_at }} · {{ d.event.category }} · {{ d.event.city }}</p>
     <p>Площадка: {{ d.event.venue_name or '—' }}</p>
-    <p>Impact: <strong>{{ d.event.impact_score }}</strong> ({{ d.impact_level }}) · {{ d.event.confidence }}</p>
-    <p>Статус: {{ d.event.status }}{% if d.in_forecast %} · <span class="badge badge-green">учтено в прогнозе</span>{% endif %}</p>
-    {% if d.event.source_url %}<p><a href="{{ d.event.source_url }}" target="_blank" rel="noopener">Источник</a></p>{% endif %}
+    <p>Impact: <strong>{{ d.event.impact_score }}</strong> ({{ d.impact_level }}) · overnight {{ "%.2f"|format(d.event.overnight_likelihood) }} · demand {{ d.event_demand_score }} · {{ d.event.confidence }}</p>
+    <p>Статус: {{ d.event.status }}{% if d.in_forecast %} · <span class="badge badge-green">учтено в прогнозе</span>{% endif %}{% if d.event.is_online %} · <span class="badge">онлайн</span>{% endif %}</p>
+    {% if d.event.source_name %}<p class="muted">Источник: {{ d.event.source_name }}{% if d.event.updated_at %} · собрано/обновлено {{ d.event.updated_at }}{% endif %}</p>{% endif %}
+    {% if d.event.source_url %}<p><a href="{{ d.event.source_url }}" target="_blank" rel="noopener">Ссылка на карточку</a></p>{% endif %}
     {% if d.event.description %}<p class="muted">{{ d.event.description }}</p>{% endif %}
 
     <h3>Источники</h3>

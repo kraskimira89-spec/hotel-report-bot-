@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>{{ data.brand }} — афиша Томска</title>
+    <meta name="description" content="Афиша Томска от {{ data.brand }}: {{ data.period_label }}">
+    <style>
+        :root {
+            --bg: #f6f3ee;
+            --ink: #1c1c1c;
+            --muted: #5a5a5a;
+            --card: #fff;
+            --accent: #1a5f4a;
+            --line: #e2ddd4;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "PT Sans", system-ui, sans-serif;
+            background:
+                radial-gradient(1200px 500px at 10% -10%, #dceee6 0%, transparent 55%),
+                linear-gradient(180deg, #f8f5f0, var(--bg));
+            color: var(--ink);
+            font-size: 16px;
+            line-height: 1.4;
+            min-height: 100vh;
+        }
+        .wrap {
+            max-width: 560px;
+            margin: 0 auto;
+            padding: 1.25rem 1rem 2.5rem;
+        }
+        .brand {
+            font-size: 0.85rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            color: var(--accent);
+            text-transform: uppercase;
+        }
+        h1 {
+            margin: 0.35rem 0 0.15rem;
+            font-size: 1.55rem;
+            line-height: 1.2;
+        }
+        .period {
+            margin: 0;
+            color: var(--muted);
+            font-weight: 600;
+        }
+        .list {
+            margin-top: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 0.95rem 1rem;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+            box-shadow: 0 1px 0 rgba(0,0,0,.03);
+        }
+        .card:active { transform: scale(0.995); }
+        .when {
+            margin: 0;
+            font-weight: 700;
+            font-size: 0.95rem;
+        }
+        .title {
+            margin: 0.25rem 0 0;
+            font-size: 1.05rem;
+            font-weight: 700;
+        }
+        .place {
+            margin: 0.3rem 0 0;
+            color: var(--muted);
+            font-size: 0.92rem;
+        }
+        .empty {
+            margin-top: 2rem;
+            text-align: center;
+            color: var(--muted);
+        }
+        .footer {
+            margin-top: 1.75rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--line);
+            color: var(--muted);
+            font-size: 0.88rem;
+        }
+        .footer strong { color: var(--ink); }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="brand">{{ data.brand }}</div>
+        <h1>{{ data.headline }}</h1>
+        <p class="period">{{ data.period_label }}</p>
+
+        {% if data.cards %}
+        <div class="list">
+            {% for c in data.cards %}
+            <a class="card" href="{{ c.url }}" target="_blank" rel="noopener">
+                <p class="when">{{ c.icon }} {{ c.when }}</p>
+                <p class="title">{{ c.title }}</p>
+                <p class="place">{{ c.place }}</p>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty">Скоро здесь появится афиша на ближайшие дни.</p>
+        {% endif %}
+
+        <footer class="footer">
+            <strong>{{ data.address }}</strong><br>
+            {% if data.wifi %}Wi‑Fi: {{ data.wifi }}<br>{% endif %}
+            {% if data.contacts %}{{ data.contacts }}<br>{% endif %}
+            {{ data.disclaimer }}
+        </footer>
+    </div>
+</body>
+</html>

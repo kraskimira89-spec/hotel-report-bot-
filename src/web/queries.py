@@ -27,10 +27,10 @@ from src.storage.db import (
     get_trends_records,
     insights_count,
 )
-from src.web.market_intel import build_competitor_cards
 from src.utils.category_labels import category_label
-from src.utils.dates import format_date_ru, format_period_label, format_period_ru
+from src.utils.dates import format_date_ru, format_period_label
 from src.utils.metric_labels import expand_metric_abbrs, expand_metric_abbrs_list
+from src.web.market_intel import build_competitor_cards
 
 
 def fetch_latest_metrics() -> dict[str, Any] | None:
@@ -1011,7 +1011,7 @@ def fetch_forecast_bundle(
                 "impact_score": e.impact_score,
                 "category": e.category,
                 "status": e.status,
-                "in_forecast": event_affects_forecast(e.status, e.impact_score),
+                "in_forecast": event_affects_forecast(e.status, e.impact_score, e),
             }
             for e in (approved_events if include_events else [])
         ],
@@ -1035,11 +1035,14 @@ def fetch_forecast_bundle(
 
 _EVENT_CATEGORY_LABELS = {
     "conference": "Конференция",
+    "business": "Бизнес",
     "concert": "Концерт",
     "sport": "Спорт",
     "festival": "Фестиваль",
+    "fair": "Ярмарка",
     "exhibition": "Выставка",
     "holiday": "Праздник",
+    "city_holiday": "Городской праздник",
     "other": "Другое",
 }
 
@@ -1060,7 +1063,7 @@ def fetch_events_bundle(
     event_id: int | None = None,
 ) -> dict[str, Any]:
     """Данные для страницы «События Томска»."""
-    from src.events.impact import MIN_FORECAST_IMPACT, event_affects_forecast, impact_level
+    from src.events.impact import event_affects_forecast, impact_level
     from src.events.service import event_detail_bundle
     from src.storage.db import get_city_events
 
@@ -1093,7 +1096,11 @@ def fetch_events_bundle(
             "source_name": ev.source_name,
             "source_url": ev.source_url,
             "confidence": ev.confidence,
-            "in_forecast": event_affects_forecast(ev.status, ev.impact_score),
+            "city": ev.city,
+            "is_online": ev.is_online,
+            "overnight_likelihood": ev.overnight_likelihood,
+            "tourism_relevance": ev.tourism_relevance,
+            "in_forecast": event_affects_forecast(ev.status, ev.impact_score, ev),
             "needs_approval": ev.status == "candidate" and ev.impact_score >= cfg.events.require_approval_score,
         }
         rows.append(item)

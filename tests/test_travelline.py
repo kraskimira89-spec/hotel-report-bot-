@@ -14,7 +14,6 @@ from src.data_sources.sheets import BookingRecord, BookingsSheetData
 from src.data_sources.travelline import (
     TravelLineClient,
     booking_date_from_number,
-    calc_reconcile_diff_pct,
     ensure_date_window,
     format_tl_date,
     msk_date_to_utc_start,
