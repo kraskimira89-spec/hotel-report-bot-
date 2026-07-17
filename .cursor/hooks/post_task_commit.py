@@ -19,30 +19,6 @@ import tempfile
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
-# #region agent log
-_DEBUG_LOG = Path(__file__).resolve().parents[3] / "debug-a5fdfa.log"
-
-
-def _dbg(hypothesis_id: str, location: str, message: str, data: dict | None = None) -> None:
-    import time
-
-    payload = {
-        "sessionId": "a5fdfa",
-        "runId": os.environ.get("DEBUG_RUN_ID", "pre-fix"),
-        "hypothesisId": hypothesis_id,
-        "location": location,
-        "message": message,
-        "data": data or {},
-        "timestamp": int(time.time() * 1000),
-    }
-    try:
-        with _DEBUG_LOG.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
-
-
-# #endregion
 
 _DENY_NAMES = {
     ".env",
@@ -176,24 +152,13 @@ def _push_enabled() -> bool:
     }
 
 
-def _maybe_push(*, reason: str) -> None:
+def _maybe_push() -> None:
     """Push HEAD to upstream if branch is ahead (Sync Changes)."""
     if not _push_enabled():
-        # #region agent log
-        _dbg("H2", "post_task_commit.py:_maybe_push", "push disabled", {"reason": reason})
-        # #endregion
         print("post_task_commit: push отключён (CURSOR_AUTO_PUSH=0)", file=sys.stderr)
         return
 
     behind, ahead = _ahead_behind()
-    # #region agent log
-    _dbg(
-        "H1",
-        "post_task_commit.py:_maybe_push:before",
-        "considering push",
-        {"reason": reason, "behind": behind, "ahead": ahead},
-    )
-    # #endregion
     if ahead <= 0:
         return
 
@@ -203,36 +168,11 @@ def _maybe_push(*, reason: str) -> None:
             f"post_task_commit: push пропущен — behind={behind}, ahead={ahead}",
             file=sys.stderr,
         )
-        # #region agent log
-        _dbg(
-            "H2",
-            "post_task_commit.py:_maybe_push:diverged",
-            "skip push due to divergence",
-            {"behind": behind, "ahead": ahead},
-        )
-        # #endregion
         return
 
     branch = _git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip() or "HEAD"
     push = _git("push", "-u", "origin", "HEAD")
-    behind2, ahead2 = _ahead_behind()
-    # #region agent log
-    _dbg(
-        "H2",
-        "post_task_commit.py:_maybe_push:after",
-        "push finished",
-        {
-            "reason": reason,
-            "branch": branch,
-            "returncode": push.returncode,
-            "stderr": (push.stderr or "")[-500:],
-            "stdout": (push.stdout or "")[-500:],
-            "behind_after": behind2,
-            "ahead_after": ahead2,
-            "push_attempted": True,
-        },
-    )
-    # #endregion
+    _, ahead2 = _ahead_behind()
     if push.returncode != 0:
         err = (push.stderr or push.stdout or "push failed").strip()
         print(f"post_task_commit: push error: {err}", file=sys.stderr)
@@ -250,22 +190,6 @@ def main() -> int:
         pass
 
     dry_run = "--dry-run" in sys.argv
-    # #region agent log
-    behind0, ahead0 = _ahead_behind()
-    _dbg(
-        "H1",
-        "post_task_commit.py:main:entry",
-        "hook start",
-        {
-            "root": str(_ROOT),
-            "enabled": _enabled(),
-            "push_enabled_flag": _push_enabled(),
-            "behind": behind0,
-            "ahead": ahead0,
-            "docstring_says_no_push": "не делает push" in (__doc__ or ""),
-        },
-    )
-    # #endregion
     if not _enabled():
         print("post_task_commit: отключён (CURSOR_AUTO_COMMIT=0)", file=sys.stderr)
         return 0
@@ -276,32 +200,12 @@ def main() -> int:
 
     if _busy():
         print("post_task_commit: пропуск — идёт merge/rebase", file=sys.stderr)
-        # #region agent log
-        _dbg("H4", "post_task_commit.py:main:busy", "skipped due to merge/rebase", {})
-        # #endregion
         return 0
 
     paths = _porcelain_paths()
-    # #region agent log
-    _dbg(
-        "H3",
-        "post_task_commit.py:main:paths",
-        "safe paths for commit",
-        {"count": len(paths), "sample": paths[:8]},
-    )
-    # #endregion
     if not paths:
         print("post_task_commit: нечего коммитить")
-        # #region agent log
-        behind, ahead = _ahead_behind()
-        _dbg(
-            "H1",
-            "post_task_commit.py:main:nothing",
-            "no commit; may still need push",
-            {"behind": behind, "ahead": ahead},
-        )
-        # #endregion
-        _maybe_push(reason="nothing_to_commit_but_maybe_ahead")
+        _maybe_push()
         return 0
 
     msg = _commit_message(paths)
@@ -358,25 +262,9 @@ def main() -> int:
     short = _git("rev-parse", "--short", "HEAD").stdout.strip()
     subject = re.sub(r"\s+", " ", msg.splitlines()[0]).strip()
     print(f"post_task_commit: {short} {subject}")
-
-    # #region agent log
-    behind1, ahead1 = _ahead_behind()
-    _dbg(
-        "H1",
-        "post_task_commit.py:main:after_commit",
-        "commit done; calling push",
-        {
-            "short": short,
-            "behind": behind1,
-            "ahead": ahead1,
-        },
-    )
-    # #endregion
-    _maybe_push(reason="after_commit")
+    _maybe_push()
     return 0
-
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
