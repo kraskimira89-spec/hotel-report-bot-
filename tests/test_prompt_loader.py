@@ -38,3 +38,18 @@ def test_reviews_messages_use_prompts() -> None:
     assert "TravelLine" in msgs[0]["content"] or "квартир" in msgs[0]["content"].lower()
     assert msgs[1]["role"] == "user"
     assert "категор" in msgs[1]["content"].lower() or "отзыв" in msgs[1]["content"].lower()
+    # Явный период сравнения (как в 01_numeric_analytics).
+    assert "Период:" in msgs[1]["content"]
+    assert "сравнение недоступно" in msgs[1]["content"].lower()
+
+
+def test_load_prompt_fallback_when_missing(tmp_path, monkeypatch) -> None:
+    clear_prompt_cache()
+    fake_dir = tmp_path / "prompts"
+    fake_dir.mkdir()
+    monkeypatch.setattr(
+        "src.analytics.prompt_loader.prompts_dir",
+        lambda: fake_dir,
+    )
+    text = load_prompt_file("missing.md", fallback="fallback-text")
+    assert text == "fallback-text"
