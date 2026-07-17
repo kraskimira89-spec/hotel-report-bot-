@@ -264,6 +264,10 @@ def city_events_boost(
         if not (start <= target <= end_d):
             continue
         impact = float(_ev_field(ev, "impact_score", 0) or 0)
+        from src.events.impact import MIN_FORECAST_IMPACT
+
+        if impact < MIN_FORECAST_IMPACT:
+            continue
         coef = float(_ev_field(ev, "forecast_coefficient", 0.05) or 0.05)
         conf = str(_ev_field(ev, "confidence", "low") or "low")
         uplift = coef * (impact / 100.0) * confidence_factor(conf) * 100.0

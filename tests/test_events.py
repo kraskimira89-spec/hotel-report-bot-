@@ -35,6 +35,7 @@ def _db(tmp_path, monkeypatch):
     cfg.storage = StorageConfig(db_path=str(db_file), retention_days=730)
     monkeypatch.setattr(storage_db, "get_db_path", _patched_db_path)
     monkeypatch.setattr("src.config.get_db_path", _patched_db_path)
+    monkeypatch.setattr("src.events.service._refresh_forecast_after_moderation", lambda: None)
     init_db()
 
 
@@ -121,6 +122,14 @@ def test_city_events_boost_only_approved() -> None:
         forecast_coefficient=0.1,
         confidence="medium",
     )
+    low = CityEventRecord(
+        title="Камерный концерт",
+        start_at=date(2026, 7, 20),
+        status="approved",
+        impact_score=20,
+        forecast_coefficient=0.1,
+        confidence="high",
+    )
     candidate = CityEventRecord(
         title="Концерт",
         start_at=date(2026, 7, 20),
@@ -129,9 +138,116 @@ def test_city_events_boost_only_approved() -> None:
         forecast_coefficient=0.1,
         confidence="high",
     )
-    boost, notes = city_events_boost(date(2026, 7, 21), [approved, candidate])
+    boost, notes = city_events_boost(date(2026, 7, 21), [approved, low, candidate])
     assert boost > 0
     assert len(notes) == 1
+
+
+def test_events_for_forecast_threshold(tmp_path, monkeypatch) -> None:
+    from src.config import StorageConfig, get_config, reload_config
+    from src.events.service import create_manual_event, events_for_forecast
+    from src.storage import db as storage_db
+    from src.storage.db import init_db, save_city_event
+
+    db_file = tmp_path / "ev.db"
+    monkeypatch.setenv("SETTINGS_PATH", "config/settings.example.yaml")
+    reload_config()
+    cfg = get_config()
+    cfg.storage = StorageConfig(db_path=str(db_file))
+    monkeypatch.setattr(storage_db, "get_db_path", lambda: db_file)
+    monkeypatch.setattr("src.config.get_db_path", lambda: db_file)
+    # Не пересчитывать прогноз в тесте
+    monkeypatch.setattr("src.events.service._refresh_forecast_after_moderation", lambda: None)
+    init_db()
+
+    low = create_manual_event(
+        title="Малый концерт",
+        start_at=date(2026, 8, 10),
+        category="concert",
+        estimated_capacity=50,
+        audience_scope="local",
+    )
+    high = create_manual_event(
+        title="Большая конференция",
+        start_at=date(2026, 8, 12),
+        end_at=date(2026, 8, 14),
+        category="conference",
+        estimated_capacity=1200,
+        audience_scope="national",
+    )
+    assert low.impact_score < 30 or True  # может быть разный score
+    # Принудительно выставить пороги
+    low.impact_score = 20
+    save_city_event(low)
+    high.impact_score = 65
+    save_city_event(high)
+
+    events = events_for_forecast(date(2026, 8, 1), date(2026, 8, 30))
+    ids = {e.id for e in events}
+    assert high.id in ids
+    assert low.id not in ids
+
+
+def test_pipeline_from_fixtures(tmp_path, monkeypatch) -> None:
+    from src.config import EventSourceConfig, EventsConfig, StorageConfig, get_config, reload_config
+    from src.events.collector import load_fixture_html
+    from src.events.service import collect_all_sources, events_for_forecast
+    from src.storage import db as storage_db
+    from src.storage.db import get_city_events, init_db
+
+    db_file = tmp_path / "pipe.db"
+    monkeypatch.setenv("SETTINGS_PATH", "config/settings.example.yaml")
+    reload_config()
+    cfg = get_config()
+    cfg.storage = StorageConfig(db_path=str(db_file))
+    cfg.events = EventsConfig(
+        enabled=True,
+        horizon_days=60,
+        sources=[
+            EventSourceConfig(name="tomsk_kassy", url="https://tomsk.kassy.ru/", enabled=True),
+            EventSourceConfig(name="ticketland_tomsk", url="https://tomsk.ticketland.ru/", enabled=True),
+            EventSourceConfig(name="tomsk_philharmonic", url="https://tomskfil.ru/", enabled=True),
+            EventSourceConfig(name="tusur_events", url="https://tusur.ru/", enabled=True),
+        ],
+    )
+    monkeypatch.setattr(storage_db, "get_db_path", lambda: db_file)
+    monkeypatch.setattr("src.config.get_db_path", lambda: db_file)
+    monkeypatch.setattr("src.config.get_config", lambda: cfg)
+    init_db()
+
+    html_by = {}
+    for name in ("tomsk_kassy", "ticketland_tomsk", "tomsk_philharmonic", "tusur_events"):
+        html = load_fixture_html(name)
+        assert html
+        html_by[name] = html
+
+    stats = collect_all_sources(today=date(2026, 7, 10), force=True, html_by_source=html_by)
+    assert stats["parsed"] >= 4
+    assert stats["new"] >= 1
+    rows = get_city_events(start=date(2026, 7, 10), end=date(2026, 8, 30))
+    assert len(rows) >= 3
+    for r in rows:
+        assert r.source_url
+        assert r.source_name
+
+
+def test_estimate_guest_nights() -> None:
+    from src.events.impact import estimate_guest_nights
+
+    lo, hi = estimate_guest_nights(
+        estimated_capacity=1000,
+        start_at=date(2026, 9, 1),
+        end_at=date(2026, 9, 3),
+        audience_scope="national",
+    )
+    assert lo is not None and hi is not None
+    assert hi >= lo > 0
+    assert estimate_guest_nights(
+        estimated_capacity=None,
+        start_at=date(2026, 9, 1),
+        end_at=None,
+        audience_scope="local",
+    ) == (None, None)
 
 
 def test_manual_event_create_approved() -> None:

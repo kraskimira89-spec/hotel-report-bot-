@@ -38,6 +38,17 @@ DEFAULT_FORECAST_COEFFICIENTS = {
 
 CONFIDENCE_BY_SOURCES = {1: "low", 2: "medium", 3: "high"}
 
+# Минимальный impact для влияния на прогноз и метки «учтено в прогнозе»
+MIN_FORECAST_IMPACT = 30.0
+
+GUEST_NIGHT_FRACTION = {
+    "international": 0.35,
+    "national": 0.22,
+    "regional": 0.08,
+    "local": 0.02,
+    "unknown": 0.05,
+}
+
 
 def _capacity_score(capacity: int | None) -> float:
     if not capacity or capacity <= 0:
@@ -118,6 +129,27 @@ def enrich_parsed_event(parsed: ParsedEvent) -> ParsedEvent:
     return parsed
 
 
+def event_affects_forecast(status: str, impact_score: float) -> bool:
+    """Событие учитывается в прогнозе: подтверждено и impact ≥ порога."""
+    return status == "approved" and float(impact_score or 0) >= MIN_FORECAST_IMPACT
+
+
+def estimate_guest_nights(
+    *,
+    estimated_capacity: int | None,
+    start_at: date,
+    end_at: date | None,
+    audience_scope: str,
+) -> tuple[int | None, int | None]:
+    """Грубая оценка гостевых ночей (min/max) до калибровки по факту."""
+    if not estimated_capacity or estimated_capacity <= 0:
+        return None, None
+    days = max(1, ((end_at or start_at) - start_at).days + 1)
+    frac = GUEST_NIGHT_FRACTION.get(audience_scope, 0.05)
+    mid = estimated_capacity * days * frac
+    return max(0, int(mid * 0.6)), max(0, int(mid * 1.4))
+
+
 def apply_impact_to_event(event: CityEventRecord, source_count: int) -> CityEventRecord:
     event.impact_score = calc_impact_score(
         audience_scope=event.audience_scope,
@@ -128,4 +160,12 @@ def apply_impact_to_event(event: CityEventRecord, source_count: int) -> CityEven
         source_count=source_count,
     )
     event.confidence = CONFIDENCE_BY_SOURCES.get(min(source_count, 3), "low")
+    gmin, gmax = estimate_guest_nights(
+        estimated_capacity=event.estimated_capacity,
+        start_at=event.start_at,
+        end_at=event.end_at,
+        audience_scope=event.audience_scope,
+    )
+    event.expected_guest_nights_min = gmin
+    event.expected_guest_nights_max = gmax
     return event

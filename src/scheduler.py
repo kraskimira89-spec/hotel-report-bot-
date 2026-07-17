@@ -374,7 +374,10 @@ def create_scheduler() -> BackgroundScheduler:
     mail_kw = _parse_cron(mail_cron)
     forecast_cron = getattr(cfg.forecast, "refresh_cron", "30 9 * * *")
     forecast_kw = _parse_cron(forecast_cron)
-    events_cron = getattr(cfg.events, "collect_cron", "0 6 * * *")
+    # refresh_hour — основной час; collect_cron может переопределить полное расписание
+    events_cron = getattr(cfg.events, "collect_cron", "") or (
+        f"0 {getattr(cfg.events, 'refresh_hour', 6)} * * *"
+    )
     events_kw = _parse_cron(events_cron)
 
     scheduler.add_job(

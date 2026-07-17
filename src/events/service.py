@@ -8,7 +8,9 @@ from datetime import date, datetime, timedelta
 from src.config import EventSourceConfig, get_config
 from src.events.collector import collect_from_source
 from src.events.impact import (
+    MIN_FORECAST_IMPACT,
     apply_impact_to_event,
+    event_affects_forecast,
     forecast_coefficient_for_category,
     impact_level,
 )
@@ -230,6 +232,22 @@ def notify_critical_events(today: date | None = None) -> int:
         return 0
 
 
+def _refresh_forecast_after_moderation() -> None:
+    """Пересчитать прогноз после ручного изменения событий."""
+    try:
+        from src.config import get_config
+        from src.forecast.service import run_forecast_refresh
+
+        cfg = get_config()
+        if not cfg.forecast.enabled:
+            return
+        horizons = [h for h in cfg.forecast.horizons if h <= 30] or [7, 14, 30]
+        run_forecast_refresh(horizons=horizons)
+        logger.info("Прогноз обновлён после модерации событий: %s", horizons)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Не удалось пересчитать прогноз после модерации: %s", exc)
+
+
 def approve_event(event_id: int, actor: str = "admin", comment: str | None = None) -> CityEventRecord | None:
     ev = get_city_event(event_id)
     if not ev:
@@ -247,6 +265,7 @@ def approve_event(event_id: int, actor: str = "admin", comment: str | None = Non
             actor=actor,
         )
     )
+    _refresh_forecast_after_moderation()
     return ev
 
 
@@ -267,6 +286,8 @@ def reject_event(event_id: int, actor: str = "admin", comment: str | None = None
             actor=actor,
         )
     )
+    if old == "approved":
+        _refresh_forecast_after_moderation()
     return ev
 
 
@@ -287,6 +308,8 @@ def cancel_event(event_id: int, actor: str = "admin", comment: str | None = None
             actor=actor,
         )
     )
+    if old == "approved":
+        _refresh_forecast_after_moderation()
     return ev
 
 
@@ -344,8 +367,25 @@ def adjust_event(
         src_cnt = count_event_sources(event_id)
         if impact_score is None:
             apply_impact_to_event(ev, src_cnt)
+        else:
+            gmin, gmax = estimate_guest_nights_safe(ev)
+            ev.expected_guest_nights_min = gmin
+            ev.expected_guest_nights_max = gmax
         save_city_event(ev)
+        if ev.status == "approved" or "score" in changes:
+            _refresh_forecast_after_moderation()
     return ev
+
+
+def estimate_guest_nights_safe(ev: CityEventRecord) -> tuple[int | None, int | None]:
+    from src.events.impact import estimate_guest_nights
+
+    return estimate_guest_nights(
+        estimated_capacity=ev.estimated_capacity,
+        start_at=ev.start_at,
+        end_at=ev.end_at,
+        audience_scope=ev.audience_scope,
+    )
 
 
 def create_manual_event(
@@ -398,16 +438,18 @@ def create_manual_event(
             actor=actor,
         )
     )
+    if event_affects_forecast(saved.status, saved.impact_score):
+        _refresh_forecast_after_moderation()
     return saved
 
 
 def events_for_forecast(start: date, end: date) -> list[CityEventRecord]:
-    """Подтверждённые события для прогноза."""
+    """Подтверждённые события с impact ≥ MIN_FORECAST_IMPACT для прогноза."""
     cfg = get_config()
     if not cfg.events.enabled:
         return []
     events = get_approved_city_events(start, end)
-    return [e for e in events if e.impact_score >= 30 or e.status == "approved"]
+    return [e for e in events if event_affects_forecast(e.status, e.impact_score)]
 
 
 def event_detail_bundle(event_id: int) -> dict | None:
@@ -419,5 +461,6 @@ def event_detail_bundle(event_id: int) -> dict | None:
         "sources": get_event_sources(event_id),
         "review_log": get_event_review_log(event_id),
         "impact_level": impact_level(ev.impact_score),
-        "in_forecast": ev.status == "approved" and ev.impact_score >= 30,
+        "in_forecast": event_affects_forecast(ev.status, ev.impact_score),
+        "min_forecast_impact": MIN_FORECAST_IMPACT,
     }

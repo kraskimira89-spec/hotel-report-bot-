@@ -872,7 +872,7 @@ def fetch_forecast_bundle(
     if run and run.id:
         rows = get_forecast_daily(run.id, scenario=scenario, room_type=rt_filter)
         if include_events and cfg.events.enabled:
-            from src.events.impact import impact_level
+            from src.events.impact import event_affects_forecast, impact_level
             from src.events.service import events_for_forecast
 
             end_d = date.today() + timedelta(days=horizon)
@@ -1011,7 +1011,7 @@ def fetch_forecast_bundle(
                 "impact_score": e.impact_score,
                 "category": e.category,
                 "status": e.status,
-                "in_forecast": e.status == "approved" and e.impact_score >= 30,
+                "in_forecast": event_affects_forecast(e.status, e.impact_score),
             }
             for e in (approved_events if include_events else [])
         ],
@@ -1060,7 +1060,7 @@ def fetch_events_bundle(
     event_id: int | None = None,
 ) -> dict[str, Any]:
     """Данные для страницы «События Томска»."""
-    from src.events.impact import impact_level
+    from src.events.impact import MIN_FORECAST_IMPACT, event_affects_forecast, impact_level
     from src.events.service import event_detail_bundle
     from src.storage.db import get_city_events
 
@@ -1093,7 +1093,7 @@ def fetch_events_bundle(
             "source_name": ev.source_name,
             "source_url": ev.source_url,
             "confidence": ev.confidence,
-            "in_forecast": ev.status == "approved" and ev.impact_score >= 30,
+            "in_forecast": event_affects_forecast(ev.status, ev.impact_score),
             "needs_approval": ev.status == "candidate" and ev.impact_score >= cfg.events.require_approval_score,
         }
         rows.append(item)
