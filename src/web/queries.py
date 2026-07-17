@@ -1047,11 +1047,18 @@ _EVENT_CATEGORY_LABELS = {
 }
 
 _EVENT_STATUS_LABELS = {
-    "candidate": "Кандидат",
+    "candidate": "На проверке",
     "approved": "Подтверждено",
     "rejected": "Отклонено",
     "cancelled": "Отменено",
     "expired": "Прошло",
+}
+
+_EVENT_IMPACT_LABELS = {
+    "critical": "критичное",
+    "high": "высокое",
+    "medium": "среднее",
+    "low": "низкое",
 }
 
 
@@ -1092,6 +1099,7 @@ def fetch_events_bundle(
             "status_label": _EVENT_STATUS_LABELS.get(ev.status, ev.status),
             "impact_score": ev.impact_score,
             "impact_level": level,
+            "impact_level_label": _EVENT_IMPACT_LABELS.get(level, level),
             "venue_name": ev.venue_name,
             "source_name": ev.source_name,
             "source_url": ev.source_url,
@@ -1101,7 +1109,15 @@ def fetch_events_bundle(
             "overnight_likelihood": ev.overnight_likelihood,
             "tourism_relevance": ev.tourism_relevance,
             "in_forecast": event_affects_forecast(ev.status, ev.impact_score, ev),
-            "needs_approval": ev.status == "candidate" and ev.impact_score >= cfg.events.require_approval_score,
+            "needs_approval": ev.status == "candidate",
+            "high_impact": ev.status == "candidate"
+            and ev.impact_score >= cfg.events.require_approval_score,
+            "poster_ready": (
+                ev.status == "approved"
+                and bool(ev.venue_name or ev.venue_address)
+                and bool(ev.source_url and str(ev.source_url).startswith("http"))
+                and not ev.is_online
+            ),
         }
         rows.append(item)
         d = ev.start_at
@@ -1145,5 +1161,7 @@ def fetch_events_bundle(
         "require_approval_score": cfg.events.require_approval_score,
         "detail": detail,
         "selected_id": event_id,
-        "pending_high": len([e for e in rows if e["needs_approval"]]),
+        "pending_count": len([e for e in rows if e["needs_approval"]]),
+        "pending_high": len([e for e in rows if e.get("high_impact")]),
+        "approved_count": len([e for e in rows if e["status"] == "approved"]),
     }

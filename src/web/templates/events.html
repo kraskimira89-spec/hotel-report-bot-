@@ -2,11 +2,21 @@
 {% block title %}События Томска — hotel-report-bot{% endblock %}
 {% block content %}
 <h1>📅 События Томска</h1>
-<p class="muted">Сбор афиш на {{ data.horizon_days }} дней. События с impact ≥ {{ data.require_approval_score|int }} требуют подтверждения. В прогноз попадают только подтверждённые.</p>
+<p class="muted">
+    Собранные с афиш события сначала получают статус <strong>«На проверке»</strong>
+    (в коде: candidate). Они ещё не влияют на прогноз и не попадают в печатную афишу.
+    Нажмите <strong>✅ Подтвердить</strong> — статус станет «Подтверждено» (approved).
+</p>
 
-{% if data.pending_high %}
+{% if data.pending_count %}
 <div class="card" style="border-color: var(--warn);">
-    <p><strong>⚠️ Ожидают проверки:</strong> {{ data.pending_high }} событий с высоким impact.</p>
+    <p>
+        <strong>⏳ На проверке:</strong> {{ data.pending_count }} событий.
+        {% if data.pending_high %}Из них {{ data.pending_high }} с высоким impact (≥ {{ data.require_approval_score|int }}).{% endif %}
+        {% if not data.approved_count %}
+        <br>Печатная и публичная афиша пустые, пока ничего не подтверждено.
+        {% endif %}
+    </p>
 </div>
 {% endif %}
 
@@ -71,16 +81,26 @@
         </thead>
         <tbody>
         {% for e in data.events %}
-            <tr class="{% if e.needs_approval %}row-warn{% endif %}">
+            <tr class="{% if e.needs_approval %}row-warn{% endif %}{% if e.high_impact %} row-warn-strong{% endif %}">
                 <td>{{ e.start_at[8:10] }}.{{ e.start_at[5:7] }}{% if e.end_at != e.start_at %}–{{ e.end_at[8:10] }}.{{ e.end_at[5:7] }}{% endif %}</td>
                 <td>
                     <a href="/events?event_id={{ e.id }}">{{ e.title }}</a>
                     {% if e.in_forecast %}<span class="badge badge-green" title="Учтено в прогнозе">📈</span>{% endif %}
                 </td>
                 <td>{{ e.category_label }}</td>
-                <td><strong>{{ e.impact_score }}</strong> <span class="muted">({{ e.impact_level }})</span></td>
+                <td><strong>{{ e.impact_score }}</strong> <span class="muted">({{ e.impact_level_label }})</span></td>
                 <td>{{ e.status_label }}</td>
-                <td><a href="/events?event_id={{ e.id }}" class="btn-small">Открыть</a></td>
+                <td class="events-actions">
+                    {% if e.needs_approval %}
+                    <form method="post" action="/events/{{ e.id }}/approve" style="display:inline">
+                        <button type="submit" class="btn-small" title="Подтвердить для прогноза и афиши">✅</button>
+                    </form>
+                    <form method="post" action="/events/{{ e.id }}/reject" style="display:inline">
+                        <button type="submit" class="btn-small btn-danger" title="Отклонить">❌</button>
+                    </form>
+                    {% endif %}
+                    <a href="/events?event_id={{ e.id }}" class="btn-small">Открыть</a>
+                </td>
             </tr>
         {% endfor %}
         </tbody>
@@ -98,7 +118,22 @@
     <p>{{ d.event.start_at }} — {{ d.event.end_at or d.event.start_at }} · {{ d.event.category }} · {{ d.event.city }}</p>
     <p>Площадка: {{ d.event.venue_name or '—' }}</p>
     <p>Impact: <strong>{{ d.event.impact_score }}</strong> ({{ d.impact_level }}) · overnight {{ "%.2f"|format(d.event.overnight_likelihood) }} · demand {{ d.event_demand_score }} · {{ d.event.confidence }}</p>
-    <p>Статус: {{ d.event.status }}{% if d.in_forecast %} · <span class="badge badge-green">учтено в прогнозе</span>{% endif %}{% if d.event.is_online %} · <span class="badge">онлайн</span>{% endif %}</p>
+    <p>
+        Статус:
+        <strong>
+        {% if d.event.status == 'candidate' %}На проверке
+        {% elif d.event.status == 'approved' %}Подтверждено
+        {% elif d.event.status == 'rejected' %}Отклонено
+        {% elif d.event.status == 'cancelled' %}Отменено
+        {% elif d.event.status == 'expired' %}Прошло
+        {% else %}{{ d.event.status }}{% endif %}
+        </strong>
+        {% if d.in_forecast %} · <span class="badge badge-green">учтено в прогнозе</span>{% endif %}
+        {% if d.event.is_online %} · <span class="badge">онлайн</span>{% endif %}
+    </p>
+    {% if d.event.status == 'candidate' %}
+    <p class="muted">Чтобы событие попало в прогноз и в печатную афишу — подтвердите его.</p>
+    {% endif %}
     {% if d.event.source_name %}<p class="muted">Источник: {{ d.event.source_name }}{% if d.event.updated_at %} · собрано/обновлено {{ d.event.updated_at }}{% endif %}</p>{% endif %}
     {% if d.event.source_url %}<p><a href="{{ d.event.source_url }}" target="_blank" rel="noopener">Ссылка на карточку</a></p>{% endif %}
     {% if d.event.description %}<p class="muted">{{ d.event.description }}</p>{% endif %}
@@ -187,6 +222,9 @@
 .events-cal-day.has-events { background: var(--primary-soft); border: 1px solid var(--primary); }
 .events-cal-count { display: block; font-weight: bold; color: var(--primary-h); }
 .row-warn { background: var(--warn-bg); }
+.row-warn-strong { box-shadow: inset 3px 0 0 var(--warn); }
 .badge-green { background: var(--ok-bg); color: var(--ok); padding: 2px 6px; border-radius: 4px; font-size: .75rem; }
+.events-actions { white-space: nowrap; }
+.events-actions form { display: inline; }
 </style>
 {% endblock %}
