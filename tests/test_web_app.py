@@ -138,7 +138,7 @@ def test_dashboard_after_login(web_client: TestClient) -> None:
     page = web_client.get("/analytics")
     assert page.status_code == 200
     assert "Аналитика" in page.text
-    assert "Прогноз" in page.text
+    assert "📈 Прогноз" in page.text
     assert "/forecast" in page.text
 
 
@@ -190,8 +190,9 @@ def test_forecast_page_content(web_client: TestClient) -> None:
     _login(web_client)
     response = web_client.get("/forecast?horizon_days=7&scenario=base")
     assert response.status_code == 200
-    assert "Прогноз" in response.text
+    assert "📈 Прогноз" in response.text
     assert "Рекомендации по ценам" in response.text
+    assert 'href="/forecast"' in response.text
 
 
 def test_forecast_redirect_without_auth(web_client: TestClient) -> None:

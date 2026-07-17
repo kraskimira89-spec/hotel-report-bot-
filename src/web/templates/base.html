@@ -107,6 +107,15 @@
 
         nav a.logout { color: #999; margin-left: .5rem; }
 
+        nav a.nav-main {
+            font-weight: 500;
+        }
+
+        nav a.nav-main.active {
+            color: #fff;
+            border-bottom-color: var(--primary-2);
+        }
+
         main {
             max-width: 1180px;
             margin: 2rem auto;
@@ -456,14 +465,14 @@
     {% if page %}
     <nav>
         <span class="brand">🏨 Первый Апарт-отель</span>
-        <a href="/analytics" class="{% if page == 'analytics' %}active{% endif %}">Аналитика</a>
-        <a href="/forecast" class="{% if page == 'forecast' %}active{% endif %}">Прогноз</a>
-        <a href="/competitors" class="{% if page == 'competitors' %}active{% endif %}">Конкуренты</a>
-        <a href="/trends" class="{% if page == 'trends' %}active{% endif %}">Тренды</a>
-        <a href="/reports" class="{% if page == 'reports' %}active{% endif %}">Отчёты</a>
-        <a href="/snapshots" class="{% if page == 'snapshots' %}active{% endif %}">Цены</a>
-        <a href="/logs" class="{% if page == 'logs' %}active{% endif %}">Логи</a>
-        <a href="/settings" class="{% if page == 'settings' %}active{% endif %}">Настройки</a>
+        <a href="/analytics" class="nav-main {% if page == 'analytics' %}active{% endif %}">📊 Аналитика</a>
+        <a href="/forecast" class="nav-main {% if page == 'forecast' %}active{% endif %}">📈 Прогноз</a>
+        <a href="/competitors" class="nav-main {% if page == 'competitors' %}active{% endif %}">Конкуренты</a>
+        <a href="/trends" class="nav-main {% if page == 'trends' %}active{% endif %}">Тренды</a>
+        <a href="/reports" class="nav-main {% if page == 'reports' %}active{% endif %}">Отчёты</a>
+        <a href="/snapshots" class="nav-main {% if page == 'snapshots' %}active{% endif %}">Цены</a>
+        <a href="/logs" class="nav-main {% if page == 'logs' %}active{% endif %}">Логи</a>
+        <a href="/settings" class="nav-main {% if page == 'settings' %}active{% endif %}">Настройки</a>
         <a href="/logout" class="logout">Выход</a>
     </nav>
     {% endif %}
