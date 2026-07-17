@@ -11,11 +11,15 @@ import httpx
 from src.config import CompetitorConfig, SitePricesConfig, reload_config
 from src.data_sources.competitor_prices import (
     collect_competitor_prices,
+    parse_central_catalog,
+    parse_central_html,
     parse_gogol_html,
     parse_kuhterin_html,
     parse_petrovskie_html,
     parse_petrovskie_products,
     parse_static_competitor_html,
+    parse_xander_catalog,
+    parse_xander_html,
 )
 from src.data_sources.market_trends import fetch_competitor_prices
 
@@ -137,3 +141,60 @@ def test_fetch_competitor_prices_marks_widget_unavailable(monkeypatch) -> None:
     assert by_name["Апартаменты Петровские"].available is True
     assert by_name["Апартаменты Петровские"].price_from == 12000.0
     assert by_name["Bon Apart (Банапарт)"].available is False
+
+
+def test_parse_central_catalog_fixture() -> None:
+    html = _read_fixture("central_rooms.html")
+    products = parse_central_catalog(html)
+    assert len(products) == 6
+    by_price = sorted(p.price_from for p in products)
+    assert by_price[0] == 4400.0
+    assert by_price[-1] == 5800.0
+    assert parse_central_html(html) == 4400.0
+
+
+def test_parse_xander_catalog_fixture() -> None:
+    html = _read_fixture("xander_catalog.html")
+    products = parse_xander_catalog(html)
+    assert len(products) == 5
+    by_name = {p.name.replace("\n", " ").strip(): p.price_from for p in products}
+    assert by_name["Стандарт"] == 7600.0
+    assert by_name["Люкс"] == 11900.0
+    assert parse_xander_html(html) == 7600.0
+
+
+def test_catalog_fallback_for_central_when_widget_empty(monkeypatch) -> None:
+    site_cfg = SitePricesConfig(
+        user_agent="test-agent",
+        request_delay_min_sec=0,
+        request_delay_max_sec=0,
+    )
+    mock_client = MagicMock()
+    mock_client.get.return_value = httpx.Response(
+        200,
+        text=_read_fixture("central_rooms.html"),
+        request=httpx.Request("GET", "http://centraltomsk.ru/rooms/"),
+    )
+    central = CompetitorConfig(
+        name="Центральный",
+        type="direct",
+        url="http://centraltomsk.ru/",
+        catalog_url="http://centraltomsk.ru/rooms/",
+        parser="tl_widget",
+    )
+    monkeypatch.setattr(
+        "src.data_sources.competitor_prices.collect_widget_prices",
+        lambda *a, **k: {"Центральный": type("W", (), {
+            "price_from": None, "source": "dom", "screenshot_path": None,
+            "products": None, "error": "widget fail",
+        })()},
+    )
+    result = collect_competitor_prices(
+        [central], site_cfg, client=mock_client, enable_widgets=True
+    )
+    row = result["Центральный"]
+    assert row.price_from == 4400.0
+    assert row.price_kind == "public_from"
+    assert row.source == "static_html"
+    assert row.products is not None
+    assert len(row.products) == 6

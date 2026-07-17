@@ -23,6 +23,7 @@ from src.notifiers.max_bot import (
     DailySummaryData,
     RoomStatusSummary,
     aggregate_room_status,
+    build_daily_summary_sections,
     build_daily_summary_text,
     send_daily_summary,
     send_message,
@@ -131,6 +132,14 @@ def test_build_daily_summary_text_contains_sections() -> None:
     assert "1-КК 23" in text
     assert "1room" not in text
     assert "4 500" in text or "4500" in text
+
+
+def test_build_daily_summary_sections_split_by_blocks() -> None:
+    sections = build_daily_summary_sections(_sample_summary())
+    assert len(sections) == 3
+    assert "Загрузка" in sections[0]
+    assert "Новые брони" in sections[1]
+    assert "Цены «от»" in sections[2]
 
 
 def test_aggregate_room_status_from_units() -> None:
@@ -242,6 +251,8 @@ def test_send_daily_summary_writes_reports_log(
 
     assert result["status"] == "sent"
     assert result["dry_run"] is True
+    assert result["parts"] == 3
+    assert len(client.calls) == 3
     assert client.calls[0]["params"]["chat_id"] == 364502022
 
     conn = storage_db.get_connection()

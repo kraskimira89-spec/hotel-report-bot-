@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 10
 
 TRENDS_RETENTION_DAYS = 180
 INSIGHTS_RETENTION_DAYS = 90
@@ -116,6 +116,15 @@ TABLES: list[str] = [
         screenshot_path TEXT,
         available INTEGER NOT NULL DEFAULT 0,
         category TEXT NOT NULL DEFAULT '',
+        check_in TEXT,
+        check_out TEXT,
+        price_kind TEXT NOT NULL DEFAULT 'dynamic',
+        booking_engine TEXT,
+        is_breakfast_included INTEGER,
+        cancellation_policy TEXT,
+        captured_at TEXT,
+        raw_url TEXT,
+        error_message TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
@@ -165,6 +174,61 @@ TABLES: list[str] = [
         UNIQUE(message_id, mailbox)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS forecast_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        calculated_at TEXT NOT NULL,
+        run_date TEXT NOT NULL,
+        horizon_days INTEGER NOT NULL,
+        model_version TEXT NOT NULL DEFAULT 'v1',
+        data_quality TEXT NOT NULL DEFAULT 'unknown',
+        status TEXT NOT NULL DEFAULT 'completed',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(run_date, horizon_days, model_version)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS forecast_daily (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id INTEGER NOT NULL,
+        forecast_date TEXT NOT NULL,
+        room_type TEXT NOT NULL DEFAULT '',
+        scenario TEXT NOT NULL DEFAULT 'base',
+        occupancy_pct REAL,
+        adr REAL,
+        revpar REAL,
+        revenue REAL,
+        sold_unit_nights REAL,
+        available_unit_nights INTEGER,
+        lower_bound REAL,
+        upper_bound REAL,
+        confidence TEXT NOT NULL DEFAULT 'medium',
+        factors_json TEXT NOT NULL DEFAULT '{}',
+        actual_occupancy_pct REAL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (run_id) REFERENCES forecast_runs(id) ON DELETE CASCADE,
+        UNIQUE(run_id, forecast_date, room_type, scenario)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS price_recommendations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        forecast_id INTEGER,
+        room_type TEXT NOT NULL,
+        target_date TEXT NOT NULL,
+        current_price REAL,
+        recommended_price_min REAL,
+        recommended_price_max REAL,
+        recommendation_type TEXT NOT NULL DEFAULT 'hold',
+        reason TEXT NOT NULL DEFAULT '',
+        confidence TEXT NOT NULL DEFAULT 'medium',
+        status TEXT NOT NULL DEFAULT 'new',
+        decided_at TEXT,
+        horizon_days INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (forecast_id) REFERENCES forecast_daily(id) ON DELETE SET NULL
+    )
+    """,
 ]
 INDEXES: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_price_snapshots_date ON price_snapshots(snapshot_date)",
@@ -188,6 +252,11 @@ INDEXES: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_mail_messages_received ON mail_messages(received_at)",
     "CREATE INDEX IF NOT EXISTS idx_mail_messages_class ON mail_messages(mail_class)",
     "CREATE INDEX IF NOT EXISTS idx_mail_messages_for_reviews ON mail_messages(for_reviews)",
+    "CREATE INDEX IF NOT EXISTS idx_forecast_daily_run ON forecast_daily(run_id)",
+    "CREATE INDEX IF NOT EXISTS idx_forecast_daily_date ON forecast_daily(forecast_date)",
+    "CREATE INDEX IF NOT EXISTS idx_price_reco_status ON price_recommendations(status)",
+    "CREATE INDEX IF NOT EXISTS idx_price_reco_date ON price_recommendations(target_date)",
+    "CREATE INDEX IF NOT EXISTS idx_price_reco_horizon ON price_recommendations(horizon_days)",
 ]
 
 MIGRATIONS_V2: list[str] = [
@@ -281,6 +350,8 @@ MIGRATIONS_V6: list[str] = [
     "ON competitor_prices(competitor_name, category, date)",
 ]
 
+FORECAST_RETENTION_DAYS = 730
+
 MIGRATIONS_V7: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS mail_messages (
@@ -304,6 +375,87 @@ MIGRATIONS_V7: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_mail_messages_class ON mail_messages(mail_class)",
     "CREATE INDEX IF NOT EXISTS idx_mail_messages_for_reviews "
     "ON mail_messages(for_reviews)",
+]
+
+MIGRATIONS_V8: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS forecast_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        calculated_at TEXT NOT NULL,
+        run_date TEXT NOT NULL,
+        horizon_days INTEGER NOT NULL,
+        model_version TEXT NOT NULL DEFAULT 'v1',
+        data_quality TEXT NOT NULL DEFAULT 'unknown',
+        status TEXT NOT NULL DEFAULT 'completed',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(run_date, horizon_days, model_version)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS forecast_daily (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id INTEGER NOT NULL,
+        forecast_date TEXT NOT NULL,
+        room_type TEXT NOT NULL DEFAULT '',
+        scenario TEXT NOT NULL DEFAULT 'base',
+        occupancy_pct REAL,
+        adr REAL,
+        revpar REAL,
+        revenue REAL,
+        sold_unit_nights REAL,
+        available_unit_nights INTEGER,
+        lower_bound REAL,
+        upper_bound REAL,
+        confidence TEXT NOT NULL DEFAULT 'medium',
+        factors_json TEXT NOT NULL DEFAULT '{}',
+        actual_occupancy_pct REAL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (run_id) REFERENCES forecast_runs(id) ON DELETE CASCADE,
+        UNIQUE(run_id, forecast_date, room_type, scenario)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS price_recommendations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        forecast_id INTEGER,
+        room_type TEXT NOT NULL,
+        target_date TEXT NOT NULL,
+        current_price REAL,
+        recommended_price_min REAL,
+        recommended_price_max REAL,
+        recommendation_type TEXT NOT NULL DEFAULT 'hold',
+        reason TEXT NOT NULL DEFAULT '',
+        confidence TEXT NOT NULL DEFAULT 'medium',
+        status TEXT NOT NULL DEFAULT 'new',
+        decided_at TEXT,
+        horizon_days INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (forecast_id) REFERENCES forecast_daily(id) ON DELETE SET NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_forecast_daily_run ON forecast_daily(run_id)",
+    "CREATE INDEX IF NOT EXISTS idx_forecast_daily_date ON forecast_daily(forecast_date)",
+    "CREATE INDEX IF NOT EXISTS idx_price_reco_status ON price_recommendations(status)",
+    "CREATE INDEX IF NOT EXISTS idx_price_reco_date ON price_recommendations(target_date)",
+]
+
+MIGRATIONS_V9: list[str] = [
+    "ALTER TABLE price_recommendations ADD COLUMN horizon_days INTEGER",
+    "CREATE INDEX IF NOT EXISTS idx_price_reco_horizon ON price_recommendations(horizon_days)",
+]
+
+MIGRATIONS_V10: list[str] = [
+    "ALTER TABLE competitor_prices ADD COLUMN check_in TEXT",
+    "ALTER TABLE competitor_prices ADD COLUMN check_out TEXT",
+    "ALTER TABLE competitor_prices ADD COLUMN price_kind TEXT NOT NULL DEFAULT 'dynamic'",
+    "ALTER TABLE competitor_prices ADD COLUMN booking_engine TEXT",
+    "ALTER TABLE competitor_prices ADD COLUMN is_breakfast_included INTEGER",
+    "ALTER TABLE competitor_prices ADD COLUMN cancellation_policy TEXT",
+    "ALTER TABLE competitor_prices ADD COLUMN captured_at TEXT",
+    "ALTER TABLE competitor_prices ADD COLUMN raw_url TEXT",
+    "ALTER TABLE competitor_prices ADD COLUMN error_message TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_competitor_prices_kind "
+    "ON competitor_prices(competitor_name, price_kind, date)",
 ]
 
 
@@ -410,6 +562,15 @@ class CompetitorPriceRecord(BaseModel):
     screenshot_path: str | None = None
     available: bool = False
     category: str = ""
+    check_in: date | None = None
+    check_out: date | None = None
+    price_kind: str = "dynamic"  # dynamic | public_from | cached
+    booking_engine: str | None = None
+    is_breakfast_included: bool | None = None
+    cancellation_policy: str | None = None
+    captured_at: datetime | None = None
+    raw_url: str | None = None
+    error_message: str | None = None
     id: int | None = None
 
 
@@ -457,6 +618,57 @@ class MailMessageRecord(BaseModel):
     parsed_json: dict = {}
     headers_hash: str = ""
     created_at: datetime | None = None
+    id: int | None = None
+
+
+class ForecastRunRecord(BaseModel):
+    """Запуск расчёта прогноза."""
+
+    calculated_at: datetime
+    run_date: date | None = None
+    horizon_days: int
+    model_version: str = "v1"
+    data_quality: str = "unknown"
+    status: str = "completed"
+    id: int | None = None
+
+
+class ForecastDailyRecord(BaseModel):
+    """Прогноз на дату и тип номера."""
+
+    run_id: int
+    forecast_date: date
+    room_type: str = ""
+    scenario: str = "base"
+    occupancy_pct: float | None = None
+    adr: float | None = None
+    revpar: float | None = None
+    revenue: float | None = None
+    sold_unit_nights: float | None = None
+    available_unit_nights: int | None = None
+    lower_bound: float | None = None
+    upper_bound: float | None = None
+    confidence: str = "medium"
+    factors_json: dict = {}
+    actual_occupancy_pct: float | None = None
+    id: int | None = None
+
+
+class PriceRecommendationRecord(BaseModel):
+    """Рекомендация по цене."""
+
+    room_type: str
+    target_date: date
+    current_price: float | None = None
+    recommended_price_min: float | None = None
+    recommended_price_max: float | None = None
+    recommendation_type: str = "hold"
+    reason: str = ""
+    confidence: str = "medium"
+    status: str = "new"
+    decided_at: datetime | None = None
+    forecast_id: int | None = None
+    horizon_days: int | None = None
     id: int | None = None
 
 

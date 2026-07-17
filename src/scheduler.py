@@ -245,6 +245,46 @@ def job_analytics_insights(
     )
 
 
+def job_metrics_daily(
+    run_date: date | None = None,
+    report_date: date | None = None,
+) -> None:
+    """Сохранить metrics_daily из TravelLine (для прогноза)."""
+    from src.forecast.metrics_history import collect_metrics_for_date
+
+    run_date = run_date or _msk_now().date()
+    report_date = report_date or run_date
+    logger.info("Задача metrics_daily: report_date=%s", report_date)
+    _run_job(
+        "metrics_daily",
+        run_date,
+        report_date,
+        lambda: collect_metrics_for_date(report_date),
+    )
+
+
+def job_forecast_refresh(
+    run_date: date | None = None,
+    report_date: date | None = None,
+) -> None:
+    """Ежедневный пересчёт прогнозов после синхронизации данных."""
+    from src.forecast.service import run_forecast_refresh
+
+    run_date = run_date or _msk_now().date()
+    report_date = report_date or run_date
+    cfg = get_config()
+    if not cfg.forecast.enabled:
+        logger.info("Прогноз отключён — job_forecast_refresh пропущен")
+        return
+    logger.info("Задача forecast_refresh: run_date=%s", run_date)
+    _run_job(
+        "forecast_refresh",
+        run_date,
+        report_date,
+        lambda: run_forecast_refresh(),
+    )
+
+
 T = TypeVar("T")
 
 
@@ -310,6 +350,8 @@ def create_scheduler() -> BackgroundScheduler:
     competitors_kw = _parse_cron(cfg.scheduler.competitor_prices_cron)
     mail_cron = getattr(cfg.scheduler, "mail_inbox_cron", "45 9 * * *")
     mail_kw = _parse_cron(mail_cron)
+    forecast_cron = getattr(cfg.forecast, "refresh_cron", "30 9 * * *")
+    forecast_kw = _parse_cron(forecast_cron)
 
     scheduler.add_job(
         job_price_snapshot,
@@ -354,6 +396,20 @@ def create_scheduler() -> BackgroundScheduler:
             CronTrigger(timezone=tz, **mail_kw),
             id="mail_inbox",
             name="Входящая почта",
+        )
+    if getattr(cfg.forecast, "enabled", True):
+        metrics_kw = _parse_cron("25 9 * * *")
+        scheduler.add_job(
+            job_metrics_daily,
+            CronTrigger(timezone=tz, **metrics_kw),
+            id="metrics_daily",
+            name="Метрики TL",
+        )
+        scheduler.add_job(
+            job_forecast_refresh,
+            CronTrigger(timezone=tz, **forecast_kw),
+            id="forecast_refresh",
+            name="Прогноз",
         )
 
     scheduler.add_listener(_on_job_finished, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)

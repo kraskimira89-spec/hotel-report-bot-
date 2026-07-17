@@ -11,6 +11,7 @@ import threading
 import uvicorn
 
 from src.config import get_config
+from src.config_secrets import ensure_production_secret_key
 from src.scheduler import start_scheduler
 from src.utils.logging_setup import setup_logging
 
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 def run_web() -> None:
     """Запустить FastAPI через uvicorn."""
+    ensure_production_secret_key()
     cfg = get_config()
     uvicorn.run(
         "src.web.app:app",
@@ -59,6 +61,7 @@ def main() -> None:
         sys.exit(0)
 
     if args.all:
+        ensure_production_secret_key()
         sched = start_scheduler()
         logger.info("Режим --all: планировщик + веб")
         try:

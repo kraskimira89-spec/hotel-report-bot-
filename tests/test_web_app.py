@@ -148,6 +148,7 @@ def test_snapshots_and_metrics_pages(web_client: TestClient) -> None:
     assert web_client.get("/competitors").status_code == 200
     assert web_client.get("/trends").status_code == 200
     assert web_client.get("/analytics").status_code == 200
+    assert web_client.get("/forecast").status_code == 200
     assert web_client.get("/logs").status_code == 200
     assert web_client.get("/reports").status_code == 200
     assert web_client.get("/dashboard").status_code == 200
@@ -181,6 +182,54 @@ def test_trends_redirect_without_auth(web_client: TestClient) -> None:
     response = web_client.get("/trends", follow_redirects=False)
     assert response.status_code == 302
     assert response.headers["location"] == "/login"
+
+
+def test_forecast_page_content(web_client: TestClient) -> None:
+    _login(web_client)
+    response = web_client.get("/forecast?horizon_days=7&scenario=base")
+    assert response.status_code == 200
+    assert "Прогноз" in response.text
+    assert "Рекомендации по ценам" in response.text
+
+
+def test_forecast_redirect_without_auth(web_client: TestClient) -> None:
+    response = web_client.get("/forecast", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/login"
+
+
+def test_forecast_reco_defer_action(web_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import timedelta
+
+    from src.forecast.service import run_forecast_refresh
+    from src.storage.db import get_price_recommendations, save_metrics_daily
+    from src.storage.models import MetricsDailyRecord
+
+    _login(web_client)
+    start = date.today() - timedelta(days=30)
+    for i in range(30):
+        save_metrics_daily(
+            MetricsDailyRecord(
+                report_date=start + timedelta(days=i),
+                occupancy_pct=55.0,
+                adr=5000.0,
+                revpar=2750.0,
+                revenue=100000.0,
+            )
+        )
+    run_forecast_refresh(horizons=[7])
+    recs = get_price_recommendations(status="new", horizon_days=7)
+    if not recs:
+        pytest.skip("нет рекомендаций")
+    rec_id = recs[0].id
+    response = web_client.post(
+        f"/forecast/recommendation/{rec_id}/defer",
+        data={"horizon_days": "7", "scenario": "base", "room_type": ""},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    updated = get_price_recommendations(status="deferred", horizon_days=7)
+    assert any(r.id == rec_id for r in updated)
 
 
 def test_trends_page_filters(web_client: TestClient) -> None:

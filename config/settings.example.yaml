@@ -36,6 +36,26 @@ analytics:
   refresh_cron: 15 9 * * *
   openai_model: gpt-4o-mini
   openai_base_url: https://api.openai.com/v1
+forecast:
+  enabled: true
+  horizons:
+  - 7
+  - 14
+  - 30
+  - 180
+  min_history_days: 365
+  max_mae_occupancy: 15
+  max_mape_revenue: 20
+  max_price_change_pct: 15
+  min_price: 2000
+  max_price: 25000
+  use_competitors: true
+  refresh_cron: 30 9 * * *
+  manual_events:
+  - name: День города Томска
+    date_from: "2026-08-07"
+    date_to: "2026-08-07"
+    impact_pct: 8
 deploy:
   enabled: false
   after_jobs: true
@@ -51,7 +71,7 @@ deploy:
   - weekly_trends
 storage:
   db_path: data/hotel_report.db
-  retention_days: 90
+  retention_days: 730
 traffic_light:
   occupancy_green_min: 70
   occupancy_yellow_min: 50
@@ -124,6 +144,8 @@ competitors:
 - name: Центральный
   type: direct
   url: http://centraltomsk.ru/
+  catalog_url: http://centraltomsk.ru/rooms/
+  booking_url: http://centraltomsk.ru/booking/
   parser: tl_widget
 - name: Гоголь
   type: direct
@@ -134,6 +156,7 @@ competitors:
 - name: Xander Hotel
   type: indirect
   url: https://xanderhotel.ru/ru/
+  catalog_url: https://xanderhotel.ru/ru/nomera-i-tseny.html
   parser: wubook_widget
 - name: Кухтерин
   type: indirect

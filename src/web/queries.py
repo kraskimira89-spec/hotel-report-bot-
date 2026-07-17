@@ -20,6 +20,7 @@ from src.storage.db import (
     get_competitor_prices_latest,
     get_guest_stats,
     get_insights_records,
+    get_metrics_daily,
     get_price_snapshots_by_date,
     get_reports_log,
     get_trend_idea_of_week,
@@ -323,10 +324,19 @@ def _our_latest_prices() -> dict[str, float]:
     return {s.category: s.price for s in snapshots}
 
 
-def _price_status(record_date: date | None, available: bool) -> tuple[str, str]:
+def _price_status(
+    record_date: date | None,
+    available: bool,
+    price_kind: str | None = None,
+) -> tuple[str, str]:
     """Статус сбора: emoji + label."""
     if not available or record_date is None:
         return "🔴", "недоступно"
+    kind = price_kind or "dynamic"
+    if kind == "cached":
+        return "🟡", "цена из кэша"
+    if kind == "public_from":
+        return "🟠", "базовая цена «от», не по дате"
     if record_date >= date.today():
         return "🟢", "собрано"
     return "🟡", "из кэша"
@@ -346,11 +356,23 @@ def get_competitor_latest() -> list[dict[str, Any]]:
         price = rec.price_from if rec else None
         available = rec.available if rec else False
         rec_date = rec.date if rec else None
-        emoji, status_label = _price_status(rec_date, available and price is not None)
+        price_kind = rec.price_kind if rec else None
+        emoji, status_label = _price_status(
+            rec_date, available and price is not None, price_kind
+        )
 
         delta_pct: float | None = None
+        market_position: str | None = None
         if price is not None and our_price is not None and our_price > 0:
             delta_pct = round((price - our_price) / our_price * 100, 1)
+            our_vs_comp = round((our_price / price - 1) * 100, 1)
+            threshold = 10.0
+            if our_vs_comp > threshold:
+                market_position = "above"
+            elif our_vs_comp < -threshold:
+                market_position = "below"
+            else:
+                market_position = "in_market"
 
         rows.append(
             {
@@ -360,14 +382,18 @@ def get_competitor_latest() -> list[dict[str, Any]]:
                 "parser": comp.parser,
                 "url": comp.url,
                 "price_from": price,
+                "price_kind": price_kind,
+                "booking_engine": rec.booking_engine if rec else None,
                 "our_category_slug": mapped_slug,
                 "our_price": our_price,
                 "delta_pct": delta_pct,
+                "market_position": market_position,
                 "updated_at": format_date_ru(rec_date) if rec_date else None,
                 "status_emoji": emoji,
                 "status_label": status_label,
                 "source": rec.source if rec else comp.parser,
                 "screenshot_path": rec.screenshot_path if rec else None,
+                "raw_url": rec.raw_url if rec else None,
                 "available": available and price is not None,
             }
         )
@@ -383,10 +409,50 @@ def get_competitor_history(name: str, days: int = 90) -> list[dict[str, Any]]:
             "price_from": r.price_from,
             "available": r.available,
             "source": r.source,
+            "price_kind": r.price_kind,
             "screenshot_path": r.screenshot_path,
         }
         for r in records
     ]
+
+
+def _demand_signal(history: list[dict[str, Any]]) -> str:
+    """Индикатор спроса по недельной динамике цены (Xander / премиум)."""
+    prices = [h["price_from"] for h in history if h.get("price_from")]
+    if len(prices) < 2:
+        return "нет данных"
+    latest = prices[0]
+    week_ago = prices[min(7, len(prices) - 1)]
+    if week_ago and latest >= week_ago * 1.2:
+        return "высокий"
+    return "обычный"
+
+
+def _build_featured_competitor(
+    name: str,
+    overview: list[dict[str, Any]],
+    details: dict[str, dict[str, Any]],
+    *,
+    role: str,
+) -> dict[str, Any] | None:
+    row = next((r for r in overview if r["name"] == name), None)
+    if row is None:
+        return None
+    det = details.get(name, {})
+    our_price = row.get("our_price")
+    comp_price = row.get("price_from")
+    premium_index: float | None = None
+    if comp_price and our_price and our_price > 0:
+        premium_index = round(float(comp_price) / float(our_price), 2)
+    history_30 = get_competitor_history(name, days=30)
+    return {
+        **row,
+        "role": role,
+        "products": det.get("products", []),
+        "history_30": history_30,
+        "premium_index": premium_index,
+        "demand_signal": _demand_signal(history_30) if role == "premium" else None,
+    }
 
 
 def _market_vs_block(rows: list[dict[str, Any]], comp_type: str) -> dict[str, Any]:
@@ -470,6 +536,14 @@ def fetch_competitors_bundle() -> dict[str, Any]:
         "overview": overview,
         "details": details,
         "cards": cards,
+        "featured": {
+            "central": _build_featured_competitor(
+                "Центральный", overview, details, role="direct"
+            ),
+            "xander": _build_featured_competitor(
+                "Xander Hotel", overview, details, role="premium"
+            ),
+        },
         "market_direct": _market_vs_block(overview, "direct"),
         "market_indirect": _market_vs_block(overview, "indirect"),
         "category_map": cfg.competitor_category_map,
@@ -718,3 +792,201 @@ def fetch_analytics_bundle(
         },
         "count": len(cards),
     }
+
+
+FORECAST_HORIZON_OPTIONS = [
+    {"days": 7, "label": "7 дней"},
+    {"days": 14, "label": "14 дней"},
+    {"days": 30, "label": "Месяц"},
+    {"days": 180, "label": "Полгода"},
+]
+
+_SCENARIO_LABELS = {
+    "conservative": "Консервативный",
+    "base": "Базовый",
+    "optimistic": "Оптимистичный",
+}
+
+_CONFIDENCE_LABELS = {
+    "high": "Высокий",
+    "medium": "Средний",
+    "low": "Низкий",
+}
+
+_RECO_TYPE_LABELS = {
+    "increase": "Повысить",
+    "hold": "Оставить",
+    "decrease": "Снизить",
+    "restrict_discounts": "Ограничить скидки",
+    "manual_review": "Ручная проверка",
+}
+
+
+def _room_type_label(slug: str) -> str:
+    if not slug:
+        return "Весь объект"
+    cfg = get_config()
+    return cfg.category_slug_map.get(slug, slug)
+
+
+def fetch_forecast_bundle(
+    horizon_days: int = 7,
+    scenario: str = "base",
+    room_type: str | None = None,
+) -> dict[str, Any]:
+    """Данные для страницы «Прогноз»."""
+    from src.forecast.quality import calc_forecast_errors, should_warn_quality
+    from src.forecast.service import run_forecast_refresh
+    from src.storage.db import (
+        get_competitor_prices_latest,
+        get_forecast_daily,
+        get_latest_forecast_run,
+        get_price_recommendations,
+    )
+
+    cfg = get_config()
+    valid_horizons = {o["days"] for o in FORECAST_HORIZON_OPTIONS}
+    horizon = horizon_days if horizon_days in valid_horizons else 7
+    if scenario not in _SCENARIO_LABELS:
+        scenario = "base"
+
+    run = get_latest_forecast_run(horizon)
+    if run is None and cfg.forecast.enabled:
+        run_forecast_refresh(horizons=[horizon])
+        run = get_latest_forecast_run(horizon)
+
+    rt_filter = room_type if room_type else ""
+    series: list[dict[str, Any]] = []
+    kpi = {
+        "occupancy_pct": None,
+        "adr": None,
+        "revpar": None,
+        "revenue": None,
+        "confidence": "medium",
+        "data_quality": run.data_quality if run else "unknown",
+    }
+    factors_sample: dict = {}
+    if run and run.id:
+        rows = get_forecast_daily(run.id, scenario=scenario, room_type=rt_filter)
+        if rows:
+            occ_vals = [r.occupancy_pct for r in rows if r.occupancy_pct is not None]
+            rev_vals = [r.revenue for r in rows if r.revenue is not None]
+            adr_vals = [r.adr for r in rows if r.adr is not None]
+            revpar_vals = [r.revpar for r in rows if r.revpar is not None]
+            kpi["occupancy_pct"] = round(sum(occ_vals) / len(occ_vals), 1) if occ_vals else None
+            kpi["revenue"] = round(sum(rev_vals), 0) if rev_vals else None
+            kpi["adr"] = round(sum(adr_vals) / len(adr_vals), 0) if adr_vals else None
+            kpi["revpar"] = round(sum(revpar_vals) / len(revpar_vals), 0) if revpar_vals else None
+            confidences = [r.confidence for r in rows]
+            if confidences:
+                kpi["confidence"] = min(
+                    confidences,
+                    key=lambda c: {"high": 3, "medium": 2, "low": 1}.get(c, 2),
+                )
+            factors_sample = rows[0].factors_json or {}
+        for r in rows:
+            series.append(
+                {
+                    "date": r.forecast_date.isoformat(),
+                    "date_label": r.forecast_date.strftime("%d.%m"),
+                    "occupancy": r.occupancy_pct,
+                    "lower": r.lower_bound,
+                    "upper": r.upper_bound,
+                    "actual": r.actual_occupancy_pct,
+                    "booked_hint": r.sold_unit_nights,
+                }
+            )
+
+    recs_raw = get_price_recommendations(
+        status=None,
+        room_type=room_type or None,
+        horizon_days=horizon,
+        limit=100,
+    )
+    recs = []
+    for r in recs_raw:
+        if r.target_date < date.today():
+            continue
+        recs.append(
+            {
+                "id": r.id,
+                "room_type": r.room_type,
+                "room_label": _room_type_label(r.room_type),
+                "target_date": r.target_date.isoformat(),
+                "current_price": r.current_price,
+                "rec_min": r.recommended_price_min,
+                "rec_max": r.recommended_price_max,
+                "type": r.recommendation_type,
+                "type_label": _RECO_TYPE_LABELS.get(r.recommendation_type, r.recommendation_type),
+                "reason": r.reason,
+                "confidence": r.confidence,
+                "confidence_label": _CONFIDENCE_LABELS.get(r.confidence, r.confidence),
+                "status": r.status,
+            }
+        )
+
+    errors_30 = calc_forecast_errors(30)
+    errors_90 = calc_forecast_errors(90)
+    quality_warn = should_warn_quality(
+        errors_30, cfg.forecast.max_mae_occupancy, cfg.forecast.max_mape_revenue
+    )
+
+    competitors = get_competitor_prices_latest()
+    comp_median = None
+    comp_prices = [c.price_from for c in competitors if c.price_from and c.price_from > 0]
+    if comp_prices:
+        comp_median = round(sorted(comp_prices)[len(comp_prices) // 2], 0)
+
+    room_types = [{"slug": "", "label": "Весь объект"}]
+    for slug in cfg.site_prices.category_urls or []:
+        room_types.append({"slug": slug, "label": _room_type_label(slug)})
+
+    bundle = {
+        "horizon_options": FORECAST_HORIZON_OPTIONS,
+        "scenario_options": [{"id": k, "label": v} for k, v in _SCENARIO_LABELS.items()],
+        "room_types": room_types,
+        "filters": {
+            "horizon_days": horizon,
+            "scenario": scenario,
+            "room_type": room_type or "",
+        },
+        "run": {
+            "calculated_at": run.calculated_at.isoformat() if run else None,
+            "data_quality": run.data_quality if run else "unknown",
+            "horizon_days": run.horizon_days if run else horizon,
+        },
+        "kpi": kpi,
+        "confidence_label": _CONFIDENCE_LABELS.get(kpi["confidence"], kpi["confidence"]),
+        "series": series,
+        "recommendations": recs[:50],
+        "factors": factors_sample,
+        "quality": {
+            "warn": quality_warn,
+            "errors_30": errors_30,
+            "errors_90": errors_90,
+        },
+        "history_days": len(
+            {
+                m.report_date
+                for m in get_metrics_daily(
+                    date.today() - timedelta(days=cfg.storage.retention_days),
+                    date.today(),
+                )
+            }
+        ),
+        "competitor_median": comp_median,
+        "competitor_count": len(comp_prices),
+    }
+
+    from src.analytics.forecast_insights import (
+        forecast_period_label,
+        generate_forecast_commentary,
+    )
+
+    commentary = generate_forecast_commentary(bundle)
+    bundle["commentary"] = {
+        "text": commentary.get("text", ""),
+        "source": commentary.get("source", "rules"),
+        "period_label": forecast_period_label(bundle),
+    }
+    return bundle

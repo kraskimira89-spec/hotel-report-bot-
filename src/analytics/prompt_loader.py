@@ -8,12 +8,13 @@ from typing import Literal
 
 logger = logging.getLogger(__name__)
 
-PromptTask = Literal["numeric", "reviews", "recommendations"]
+PromptTask = Literal["numeric", "reviews", "recommendations", "forecast"]
 
 _TASK_FILES: dict[PromptTask, str] = {
     "numeric": "01_numeric_analytics.md",
     "reviews": "02_reviews_classification.md",
     "recommendations": "03_recommendations.md",
+    "forecast": "04_forecast.md",
 }
 
 _SYSTEM_FILE = "00_system_base.md"
@@ -31,6 +32,12 @@ _FALLBACK_SYSTEM = (
 _FALLBACK_NUMERIC = (
     "Ты аналитик апарт-отеля 1apart (Томск, 44 кв.). "
     "Пиши ТОЛЬКО по-русски. TravelLine — основной источник, Sheets — резерв."
+)
+
+_FALLBACK_FORECAST = (
+    "Ты аналитик прогноза апарт-отеля 1apart. "
+    "Объясняй прогноз загрузки и рекомендации по ценам только по переданным данным. "
+    "На горизонте 6 месяцев — диапазон и сценарии, не точная цифра."
 )
 
 
@@ -67,10 +74,22 @@ def build_llm_prompt_parts(
     """Вернуть (system, task_instructions) = 00_system_base + задачный файл."""
     system = load_prompt_file(_SYSTEM_FILE, fallback=_FALLBACK_SYSTEM)
     task_file = _TASK_FILES[task]
-    task_fb = _FALLBACK_NUMERIC if task == "numeric" else ""
+    task_fb = ""
+    if task == "numeric":
+        task_fb = _FALLBACK_NUMERIC
+    elif task == "forecast":
+        task_fb = _FALLBACK_FORECAST
     task_text = load_prompt_file(task_file, fallback=task_fb)
     if task == "numeric":
         # Рекомендации в той же карточке insights.
+        rec = load_prompt_file(
+            _TASK_FILES["recommendations"],
+            fallback="",
+        )
+        if rec:
+            task_text = f"{task_text}\n\n---\n{rec}"
+    elif task == "forecast":
+        # Рекомендации по ценам — в том же контексте прогноза.
         rec = load_prompt_file(
             _TASK_FILES["recommendations"],
             fallback="",

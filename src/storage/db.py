@@ -17,18 +17,25 @@ from src.storage.models import (
     MIGRATIONS_V5,
     MIGRATIONS_V6,
     MIGRATIONS_V7,
+    MIGRATIONS_V8,
+    MIGRATIONS_V9,
+    MIGRATIONS_V10,
+    FORECAST_RETENTION_DAYS,
     SCHEMA_VERSION,
     TABLES,
     TRENDS_RETENTION_DAYS,
     BookingDailyRecord,
     CompetitorPriceRecord,
     ErrorLogRecord,
+    ForecastDailyRecord,
+    ForecastRunRecord,
     GuestRecord,
     InsightRecord,
     MailMessageRecord,
     MetricsDailyRecord,
     PeriodComparison,
     PricePeriodComparison,
+    PriceRecommendationRecord,
     PriceSnapshotRecord,
     ReportLogRecord,
     TrendRecord,
@@ -144,6 +151,24 @@ def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
                 conn.execute(ddl)
             except sqlite3.OperationalError as exc:
                 logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 8:
+        for ddl in MIGRATIONS_V8:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 9:
+        for ddl in MIGRATIONS_V9:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 10:
+        for ddl in MIGRATIONS_V10:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
     conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
 
 
@@ -158,8 +183,9 @@ def init_db() -> None:
         if row is None:
             conn.execute(
                 "INSERT INTO schema_version (version) VALUES (?)",
-                (SCHEMA_VERSION,),
+                (0,),
             )
+            _apply_migrations(conn, 0)
         else:
             _apply_migrations(conn, row["version"])
     logger.info("БД инициализирована: %s", get_db_path())
@@ -752,7 +778,9 @@ def get_errors_log(
 def cleanup_old_records() -> int:
     """Удалить записи старше retention_days из config."""
     cfg = get_config()
-    cutoff = (datetime.now() - timedelta(days=cfg.storage.retention_days)).strftime(
+    retention = cfg.storage.retention_days
+    cutoff = (datetime.now() - timedelta(days=retention)).strftime("%Y-%m-%d")
+    forecast_cutoff = (datetime.now() - timedelta(days=FORECAST_RETENTION_DAYS)).strftime(
         "%Y-%m-%d"
     )
     deleted = 0
@@ -762,6 +790,7 @@ def cleanup_old_records() -> int:
         ("bookings_daily", "created_date"),
         ("reports_log", "report_date"),
         ("errors_log", "error_date"),
+        ("competitor_prices", "date"),
     )
     with db_session() as conn:
         for table, date_col in retention_tables:
@@ -770,6 +799,16 @@ def cleanup_old_records() -> int:
                 (cutoff,),
             )
             deleted += cur.rowcount
+        cur = conn.execute(
+            "DELETE FROM forecast_daily WHERE forecast_date < ?",
+            (forecast_cutoff,),
+        )
+        deleted += cur.rowcount
+        cur = conn.execute(
+            "DELETE FROM forecast_runs WHERE run_date < ?",
+            (forecast_cutoff,),
+        )
+        deleted += cur.rowcount
         deleted += prune_old_trends(conn=conn)
     logger.info("Удалено %s записей старше %s", deleted, cutoff)
     return deleted
@@ -787,13 +826,24 @@ def save_competitor_prices(
     sql = """
         INSERT INTO competitor_prices (
             competitor_name, date, price_from, currency, source,
-            screenshot_path, available, category
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            screenshot_path, available, category,
+            check_in, check_out, price_kind, booking_engine,
+            is_breakfast_included, cancellation_policy, captured_at,
+            raw_url, error_message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
     def _save(connection: sqlite3.Connection) -> int:
         count = 0
         for item in items:
+            breakfast: int | None = None
+            if item.is_breakfast_included is not None:
+                breakfast = int(item.is_breakfast_included)
+            captured = (
+                item.captured_at.isoformat(timespec="seconds")
+                if item.captured_at is not None
+                else None
+            )
             connection.execute(
                 sql,
                 (
@@ -805,6 +855,15 @@ def save_competitor_prices(
                     item.screenshot_path,
                     int(item.available),
                     item.category or "",
+                    _date_str(item.check_in) if item.check_in else None,
+                    _date_str(item.check_out) if item.check_out else None,
+                    item.price_kind or "dynamic",
+                    item.booking_engine,
+                    breakfast,
+                    item.cancellation_policy,
+                    captured,
+                    item.raw_url,
+                    item.error_message,
                 ),
             )
             count += 1
@@ -819,6 +878,18 @@ def save_competitor_prices(
 
 def _row_to_competitor_price(row: sqlite3.Row) -> CompetitorPriceRecord:
     keys = row.keys()
+    captured_at = None
+    if "captured_at" in keys and row["captured_at"]:
+        captured_at = datetime.fromisoformat(row["captured_at"])
+    breakfast: bool | None = None
+    if "is_breakfast_included" in keys and row["is_breakfast_included"] is not None:
+        breakfast = bool(row["is_breakfast_included"])
+    check_in = None
+    if "check_in" in keys and row["check_in"]:
+        check_in = _parse_date(row["check_in"])
+    check_out = None
+    if "check_out" in keys and row["check_out"]:
+        check_out = _parse_date(row["check_out"])
     return CompetitorPriceRecord(
         id=row["id"],
         competitor_name=row["competitor_name"],
@@ -829,11 +900,26 @@ def _row_to_competitor_price(row: sqlite3.Row) -> CompetitorPriceRecord:
         screenshot_path=row["screenshot_path"],
         available=bool(row["available"]),
         category=(row["category"] if "category" in keys else "") or "",
+        check_in=check_in,
+        check_out=check_out,
+        price_kind=(row["price_kind"] if "price_kind" in keys else "dynamic")
+        or "dynamic",
+        booking_engine=row["booking_engine"] if "booking_engine" in keys else None,
+        is_breakfast_included=breakfast,
+        cancellation_policy=row["cancellation_policy"]
+        if "cancellation_policy" in keys
+        else None,
+        captured_at=captured_at,
+        raw_url=row["raw_url"] if "raw_url" in keys else None,
+        error_message=row["error_message"] if "error_message" in keys else None,
     )
 
 
 def get_competitor_prices_latest() -> list[CompetitorPriceRecord]:
-    """Последний агрегат («цена от») по каждому конкуренту."""
+    """Последний агрегат («цена от») по каждому конкуренту.
+
+    Приоритет: dynamic > public_from > cached.
+    """
     sql = """
         SELECT cp.* FROM competitor_prices cp
         WHERE COALESCE(cp.category, '') = ''
@@ -841,7 +927,13 @@ def get_competitor_prices_latest() -> list[CompetitorPriceRecord]:
             SELECT c2.id FROM competitor_prices c2
             WHERE c2.competitor_name = cp.competitor_name
               AND COALESCE(c2.category, '') = ''
-            ORDER BY c2.date DESC, c2.id DESC
+            ORDER BY
+              CASE COALESCE(c2.price_kind, 'dynamic')
+                WHEN 'dynamic' THEN 0
+                WHEN 'public_from' THEN 1
+                ELSE 2
+              END,
+              c2.date DESC, c2.id DESC
             LIMIT 1
           )
         ORDER BY cp.competitor_name
@@ -1227,3 +1319,334 @@ def get_mail_messages(
             )
         )
     return out
+
+
+def _row_to_forecast_run(row: sqlite3.Row) -> ForecastRunRecord:
+    calc = datetime.fromisoformat(str(row["calculated_at"]))
+    run_d = _parse_date(row["run_date"]) if row["run_date"] else calc.date()
+    return ForecastRunRecord(
+        id=row["id"],
+        calculated_at=calc,
+        run_date=run_d,
+        horizon_days=row["horizon_days"],
+        model_version=row["model_version"] or "v1",
+        data_quality=row["data_quality"] or "unknown",
+        status=row["status"] or "completed",
+    )
+
+
+def upsert_forecast_run(record: ForecastRunRecord) -> ForecastRunRecord:
+    """Идемпотентный запуск прогноза за дату и горизонт."""
+    calc_at = record.calculated_at.isoformat()
+    run_date = _date_str(record.run_date or record.calculated_at.date())
+    sql = """
+        INSERT INTO forecast_runs (
+            calculated_at, run_date, horizon_days, model_version, data_quality, status
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(run_date, horizon_days, model_version) DO UPDATE SET
+            calculated_at = excluded.calculated_at,
+            data_quality = excluded.data_quality,
+            status = excluded.status
+    """
+    with db_session() as conn:
+        conn.execute(
+            sql,
+            (
+                calc_at,
+                run_date,
+                record.horizon_days,
+                record.model_version,
+                record.data_quality,
+                record.status,
+            ),
+        )
+        row = conn.execute(
+            """
+            SELECT * FROM forecast_runs
+            WHERE run_date = ? AND horizon_days = ? AND model_version = ?
+            """,
+            (run_date, record.horizon_days, record.model_version),
+        ).fetchone()
+    assert row is not None
+    return _row_to_forecast_run(row)
+
+
+def delete_forecast_daily_for_run(run_id: int) -> None:
+    with db_session() as conn:
+        conn.execute("DELETE FROM forecast_daily WHERE run_id = ?", (run_id,))
+
+
+def save_forecast_daily_batch(records: list[ForecastDailyRecord]) -> int:
+    """Сохранить строки прогноза."""
+    import json
+
+    if not records:
+        return 0
+    sql = """
+        INSERT INTO forecast_daily (
+            run_id, forecast_date, room_type, scenario, occupancy_pct, adr, revpar,
+            revenue, sold_unit_nights, available_unit_nights, lower_bound, upper_bound,
+            confidence, factors_json, actual_occupancy_pct
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(run_id, forecast_date, room_type, scenario) DO UPDATE SET
+            occupancy_pct = excluded.occupancy_pct,
+            adr = excluded.adr,
+            revpar = excluded.revpar,
+            revenue = excluded.revenue,
+            sold_unit_nights = excluded.sold_unit_nights,
+            available_unit_nights = excluded.available_unit_nights,
+            lower_bound = excluded.lower_bound,
+            upper_bound = excluded.upper_bound,
+            confidence = excluded.confidence,
+            factors_json = excluded.factors_json,
+            actual_occupancy_pct = excluded.actual_occupancy_pct
+    """
+    count = 0
+    with db_session() as conn:
+        for item in records:
+            conn.execute(
+                sql,
+                (
+                    item.run_id,
+                    _date_str(item.forecast_date),
+                    item.room_type,
+                    item.scenario,
+                    item.occupancy_pct,
+                    item.adr,
+                    item.revpar,
+                    item.revenue,
+                    item.sold_unit_nights,
+                    item.available_unit_nights,
+                    item.lower_bound,
+                    item.upper_bound,
+                    item.confidence,
+                    json.dumps(item.factors_json, ensure_ascii=False),
+                    item.actual_occupancy_pct,
+                ),
+            )
+            count += 1
+    return count
+
+
+def get_latest_forecast_run(horizon_days: int) -> ForecastRunRecord | None:
+    with db_session() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM forecast_runs
+            WHERE horizon_days = ?
+            ORDER BY calculated_at DESC
+            LIMIT 1
+            """,
+            (horizon_days,),
+        ).fetchone()
+    return _row_to_forecast_run(row) if row else None
+
+
+def get_forecast_daily(
+    run_id: int,
+    scenario: str = "base",
+    room_type: str | None = None,
+) -> list[ForecastDailyRecord]:
+    import json
+
+    sql = """
+        SELECT * FROM forecast_daily
+        WHERE run_id = ? AND scenario = ?
+    """
+    params: list[object] = [run_id, scenario]
+    if room_type is not None:
+        sql += " AND room_type = ?"
+        params.append(room_type)
+    sql += " ORDER BY forecast_date ASC, room_type ASC"
+    with db_session() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    out: list[ForecastDailyRecord] = []
+    for row in rows:
+        factors: dict = {}
+        try:
+            factors = json.loads(row["factors_json"] or "{}")
+        except json.JSONDecodeError:
+            factors = {}
+        out.append(
+            ForecastDailyRecord(
+                id=row["id"],
+                run_id=row["run_id"],
+                forecast_date=_parse_date(row["forecast_date"]),
+                room_type=row["room_type"] or "",
+                scenario=row["scenario"],
+                occupancy_pct=row["occupancy_pct"],
+                adr=row["adr"],
+                revpar=row["revpar"],
+                revenue=row["revenue"],
+                sold_unit_nights=row["sold_unit_nights"],
+                available_unit_nights=row["available_unit_nights"],
+                lower_bound=row["lower_bound"],
+                upper_bound=row["upper_bound"],
+                confidence=row["confidence"],
+                factors_json=factors,
+                actual_occupancy_pct=row["actual_occupancy_pct"],
+            )
+        )
+    return out
+
+
+def get_forecast_daily_id_map(run_id: int) -> dict[tuple[str, str, str], int]:
+    """Ключ (forecast_date, room_type, scenario) → id."""
+    with db_session() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, forecast_date, room_type, scenario
+            FROM forecast_daily WHERE run_id = ?
+            """,
+            (run_id,),
+        ).fetchall()
+    return {
+        (str(r["forecast_date"]), r["room_type"] or "", r["scenario"]): int(r["id"])
+        for r in rows
+    }
+
+
+def save_price_recommendations(
+    records: list[PriceRecommendationRecord],
+    horizon_days: int,
+    as_of: date,
+) -> int:
+    """Сохранить рекомендации; старые new за горизонт помечаем expired."""
+    if not records:
+        return 0
+    with db_session() as conn:
+        conn.execute(
+            """
+            UPDATE price_recommendations
+            SET status = 'expired'
+            WHERE status = 'new' AND horizon_days = ?
+              AND target_date >= ? AND target_date <= ?
+            """,
+            (
+                horizon_days,
+                _date_str(as_of),
+                _date_str(as_of + timedelta(days=horizon_days)),
+            ),
+        )
+        sql = """
+            INSERT INTO price_recommendations (
+                forecast_id, room_type, target_date, current_price,
+                recommended_price_min, recommended_price_max,
+                recommendation_type, reason, confidence, status, horizon_days
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        count = 0
+        for item in records:
+            conn.execute(
+                sql,
+                (
+                    item.forecast_id,
+                    item.room_type,
+                    _date_str(item.target_date),
+                    item.current_price,
+                    item.recommended_price_min,
+                    item.recommended_price_max,
+                    item.recommendation_type,
+                    item.reason,
+                    item.confidence,
+                    item.status,
+                    item.horizon_days or horizon_days,
+                ),
+            )
+            count += 1
+    return count
+
+
+def get_price_recommendations(
+    status: str | None = None,
+    room_type: str | None = None,
+    horizon_days: int | None = None,
+    limit: int = 200,
+) -> list[PriceRecommendationRecord]:
+    sql = "SELECT * FROM price_recommendations WHERE 1=1"
+    params: list[object] = []
+    if status:
+        sql += " AND status = ?"
+        params.append(status)
+    if room_type:
+        sql += " AND room_type = ?"
+        params.append(room_type)
+    if horizon_days is not None:
+        sql += " AND horizon_days = ?"
+        params.append(horizon_days)
+    sql += " ORDER BY target_date ASC, id DESC LIMIT ?"
+    params.append(limit)
+    with db_session() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    out: list[PriceRecommendationRecord] = []
+    for row in rows:
+        decided = None
+        if row["decided_at"]:
+            try:
+                decided = datetime.fromisoformat(str(row["decided_at"]))
+            except ValueError:
+                decided = None
+        out.append(
+            PriceRecommendationRecord(
+                id=row["id"],
+                forecast_id=row["forecast_id"],
+                room_type=row["room_type"],
+                target_date=_parse_date(row["target_date"]),
+                current_price=row["current_price"],
+                recommended_price_min=row["recommended_price_min"],
+                recommended_price_max=row["recommended_price_max"],
+                recommendation_type=row["recommendation_type"],
+                reason=row["reason"],
+                confidence=row["confidence"],
+                status=row["status"],
+                decided_at=decided,
+                horizon_days=row["horizon_days"] if "horizon_days" in row.keys() else None,
+            )
+        )
+    return out
+
+
+def update_price_recommendation_status(
+    rec_id: int,
+    status: str,
+) -> bool:
+    with db_session() as conn:
+        cur = conn.execute(
+            """
+            UPDATE price_recommendations
+            SET status = ?, decided_at = datetime('now')
+            WHERE id = ?
+            """,
+            (status, rec_id),
+        )
+        return cur.rowcount > 0
+
+
+def get_forecast_accuracy_rows(start: date, end: date) -> list[dict]:
+    """Строки base-прогноза (all) для оценки точности."""
+    with db_session() as conn:
+        rows = conn.execute(
+            """
+            SELECT fd.forecast_date, fd.occupancy_pct, fd.revenue
+            FROM forecast_daily fd
+            JOIN forecast_runs fr ON fr.id = fd.run_id
+            WHERE fd.scenario = 'base' AND fd.room_type = ''
+              AND fd.forecast_date >= ? AND fd.forecast_date <= ?
+              AND fr.id = (
+                  SELECT id FROM forecast_runs fr2
+                  WHERE fr2.horizon_days = fr.horizon_days
+                    AND date(fr2.calculated_at) <= fd.forecast_date
+                  ORDER BY fr2.calculated_at DESC LIMIT 1
+              )
+            ORDER BY fd.forecast_date
+            """,
+            (_date_str(start), _date_str(end)),
+        ).fetchall()
+    return [
+        {
+            "forecast_date": _parse_date(r["forecast_date"]),
+            "occupancy_pct": r["occupancy_pct"],
+            "revenue": r["revenue"],
+        }
+        for r in rows
+    ]

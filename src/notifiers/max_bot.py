@@ -442,41 +442,38 @@ def prepare_daily_summary_data(
     )
 
 
-def build_daily_summary_text(data: DailySummaryData) -> str:
-    """Сформировать Markdown-текст ежедневной сводки (без сети)."""
-    lines = [
+def build_daily_summary_sections(data: DailySummaryData) -> list[str]:
+    """Сформировать сводку в виде отдельных разделов."""
+    sections: list[str] = []
+
+    section_occupancy = [
         f"📊 *Сводка за {data.report_date.strftime('%d.%m.%Y')}*",
-        "",
         f"*Загрузка:* {data.occupancy_light} {data.occupancy_pct:.1f}%",
         "",
         "*Статус номеров* (св / зан / брон):",
     ]
-
     for row in data.room_types:
-        lines.append(
+        section_occupancy.append(
             f"• {category_short_label(row.label)}: "
             f"{row.free} / {row.occupied} / {row.booked}"
         )
     if data.totals:
         t = data.totals
-        lines.append(
+        section_occupancy.append(
             f"*Итого:* {t.free} / {t.occupied} / {t.booked} "
             f"(всего {t.total})"
         )
+    sections.append("\n".join(section_occupancy))
 
-    lines.extend(
-        [
-            "",
-            f"*Новые брони:* {data.new_bookings_light} {data.new_bookings_total}",
-        ]
-    )
+    section_bookings = [f"*Новые брони:* {data.new_bookings_light} {data.new_bookings_total}"]
     if data.bookings_by_channel:
         for ch in data.bookings_by_channel:
-            lines.append(f"  - {ch.source} ({ch.channel_type}): {ch.count}")
+            section_bookings.append(f"- {ch.source} ({ch.channel_type}): {ch.count}")
     else:
-        lines.append("  - нет данных")
+        section_bookings.append("- нет данных")
+    sections.append("\n".join(section_bookings))
 
-    lines.extend(["", "*Цены «от» по категориям:*"])
+    section_prices = ["*Цены «от» по категориям:*"]
     if data.prices:
         for price in data.prices:
             if price.change_pct is None:
@@ -484,17 +481,25 @@ def build_daily_summary_text(data: DailySummaryData) -> str:
             else:
                 sign = "+" if price.change_pct > 0 else ""
                 change_txt = f"{sign}{price.change_pct:.1f}%"
-            lines.append(
+            section_prices.append(
                 f"{price.traffic_light} {category_short_label(price.category)}: "
                 f"{price.price:,.0f} ₽ ({change_txt})".replace(",", " ")
             )
     else:
-        lines.append("  - нет snapshot")
+        section_prices.append("- нет snapshot")
+    sections.append("\n".join(section_prices))
 
     if data.warnings:
-        lines.extend(["", "*Примечания:*"])
-        lines.extend(f"- {note}" for note in data.warnings)
-    return "\n".join(lines)
+        section_notes = ["*Примечания:*"]
+        section_notes.extend(f"- {note}" for note in data.warnings)
+        sections.append("\n".join(section_notes))
+
+    return sections
+
+
+def build_daily_summary_text(data: DailySummaryData) -> str:
+    """Сформировать Markdown-текст ежедневной сводки (без сети)."""
+    return "\n\n".join(build_daily_summary_sections(data))
 
 
 def split_message(text: str, max_length: int) -> list[str]:
@@ -644,8 +649,8 @@ def send_daily_summary(
             "warnings": data.warnings,
         }
 
-    text = build_daily_summary_text(data)
-    parts = split_message(text, cfg.max_bot.max_message_length)
+    sections = build_daily_summary_sections(data)
+    text = "\n\n".join(sections)
 
     if data.warnings:
         from src.notifiers.incidents import send_incident
@@ -658,10 +663,14 @@ def send_daily_summary(
         )
 
     results: list[dict[str, Any]] = []
-    for index, part in enumerate(parts, start=1):
-        if len(parts) > 1:
-            part = f"[{index}/{len(parts)}]\n{part}"
-        results.append(send_message(part, config=cfg, client=client))
+    sent_parts = 0
+    for section in sections:
+        parts = split_message(section, cfg.max_bot.max_message_length)
+        for index, part in enumerate(parts, start=1):
+            if len(parts) > 1:
+                part = f"[{index}/{len(parts)}]\n{part}"
+            results.append(send_message(part, config=cfg, client=client))
+            sent_parts += 1
 
     success = all(r.get("status") == "sent" for r in results)
     status = "sent" if success else "error"
@@ -682,12 +691,12 @@ def send_daily_summary(
     logger.info(
         "Ежедневная сводка Max: status=%s, parts=%s, dry_run=%s",
         status,
-        len(parts),
+        sent_parts,
         cfg.dry_run,
     )
     return {
         "status": status,
-        "parts": len(parts),
+        "parts": sent_parts,
         "dry_run": cfg.dry_run,
         "results": results,
         "text": text,

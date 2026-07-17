@@ -65,7 +65,7 @@ class StorageConfig(BaseModel):
     """Настройки SQLite-хранилища."""
 
     db_path: str = "data/hotel_report.db"
-    retention_days: int = 90
+    retention_days: int = 730
 
 
 class TrafficLightThresholds(BaseModel):
@@ -123,6 +123,8 @@ class CompetitorConfig(BaseModel):
     selectors: dict[str, str] = Field(default_factory=dict)
     # Страница с iframe booking2 (если отличается от url)
     booking_url: str | None = None
+    # Публичный каталог категорий (fallback public_from)
+    catalog_url: str | None = None
 
 
 class MarketNewsConfig(BaseModel):
@@ -264,6 +266,31 @@ class MailInboxConfig(BaseModel):
     mailboxes: list[ImapMailboxConfig] = Field(default_factory=list)
 
 
+class ForecastManualEvent(BaseModel):
+    """Ручное событие, влияющее на спрос."""
+
+    name: str
+    date_from: str
+    date_to: str
+    impact_pct: float = 5.0
+
+
+class ForecastConfig(BaseModel):
+    """Раздел «Прогноз»: горизонты, пороги, рекомендации по ценам."""
+
+    enabled: bool = True
+    horizons: list[int] = Field(default_factory=lambda: [7, 14, 30, 180])
+    min_history_days: int = 365
+    max_mae_occupancy: float = 15.0
+    max_mape_revenue: float = 20.0
+    max_price_change_pct: float = 15.0
+    min_price: float = 2000.0
+    max_price: float = 25000.0
+    use_competitors: bool = True
+    refresh_cron: str = "30 9 * * *"
+    manual_events: list[ForecastManualEvent] = Field(default_factory=list)
+
+
 class AppConfig(BaseModel):
     """Полная конфигурация приложения из settings.yaml."""
 
@@ -287,6 +314,7 @@ class AppConfig(BaseModel):
     web: WebConfig = Field(default_factory=WebConfig)
     analytics: AnalyticsConfig = Field(default_factory=AnalyticsConfig)
     mail_inbox: MailInboxConfig = Field(default_factory=MailInboxConfig)
+    forecast: ForecastConfig = Field(default_factory=ForecastConfig)
 
 
 class EnvSettings(BaseSettings):
@@ -314,7 +342,7 @@ class EnvSettings(BaseSettings):
     smtp_use_ssl: bool = False
     admin_password: str = "admin"
     admin_token: str = ""
-    secret_key: str = "change-me"
+    secret_key: str = ""
     web_force_https: bool = False
     deploy_enabled: bool = Field(default=False, alias="DEPLOY_ENABLED")
     vps_host: str = Field(default="", alias="VPS_HOST")

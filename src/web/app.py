@@ -16,6 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import Response
 
 from src.config import get_config, get_env_settings, reload_config
+from src.config_secrets import ensure_production_secret_key
 from src.config_runtime import persist_dry_run_to_yaml, save_runtime_overrides
 from src.notifiers.email_sender import send_weekly_report
 from src.notifiers.max_bot import send_daily_summary
@@ -73,6 +74,7 @@ def _require_auth(request: Request) -> RedirectResponse | None:
 
 @app.on_event("startup")
 async def startup() -> None:
+    ensure_production_secret_key()
     from src.utils.logging_setup import setup_logging
 
     setup_logging()
@@ -219,6 +221,114 @@ async def analytics_refresh(
     if topic:
         q += f"&topic={topic}"
     return RedirectResponse(url=f"/analytics{q}", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/forecast", response_class=HTMLResponse)
+async def forecast_page(
+    request: Request,
+    horizon_days: int = Query(default=7),
+    scenario: str = Query(default="base"),
+    room_type: str | None = Query(default=None),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    data = queries.fetch_forecast_bundle(
+        horizon_days=horizon_days,
+        scenario=scenario,
+        room_type=room_type or None,
+    )
+    return templates.TemplateResponse(
+        request,
+        "forecast.html",
+        {"request": request, "data": data, "page": "forecast"},
+    )
+
+
+@app.post("/forecast/refresh")
+async def forecast_refresh(
+    request: Request,
+    horizon_days: int = Form(default=7),
+    scenario: str = Form(default="base"),
+    room_type: str = Form(default=""),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.forecast.service import run_forecast_refresh
+
+    run_forecast_refresh(horizons=[horizon_days])
+    q = f"?horizon_days={horizon_days}&scenario={scenario}"
+    if room_type:
+        q += f"&room_type={room_type}"
+    return RedirectResponse(url=f"/forecast{q}", status_code=status.HTTP_302_FOUND)
+
+
+def _forecast_reco_redirect(horizon_days: int, scenario: str, room_type: str) -> str:
+    q = f"?horizon_days={horizon_days}&scenario={scenario}"
+    if room_type:
+        q += f"&room_type={room_type}"
+    return f"/forecast{q}"
+
+
+@app.post("/forecast/recommendation/{rec_id}/accept")
+async def forecast_reco_accept(
+    request: Request,
+    rec_id: int,
+    horizon_days: int = Form(default=7),
+    scenario: str = Form(default="base"),
+    room_type: str = Form(default=""),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import update_price_recommendation_status
+
+    update_price_recommendation_status(rec_id, "accepted")
+    return RedirectResponse(
+        url=_forecast_reco_redirect(horizon_days, scenario, room_type),
+        status_code=status.HTTP_302_FOUND,
+    )
+
+
+@app.post("/forecast/recommendation/{rec_id}/reject")
+async def forecast_reco_reject(
+    request: Request,
+    rec_id: int,
+    horizon_days: int = Form(default=7),
+    scenario: str = Form(default="base"),
+    room_type: str = Form(default=""),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import update_price_recommendation_status
+
+    update_price_recommendation_status(rec_id, "rejected")
+    return RedirectResponse(
+        url=_forecast_reco_redirect(horizon_days, scenario, room_type),
+        status_code=status.HTTP_302_FOUND,
+    )
+
+
+@app.post("/forecast/recommendation/{rec_id}/defer")
+async def forecast_reco_defer(
+    request: Request,
+    rec_id: int,
+    horizon_days: int = Form(default=7),
+    scenario: str = Form(default="base"),
+    room_type: str = Form(default=""),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import update_price_recommendation_status
+
+    update_price_recommendation_status(rec_id, "deferred")
+    return RedirectResponse(
+        url=_forecast_reco_redirect(horizon_days, scenario, room_type),
+        status_code=status.HTTP_302_FOUND,
+    )
 
 
 @app.get("/snapshots", response_class=HTMLResponse)

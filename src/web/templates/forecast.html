@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}Прогноз — hotel-report-bot{% endblock %}
+{% block content %}
+<h1>📈 Прогноз</h1>
+<p class="muted">Загрузка, выручка и рекомендации по ценам. На горизонте 6 мес. показаны диапазоны и сценарии, не точные цифры.</p>
+
+{% if data.quality.warn %}
+<div class="card" style="border-color: var(--warning);">
+    <p><strong>⚠️ Качество прогноза:</strong> ошибка выше порога — уверенность понижена. MAE загрузки (30 дн.): {{ data.quality.errors_30.mae_occupancy }}%, MAPE выручки: {{ data.quality.errors_30.mape_revenue }}%.</p>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>Фильтры</h2>
+    <form method="get" action="/forecast" class="filters-form">
+        <label>Горизонт
+            <select name="horizon_days">
+                {% for opt in data.horizon_options %}
+                <option value="{{ opt.days }}" {% if data.filters.horizon_days == opt.days %}selected{% endif %}>{{ opt.label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Сценарий
+            <select name="scenario">
+                {% for opt in data.scenario_options %}
+                <option value="{{ opt.id }}" {% if data.filters.scenario == opt.id %}selected{% endif %}>{{ opt.label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Тип квартиры
+            <select name="room_type">
+                {% for rt in data.room_types %}
+                <option value="{{ rt.slug }}" {% if data.filters.room_type == rt.slug %}selected{% endif %}>{{ rt.label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button type="submit">Применить</button>
+        <button type="submit" class="btn-small" formaction="/forecast/refresh" formmethod="post">🔄 Пересчитать</button>
+    </form>
+    {% if data.run.calculated_at %}
+    <p class="muted" style="margin-top:.75rem">Последний расчёт: {{ data.run.calculated_at[:16] }} · качество данных: {{ data.run.data_quality }} · история: {{ data.history_days }} дн.</p>
+    {% if data.history_days < 365 %}
+    <p class="muted">⚠️ Для сезонного прогноза нужно ≥365 дн. истории. Запустите <code>scripts/backfill_metrics_from_tl.py</code>.</p>
+    {% endif %}
+    {% endif %}
+</div>
+
+<div class="grid-2">
+    <div class="card kpi-card">
+        <h3>Загрузка</h3>
+        <p class="kpi-value">{% if data.kpi.occupancy_pct is not none %}{{ data.kpi.occupancy_pct }}%{% else %}—{% endif %}</p>
+        <p class="muted">среднее за период</p>
+    </div>
+    <div class="card kpi-card">
+        <h3>ADR</h3>
+        <p class="kpi-value">{% if data.kpi.adr is not none %}{{ data.kpi.adr|int }} ₽{% else %}—{% endif %}</p>
+    </div>
+    <div class="card kpi-card">
+        <h3>RevPAR</h3>
+        <p class="kpi-value">{% if data.kpi.revpar is not none %}{{ data.kpi.revpar|int }} ₽{% else %}—{% endif %}</p>
+    </div>
+    <div class="card kpi-card">
+        <h3>Выручка</h3>
+        <p class="kpi-value">{% if data.kpi.revenue is not none %}{{ data.kpi.revenue|int }} ₽{% else %}—{% endif %}</p>
+        <p class="muted">сумма за период</p>
+    </div>
+    <div class="card kpi-card">
+        <h3>Достоверность</h3>
+        <p class="kpi-value">{{ data.confidence_label }}</p>
+    </div>
+    {% if data.competitor_median %}
+    <div class="card kpi-card">
+        <h3>Медиана конкурентов</h3>
+        <p class="kpi-value">{{ data.competitor_median|int }} ₽</p>
+        <p class="muted">{{ data.competitor_count }} объектов</p>
+    </div>
+    {% endif %}
+</div>
+
+{% if data.commentary and data.commentary.text %}
+<div class="card">
+    <h2>🤖 ИИ-комментарий к прогнозу</h2>
+    <p class="muted">{{ data.commentary.period_label }} · источник: {{ data.commentary.source }}</p>
+    <pre class="forecast-commentary">{{ data.commentary.text }}</pre>
+</div>
+{% endif %}
+
+{% if data.series %}
+<div class="card">
+    <h2>График загрузки</h2>
+    <p class="muted">Столбец — прогноз; полупрозрачная полоса — диапазон неопределённости.</p>
+    <div class="chart-bars forecast-chart">
+    {% for row in data.series %}
+        {% set h = (row.occupancy or 0) * 1.1 %}
+        {% set lo = (row.lower or 0) * 1.1 %}
+        {% set hi = (row.upper or 100) * 1.1 %}
+        <div class="bar-wrap" title="{{ row.date_label }}: {{ row.occupancy }}% ({{ row.lower }}–{{ row.upper }}%)">
+            <div class="bar-range" style="height: {{ hi }}px; bottom: {{ lo }}px;"></div>
+            <div class="bar" style="height: {{ h }}px;{% if row.actual %} background: var(--success);{% endif %}"></div>
+            <span class="bar-label">{{ row.date_label }}</span>
+        </div>
+    {% endfor %}
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <p class="muted">📭 Нет данных прогноза. Нажмите «Пересчитать» или дождитесь утреннего job.</p>
+</div>
+{% endif %}
+
+{% if data.factors %}
+<div class="card">
+    <h2>Почему такой прогноз</h2>
+    <ul>
+        {% if data.factors.seasonal_coef %}<li>Сезонность: ×{{ data.factors.seasonal_coef }}</li>{% endif %}
+        {% if data.factors.dow_coef %}<li>День недели: ×{{ data.factors.dow_coef }}</li>{% endif %}
+        {% if data.factors.pickup_expected_pct is not none %}<li>Ожидаемый pickup: +{{ data.factors.pickup_expected_pct }} п.п.</li>{% endif %}
+        {% if data.factors.known_booked_pct is not none %}<li>Уже забронировано: {{ data.factors.known_booked_pct }}%</li>{% endif %}
+        {% if data.factors.history_days %}<li>История: {{ data.factors.history_days }} дн.</li>{% endif %}
+        {% for note in data.factors.notes or [] %}
+        <li>{{ note }}</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>Рекомендации по ценам</h2>
+    {% if data.recommendations %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Дата</th>
+                <th>Тип</th>
+                <th>Действие</th>
+                <th>Текущая</th>
+                <th>Рекомендация</th>
+                <th>Причина</th>
+                <th>Статус</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in data.recommendations %}
+            <tr>
+                <td>{{ r.target_date }}</td>
+                <td>{{ r.room_label }}</td>
+                <td><strong>{{ r.type_label }}</strong></td>
+                <td>{% if r.current_price %}{{ r.current_price|int }} ₽{% else %}—{% endif %}</td>
+                <td>{% if r.rec_min %}{{ r.rec_min|int }}–{{ r.rec_max|int }} ₽{% else %}—{% endif %}</td>
+                <td class="muted">{{ r.reason }}</td>
+                <td>{{ r.status }}</td>
+                <td>
+                {% if r.status == 'new' %}
+                <form method="post" action="/forecast/recommendation/{{ r.id }}/accept" style="display:inline">
+                    <input type="hidden" name="horizon_days" value="{{ data.filters.horizon_days }}">
+                    <input type="hidden" name="scenario" value="{{ data.filters.scenario }}">
+                    <input type="hidden" name="room_type" value="{{ data.filters.room_type }}">
+                    <button type="submit" class="btn-small">✓</button>
+                </form>
+                <form method="post" action="/forecast/recommendation/{{ r.id }}/reject" style="display:inline">
+                    <input type="hidden" name="horizon_days" value="{{ data.filters.horizon_days }}">
+                    <input type="hidden" name="scenario" value="{{ data.filters.scenario }}">
+                    <input type="hidden" name="room_type" value="{{ data.filters.room_type }}">
+                    <button type="submit" class="btn-small">✗</button>
+                </form>
+                <form method="post" action="/forecast/recommendation/{{ r.id }}/defer" style="display:inline">
+                    <input type="hidden" name="horizon_days" value="{{ data.filters.horizon_days }}">
+                    <input type="hidden" name="scenario" value="{{ data.filters.scenario }}">
+                    <input type="hidden" name="room_type" value="{{ data.filters.room_type }}">
+                    <button type="submit" class="btn-small">⏸</button>
+                </form>
+                {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Нет активных рекомендаций для выбранных фильтров.</p>
+    {% endif %}
+</div>
+{% endblock %}

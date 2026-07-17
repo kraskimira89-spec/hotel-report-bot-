@@ -458,25 +458,36 @@ def collect_and_save_competitor_prices(snapshot_date: date | None = None) -> int
             (snapshot_date.isoformat(),),
         )
     records: list[CompetitorPriceRecord] = []
+    captured_at = datetime.now()
     for item in cfg.competitors:
         collected = prices_map.get(item.name)
         price = collected.price_from if collected else None
         source = collected.source if collected else "dom"
+        price_kind = collected.price_kind if collected else "dynamic"
+        booking_engine = collected.booking_engine if collected else None
         screenshot = collected.screenshot_path if collected else None
         products = collected.products if collected else None
-        # Graceful: при сбое виджета — последний успешный snapshot.
-        if price is None and item.name in latest_db and latest_db[item.name].available:
+        raw_url = collected.raw_url if collected else None
+        error_message = collected.error_message if collected else None
+
+        # Кэш — только если нет свежей dynamic/public_from (не подменять dynamic).
+        if price is None and item.name in latest_db and latest_db[item.name].price_from is not None:
             prev = latest_db[item.name]
             price = prev.price_from
-            source = prev.source
+            source = "cache"
+            price_kind = "cached"
+            booking_engine = prev.booking_engine or booking_engine
             screenshot = screenshot or prev.screenshot_path
+            raw_url = prev.raw_url or raw_url
             if not products:
                 products = latest_products.get(item.name) or None
             logger.info(
-                "Фолбэк на последний snapshot для %s (цена=%s)",
+                "Фолбэк на кэш для %s (цена=%s, было=%s)",
                 item.name,
                 price,
+                prev.price_kind,
             )
+
         records.append(
             CompetitorPriceRecord(
                 competitor_name=item.name,
@@ -486,6 +497,11 @@ def collect_and_save_competitor_prices(snapshot_date: date | None = None) -> int
                 screenshot_path=screenshot,
                 available=price is not None,
                 category="",
+                price_kind=price_kind,
+                booking_engine=booking_engine,
+                captured_at=captured_at,
+                raw_url=raw_url,
+                error_message=error_message,
             )
         )
         if products:
@@ -499,6 +515,10 @@ def collect_and_save_competitor_prices(snapshot_date: date | None = None) -> int
                         screenshot_path=screenshot,
                         available=True,
                         category=product.name,
+                        price_kind=price_kind,
+                        booking_engine=booking_engine,
+                        captured_at=captured_at,
+                        raw_url=raw_url,
                     )
                 )
     return save_competitor_prices(records)

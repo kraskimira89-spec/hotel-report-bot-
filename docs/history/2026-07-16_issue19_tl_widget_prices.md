@@ -22,3 +22,18 @@ https://github.com/kraskimira89-spec/hotel-report-bot-/issues/19
 | Скандинавия | 4500 | Стандарт / Полулюкс / Люкс |
 | Центральный | null | виджет/сертификат — отдельный follow-up |
 | Xander (WuBook) | null | без стабильного сценария |
+
+## Обновление (17.07.2026)
+
+Issue **#19 OPEN** (частичная приёмка). Повторный прогон БД на VPS:
+
+| Конкурент | Цена от |
+|---|---:|
+| Bon Apart | 7100 ✅ |
+| Скандинавия | 4500 ✅ |
+| Парад Парк | 6650 ✅ |
+| Элегант | 3600 ✅ |
+| Центральный | null ❌ |
+| Xander Hotel | null ❌ |
+
+Комментарий: https://github.com/kraskimira89-spec/hotel-report-bot-/issues/19#issuecomment-5000449481

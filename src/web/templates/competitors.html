@@ -25,6 +25,50 @@
 </div>
 </div>
 
+{% if data.featured.central or data.featured.xander %}
+<div class="grid-2">
+{% if data.featured.central %}
+{% set f = data.featured.central %}
+<div class="card featured-competitor">
+    <h2>«Центральный» — прямой конкурент</h2>
+    <p class="muted">Гостиница в центре (ул. Крылова 16А). Сравнение базовых категорий 1apart со Standard / Standard Twin.</p>
+    <p>Цена: <strong>{% if f.price_from %}{{ "%.0f"|format(f.price_from) }} ₽{% else %}—{% endif %}</strong>
+    {% if f.price_kind == 'public_from' %}<span class="badge badge-yellow">базовая «от»</span>{% elif f.price_kind == 'cached' %}<span class="badge badge-yellow">из кэша</span>{% endif %}
+    </p>
+    <p>{{ f.status_emoji }} {{ f.status_label }} · {{ f.source }}{% if f.booking_engine %} · {{ f.booking_engine }}{% endif %}</p>
+    {% if f.our_price and f.price_from %}
+    <p>1apart ({{ f.our_category_slug }}): {{ "%.0f"|format(f.our_price) }} ₽ · позиция: <strong>{{ f.market_position or "—" }}</strong></p>
+    {% endif %}
+    {% if f.products %}
+    <table><thead><tr><th>Категория</th><th>«от»</th></tr></thead><tbody>
+    {% for p in f.products %}<tr><td>{{ p.name }}</td><td>{{ "%.0f"|format(p.price_from) }} ₽</td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+    {% if f.screenshot_path %}<p><img src="/screenshots/{{ f.screenshot_path }}" alt="Скриншот" class="screenshot-thumb"></p>{% endif %}
+    {% if f.raw_url %}<p class="muted"><a href="{{ f.raw_url }}" target="_blank" rel="noopener">каталог</a></p>{% endif %}
+</div>
+{% endif %}
+{% if data.featured.xander %}
+{% set f = data.featured.xander %}
+<div class="card featured-competitor">
+    <h2>Xander Hotel — премиальный ориентир</h2>
+    <p class="muted">5★, SPA, ресторан. Не прямой аналог квартиры — индекс верхней границы рынка.</p>
+    <p>Мин. цена: <strong>{% if f.price_from %}{{ "%.0f"|format(f.price_from) }} ₽{% else %}—{% endif %}</strong>
+    {% if f.price_kind == 'public_from' %}<span class="badge badge-yellow">базовая «от»</span>{% endif %}
+    </p>
+    {% if f.premium_index %}<p>Премиальный индекс (Xander / 1apart): <strong>{{ f.premium_index }}×</strong></p>{% endif %}
+    <p>Спрос: <strong>{{ f.demand_signal or "—" }}</strong> · {{ f.status_emoji }} {{ f.status_label }}</p>
+    <p class="muted">SPA, ресторан, конференц-залы, парковка — формат несопоставим с апартами.</p>
+    {% if f.products %}
+    <table><thead><tr><th>Категория</th><th>«от»</th></tr></thead><tbody>
+    {% for p in f.products %}<tr><td>{{ p.name }}</td><td>{{ "%.0f"|format(p.price_from) }} ₽</td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+</div>
+{% endif %}
+</div>
+{% endif %}
+
 <div class="card">
     <h2>Обзорная таблица</h2>
     {% if data.overview %}
