@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Cursor hook: автокоммит изменений после завершения задания агента.
+"""Cursor hook: автокоммит + push после завершения задания агента.
 
 Безопасность:
 - не трогает секреты (.env, settings.yaml, ключи, БД);
-- не делает push;
+- push в origin (отключение: CURSOR_AUTO_PUSH=0);
 - fail-open (всегда exit 0), чтобы не ломать агента;
-- отключение: CURSOR_AUTO_COMMIT=0.
+- отключение коммита: CURSOR_AUTO_COMMIT=0.
 """
 
 from __future__ import annotations
