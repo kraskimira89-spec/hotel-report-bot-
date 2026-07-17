@@ -6,6 +6,7 @@ import logging
 from datetime import date, timedelta
 
 from src.config import get_config
+from src.events.classify import classify_event_category
 from src.events.collector import collect_from_source
 from src.events.impact import (
     MIN_FORECAST_IMPACT,
@@ -40,9 +41,28 @@ def _horizon_end(today: date) -> date:
     return today + timedelta(days=cfg.events.horizon_days)
 
 
+def _apply_ai_category(parsed: ParsedEvent) -> ParsedEvent:
+    """ИИ/правила: категория для нового события."""
+    cfg = get_config()
+    cat, source = classify_event_category(
+        parsed.title,
+        parsed.description,
+        parsed.venue_name,
+        use_llm=bool(cfg.events.classify_with_llm),
+        hint=parsed.category if parsed.category != "other" else None,
+    )
+    # Если парсер дал other — всегда пробуем ИИ; если парсер уверен — оставляем
+    if parsed.category == "other" or source == "llm":
+        parsed.category = cat
+    # source сохраним на записи ниже через поле в record
+    parsed._category_source = source  # type: ignore[attr-defined]
+    return parsed
+
+
 def _parsed_to_record(parsed: ParsedEvent, status: str = "candidate") -> CityEventRecord:
     cfg = get_config()
     coef = forecast_coefficient_for_category(parsed.category, cfg.events.max_forecast_uplift)
+    cat_source = getattr(parsed, "_category_source", "rules")
     return CityEventRecord(
         title=parsed.title,
         normalized_title=normalize_title(parsed.title),
@@ -67,6 +87,8 @@ def _parsed_to_record(parsed: ParsedEvent, status: str = "candidate") -> CityEve
         tourism_relevance=parsed.tourism_relevance,
         overnight_likelihood=parsed.overnight_likelihood or 0.1,
         is_public_holiday=parsed.is_public_holiday,
+        category_manual=False,
+        category_source=str(cat_source),
     )
 
 
@@ -89,8 +111,11 @@ def _merge_parsed_into_event(
     if parsed.expected_attendance and not existing.expected_attendance:
         existing.expected_attendance = parsed.expected_attendance
         existing.attendance_source = parsed.attendance_source or existing.attendance_source
-    if parsed.category != "other":
+    # Ручную категорию не перезаписываем
+    if not existing.category_manual and parsed.category != "other":
         existing.category = parsed.category
+        if existing.category_source == "rules":
+            existing.category_source = "parser"
     if parsed.audience_scope != "unknown":
         existing.audience_scope = parsed.audience_scope
     if parsed.is_online:
@@ -115,7 +140,7 @@ def ingest_parsed_events(parsed_list: list[ParsedEvent], today: date | None = No
     today = today or date.today()
     end = _horizon_end(today)
     existing = get_city_events_for_dedup(today, end)
-    stats = {"new": 0, "merged": 0, "skipped": 0}
+    stats = {"new": 0, "merged": 0, "skipped": 0, "classified": 0}
 
     for parsed in parsed_list:
         match = find_matching_event(parsed, existing)
@@ -140,16 +165,15 @@ def ingest_parsed_events(parsed_list: list[ParsedEvent], today: date | None = No
             stats["merged"] += 1
             continue
 
-        # verification_only — только подтверждение существующих, без новых карточек
         if _source_is_verification_only(parsed.source_name):
             stats["skipped"] += 1
             continue
 
+        _apply_ai_category(parsed)
+        stats["classified"] += 1
         record = _parsed_to_record(parsed)
-        # Вне Томска и онлайн — в очередь, но без автопрогноза
         src_cnt = 1
         apply_impact_to_event(record, src_cnt)
-        # Региональный/всероссийский бизнес и спорт — явно в модерацию
         if record.impact_score >= get_config().events.require_approval_score:
             record.status = "candidate"
         saved = save_city_event(record)
@@ -170,6 +194,51 @@ def ingest_parsed_events(parsed_list: list[ParsedEvent], today: date | None = No
         stats["new"] += 1
 
     return stats
+
+
+def reclassify_other_events(today: date | None = None, *, limit: int = 30) -> int:
+    """Переклассифицировать события с категорией «Другое», если не зафиксированы вручную."""
+    cfg = get_config()
+    if not cfg.events.reclassify_other_on_collect:
+        return 0
+    today = today or date.today()
+    end = _horizon_end(today)
+    events = get_city_events(start=today, end=end, category="other", limit=limit)
+    changed = 0
+    for ev in events:
+        if ev.category_manual or ev.id is None:
+            continue
+        if ev.status in ("rejected", "cancelled", "expired"):
+            continue
+        cat, source = classify_event_category(
+            ev.title,
+            ev.description,
+            ev.venue_name,
+            use_llm=bool(cfg.events.classify_with_llm),
+            hint=None,
+        )
+        if cat == ev.category:
+            continue
+        old = ev.category
+        ev.category = cat
+        ev.category_source = source
+        ev.forecast_coefficient = forecast_coefficient_for_category(
+            cat, cfg.events.max_forecast_uplift
+        )
+        apply_impact_to_event(ev, max(1, count_event_sources(ev.id)))
+        save_city_event(ev)
+        save_event_review_log(
+            EventReviewLogRecord(
+                event_id=ev.id,
+                action="classify_category",
+                old_value=old,
+                new_value=cat,
+                comment=f"source={source}",
+                actor="system",
+            )
+        )
+        changed += 1
+    return changed
 
 
 def recalc_all_impact_scores(today: date | None = None) -> int:
@@ -225,8 +294,9 @@ def collect_all_sources(
 
 
 def run_events_pipeline(today: date | None = None, *, force: bool = False) -> dict[str, int]:
-    """Полный пайплайн: сбор → impact → (опционально) прогноз."""
+    """Полный пайплайн: сбор → классификация → impact → прогноз."""
     stats = collect_all_sources(today=today, force=force)
+    stats["reclassified"] = reclassify_other_events(today)
     stats["impact_recalc"] = recalc_all_impact_scores(today)
     critical = notify_critical_events(today)
     stats["critical_notified"] = critical
@@ -442,6 +512,7 @@ def adjust_event(
     actor: str = "admin",
     impact_score: float | None = None,
     audience_scope: str | None = None,
+    category: str | None = None,
     estimated_capacity: int | None = None,
     start_at: date | None = None,
     end_at: date | None = None,
@@ -450,6 +521,7 @@ def adjust_event(
     ev = get_city_event(event_id)
     if not ev:
         return None
+    cfg = get_config()
     changes: list[str] = []
     if impact_score is not None:
         save_event_review_log(
@@ -477,6 +549,28 @@ def adjust_event(
         )
         ev.audience_scope = audience_scope
         changes.append("scope")
+    if category:
+        from src.events.classify import ALLOWED_CATEGORIES
+
+        cat = category.strip()
+        if cat in ALLOWED_CATEGORIES and cat != ev.category:
+            save_event_review_log(
+                EventReviewLogRecord(
+                    event_id=event_id,
+                    action="adjust_category",
+                    old_value=ev.category,
+                    new_value=cat,
+                    comment=comment or "ручная правка",
+                    actor=actor,
+                )
+            )
+            ev.category = cat
+            ev.category_manual = True
+            ev.category_source = "manual"
+            ev.forecast_coefficient = forecast_coefficient_for_category(
+                cat, cfg.events.max_forecast_uplift
+            )
+            changes.append("category")
     if estimated_capacity is not None:
         ev.estimated_capacity = estimated_capacity
         changes.append("capacity")
@@ -495,7 +589,7 @@ def adjust_event(
             ev.expected_guest_nights_min = gmin
             ev.expected_guest_nights_max = gmax
         save_city_event(ev)
-        if ev.status == "approved" or "score" in changes:
+        if ev.status == "approved" or "score" in changes or "category" in changes:
             _refresh_forecast_after_moderation()
     return ev
 

@@ -59,6 +59,7 @@
     <p>
         {{ d.event.start_at }} — {{ d.event.end_at or d.event.start_at }}
         · {{ d.category_label }}
+        <span class="muted">({{ d.category_source_label }}{% if d.event.category_manual %}, зафиксировано{% endif %})</span>
         · {{ d.event.city }}
     </p>
     <p>Площадка: {{ d.event.venue_name or '—' }}{% if d.event.venue_address %} · {{ d.event.venue_address }}{% endif %}</p>
@@ -112,7 +113,15 @@
     </div>
 
     <h3>Корректировка</h3>
+    <p class="muted">Категорию можно исправить вручную — после этого ИИ её больше не перезапишет.</p>
     <form method="post" action="/events/{{ d.event.id }}/adjust" class="filters-form">
+        <label>Категория
+            <select name="category">
+                {% for c in data.categories %}
+                <option value="{{ c.id }}" {% if d.event.category == c.id %}selected{% endif %}>{{ c.label }}</option>
+                {% endfor %}
+            </select>
+        </label>
         <label title="Оценка влияния на спрос, 0–100">Влияние на спрос
             <input type="number" name="impact_score" min="0" max="100" step="0.1" value="{{ d.event.impact_score }}">
         </label>
@@ -164,7 +173,7 @@
                     <a href="/events/{{ e.id }}#event-detail">{{ e.title }}</a>
                     {% if e.in_forecast %}<span class="badge badge-green" title="Учтено в прогнозе">📈</span>{% endif %}
                 </td>
-                <td>{{ e.category_label }}</td>
+                <td>{{ e.category_label }}{% if e.category_source_label %} <span class="muted">({{ e.category_source_label }})</span>{% endif %}</td>
                 <td>
                     <strong>{{ e.impact_score }}</strong>
                     <span class="muted">({{ e.impact_level_label }})</span>

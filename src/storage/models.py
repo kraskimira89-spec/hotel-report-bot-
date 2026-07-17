@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 TRENDS_RETENTION_DAYS = 180
 INSIGHTS_RETENTION_DAYS = 90
@@ -540,6 +540,11 @@ MIGRATIONS_V12: list[str] = [
     "ALTER TABLE city_events ADD COLUMN location_confirmed INTEGER NOT NULL DEFAULT 0",
 ]
 
+MIGRATIONS_V13: list[str] = [
+    "ALTER TABLE city_events ADD COLUMN category_manual INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE city_events ADD COLUMN category_source TEXT NOT NULL DEFAULT 'rules'",
+]
+
 
 class PriceSnapshotRecord(BaseModel):
     """Запись snapshot цены."""
@@ -785,6 +790,8 @@ class CityEventRecord(BaseModel):
     overnight_likelihood: float = 0.1
     is_public_holiday: bool = False
     location_confirmed: bool = False
+    category_manual: bool = False
+    category_source: str = "rules"
     created_at: datetime | None = None
     updated_at: datetime | None = None
     id: int | None = None

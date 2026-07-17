@@ -326,6 +326,8 @@ class EventsConfig(BaseModel):
     notify_min_overnight: float = 0.35
     sources: list[EventSourceConfig] = Field(default_factory=list)
     guest_poster: EventsGuestPosterConfig = Field(default_factory=EventsGuestPosterConfig)
+    classify_with_llm: bool = True
+    reclassify_other_on_collect: bool = True
 
 
 class ForecastConfig(BaseModel):

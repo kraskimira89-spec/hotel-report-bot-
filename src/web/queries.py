@@ -1075,6 +1075,13 @@ _EVENT_CONFIDENCE_LABELS = {
     "low": "низкая",
 }
 
+_EVENT_CATEGORY_SOURCE_LABELS = {
+    "llm": "ИИ",
+    "rules": "правила",
+    "parser": "источник",
+    "manual": "вручную",
+}
+
 _EVENT_TOURISM_LABELS = {
     "none": "нет",
     "low": "низкая",
@@ -1115,6 +1122,11 @@ def fetch_events_bundle(
             "end_at": (ev.end_at or ev.start_at).isoformat(),
             "category": ev.category,
             "category_label": _EVENT_CATEGORY_LABELS.get(ev.category, ev.category),
+            "category_source": ev.category_source,
+            "category_source_label": _EVENT_CATEGORY_SOURCE_LABELS.get(
+                ev.category_source, ev.category_source
+            ),
+            "category_manual": ev.category_manual,
             "status": ev.status,
             "status_label": _EVENT_STATUS_LABELS.get(ev.status, ev.status),
             "impact_score": ev.impact_score,
@@ -1149,6 +1161,9 @@ def fetch_events_bundle(
         level = impact_level(ev.impact_score)
         detail["status_label"] = _EVENT_STATUS_LABELS.get(ev.status, ev.status)
         detail["category_label"] = _EVENT_CATEGORY_LABELS.get(ev.category, ev.category)
+        detail["category_source_label"] = _EVENT_CATEGORY_SOURCE_LABELS.get(
+            ev.category_source, ev.category_source
+        )
         detail["scope_label"] = _EVENT_SCOPE_LABELS.get(ev.audience_scope, ev.audience_scope)
         detail["confidence_label"] = _EVENT_CONFIDENCE_LABELS.get(ev.confidence, ev.confidence)
         detail["impact_level_label"] = _EVENT_IMPACT_LABELS.get(level, level)

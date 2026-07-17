@@ -23,6 +23,7 @@ from src.storage.models import (
     MIGRATIONS_V10,
     MIGRATIONS_V11,
     MIGRATIONS_V12,
+    MIGRATIONS_V13,
     SCHEMA_VERSION,
     TABLES,
     TRENDS_RETENTION_DAYS,
@@ -182,6 +183,13 @@ def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
                 logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
     if current < 12:
         for ddl in MIGRATIONS_V12:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 13:
+        for ddl in MIGRATIONS_V13:
             try:
                 conn.execute(ddl)
             except sqlite3.OperationalError as exc:
@@ -1719,6 +1727,8 @@ def _row_to_city_event(row: sqlite3.Row) -> CityEventRecord:
         else 0.1,
         is_public_holiday=bool(row["is_public_holiday"]) if "is_public_holiday" in keys else False,
         location_confirmed=bool(row["location_confirmed"]) if "location_confirmed" in keys else False,
+        category_manual=bool(row["category_manual"]) if "category_manual" in keys else False,
+        category_source=row["category_source"] if "category_source" in keys else "rules",
         created_at=_parse_dt(row["created_at"]),
         updated_at=_parse_dt(row["updated_at"]),
     )
@@ -1768,7 +1778,8 @@ def save_city_event(record: CityEventRecord) -> CityEventRecord:
                     forecast_coefficient=?, description=?,
                     is_online=?, registration_required=?, expected_attendance=?,
                     attendance_source=?, tourism_relevance=?, overnight_likelihood=?,
-                    is_public_holiday=?, location_confirmed=?, updated_at=?
+                    is_public_holiday=?, location_confirmed=?,
+                    category_manual=?, category_source=?, updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -1800,6 +1811,8 @@ def save_city_event(record: CityEventRecord) -> CityEventRecord:
                     record.overnight_likelihood,
                     int(record.is_public_holiday),
                     int(record.location_confirmed),
+                    int(record.category_manual),
+                    record.category_source,
                     now,
                     record.id,
                 ),
@@ -1816,8 +1829,9 @@ def save_city_event(record: CityEventRecord) -> CityEventRecord:
                 forecast_coefficient, description,
                 is_online, registration_required, expected_attendance,
                 attendance_source, tourism_relevance, overnight_likelihood,
-                is_public_holiday, location_confirmed, created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                is_public_holiday, location_confirmed,
+                category_manual, category_source, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 record.title,
@@ -1848,6 +1862,8 @@ def save_city_event(record: CityEventRecord) -> CityEventRecord:
                 record.overnight_likelihood,
                 int(record.is_public_holiday),
                 int(record.location_confirmed),
+                int(record.category_manual),
+                record.category_source,
                 now,
                 now,
             ),

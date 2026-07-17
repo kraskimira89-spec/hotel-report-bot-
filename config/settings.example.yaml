@@ -67,6 +67,8 @@ events:
   notify_horizon_days: 14
   notify_min_impact: 80
   notify_min_overnight: 0.35
+  classify_with_llm: true
+  reclassify_other_on_collect: true
   guest_poster:
     default_days: 10
     max_cards: 10
