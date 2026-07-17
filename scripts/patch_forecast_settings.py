@@ -39,10 +39,14 @@ def main() -> int:
         changed = True
         print("→ storage.retention_days = 730")
 
-    if "forecast" not in data:
+    if "forecast" not in data or not data.get("forecast"):
         data["forecast"] = ex.get("forecast", {})
         changed = True
         print("→ добавлена секция forecast из settings.example.yaml")
+    elif isinstance(data.get("forecast"), dict) and not data["forecast"]:
+        data["forecast"] = {**(ex.get("forecast") or {}), **data["forecast"]}
+        changed = True
+        print("→ заполнена пустая секция forecast из settings.example.yaml")
 
     if not changed:
         print("Изменений не требуется")

@@ -983,7 +983,7 @@ def fetch_forecast_bundle(
         generate_forecast_commentary,
     )
 
-    commentary = generate_forecast_commentary(bundle)
+    commentary = generate_forecast_commentary(bundle, use_llm=False)
     bundle["commentary"] = {
         "text": commentary.get("text", ""),
         "source": commentary.get("source", "rules"),

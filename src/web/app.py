@@ -49,13 +49,18 @@ class HttpsRedirectMiddleware(BaseHTTPMiddleware):
         if get_env_settings().web_force_https:
             path = request.url.path
             if path != "/health" and not path.startswith("/health/"):
-                proto = request.headers.get("x-forwarded-proto", request.url.scheme)
-                if proto != "https":
-                    url = str(request.url).replace("http://", "https://", 1)
-                    return RedirectResponse(
-                        url, status_code=status.HTTP_301_MOVED_PERMANENTLY
-                    )
+                host = (request.headers.get("host") or "").split(":")[0].lower()
+                if host not in ("localhost", "127.0.0.1"):
+                    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+                    if proto != "https":
+                        url = str(request.url).replace("http://", "https://", 1)
+                        return RedirectResponse(
+                            url, status_code=status.HTTP_301_MOVED_PERMANENTLY
+                        )
         response = await call_next(request)
+        if "text/html" in response.headers.get("content-type", ""):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
         return cast(Response, response)
 
 

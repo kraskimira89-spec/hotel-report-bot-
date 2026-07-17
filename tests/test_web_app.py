@@ -138,6 +138,8 @@ def test_dashboard_after_login(web_client: TestClient) -> None:
     page = web_client.get("/analytics")
     assert page.status_code == 200
     assert "Аналитика" in page.text
+    assert "Прогноз" in page.text
+    assert "/forecast" in page.text
 
 
 def test_snapshots_and_metrics_pages(web_client: TestClient) -> None:
