@@ -1061,6 +1061,27 @@ _EVENT_IMPACT_LABELS = {
     "low": "низкое",
 }
 
+_EVENT_SCOPE_LABELS = {
+    "local": "Местный",
+    "regional": "Региональный",
+    "national": "Всероссийский",
+    "international": "Международный",
+    "unknown": "Не указан",
+}
+
+_EVENT_CONFIDENCE_LABELS = {
+    "high": "высокая",
+    "medium": "средняя",
+    "low": "низкая",
+}
+
+_EVENT_TOURISM_LABELS = {
+    "none": "нет",
+    "low": "низкая",
+    "medium": "средняя",
+    "high": "высокая",
+}
+
 
 def fetch_events_bundle(
     *,
@@ -1084,7 +1105,6 @@ def fetch_events_bundle(
         category=category or None,
         min_impact=min_impact,
     )
-    calendar: dict[str, list[dict]] = {}
     rows = []
     for ev in events:
         level = impact_level(ev.impact_score)
@@ -1104,6 +1124,7 @@ def fetch_events_bundle(
             "source_name": ev.source_name,
             "source_url": ev.source_url,
             "confidence": ev.confidence,
+            "confidence_label": _EVENT_CONFIDENCE_LABELS.get(ev.confidence, ev.confidence),
             "city": ev.city,
             "is_online": ev.is_online,
             "overnight_likelihood": ev.overnight_likelihood,
@@ -1118,39 +1139,26 @@ def fetch_events_bundle(
                 and bool(ev.source_url and str(ev.source_url).startswith("http"))
                 and not ev.is_online
             ),
+            "selected": event_id is not None and ev.id == event_id,
         }
         rows.append(item)
-        d = ev.start_at
-        while d <= (ev.end_at or ev.start_at):
-            if d > end:
-                break
-            calendar.setdefault(d.isoformat(), []).append(item)
-            d += timedelta(days=1)
 
     detail = event_detail_bundle(event_id) if event_id else None
     if detail:
         ev = detail["event"]
-        detail["event_dict"] = {
-            "id": ev.id,
-            "title": ev.title,
-            "start_at": ev.start_at.isoformat(),
-            "end_at": (ev.end_at or ev.start_at).isoformat(),
-            "impact_score": ev.impact_score,
-            "status": ev.status,
-            "category": ev.category,
-            "venue_name": ev.venue_name,
-            "audience_scope": ev.audience_scope,
-            "estimated_capacity": ev.estimated_capacity,
-            "description": ev.description,
-        }
+        level = impact_level(ev.impact_score)
+        detail["status_label"] = _EVENT_STATUS_LABELS.get(ev.status, ev.status)
+        detail["category_label"] = _EVENT_CATEGORY_LABELS.get(ev.category, ev.category)
+        detail["scope_label"] = _EVENT_SCOPE_LABELS.get(ev.audience_scope, ev.audience_scope)
+        detail["confidence_label"] = _EVENT_CONFIDENCE_LABELS.get(ev.confidence, ev.confidence)
+        detail["impact_level_label"] = _EVENT_IMPACT_LABELS.get(level, level)
+        detail["tourism_label"] = _EVENT_TOURISM_LABELS.get(
+            ev.tourism_relevance, ev.tourism_relevance
+        )
 
     return {
         "horizon_days": cfg.events.horizon_days,
         "events": rows,
-        "calendar": calendar,
-        "calendar_days": [
-            (today + timedelta(days=i)).isoformat() for i in range(cfg.events.horizon_days + 1)
-        ],
         "filters": {
             "status": status or "",
             "category": category or "",
@@ -1158,6 +1166,7 @@ def fetch_events_bundle(
         },
         "categories": [{"id": k, "label": v} for k, v in _EVENT_CATEGORY_LABELS.items()],
         "statuses": [{"id": k, "label": v} for k, v in _EVENT_STATUS_LABELS.items()],
+        "scopes": [{"id": k, "label": v} for k, v in _EVENT_SCOPE_LABELS.items()],
         "require_approval_score": cfg.events.require_approval_score,
         "detail": detail,
         "selected_id": event_id,

@@ -3,16 +3,15 @@
 {% block content %}
 <h1>📅 События Томска</h1>
 <p class="muted">
-    Собранные с афиш события сначала получают статус <strong>«На проверке»</strong>
-    (в коде: candidate). Они ещё не влияют на прогноз и не попадают в печатную афишу.
-    Нажмите <strong>✅ Подтвердить</strong> — статус станет «Подтверждено» (approved).
+    События с афиш сначала в статусе <strong>«На проверке»</strong>.
+    После <strong>✅ Подтвердить</strong> они попадают в прогноз и в печатную афишу.
 </p>
 
 {% if data.pending_count %}
 <div class="card" style="border-color: var(--warn);">
     <p>
         <strong>⏳ На проверке:</strong> {{ data.pending_count }} событий.
-        {% if data.pending_high %}Из них {{ data.pending_high }} с высоким impact (≥ {{ data.require_approval_score|int }}).{% endif %}
+        {% if data.pending_high %}Из них {{ data.pending_high }} с высоким влиянием на спрос (≥ {{ data.require_approval_score|int }}).{% endif %}
         {% if not data.approved_count %}
         <br>Печатная и публичная афиша пустые, пока ничего не подтверждено.
         {% endif %}
@@ -39,7 +38,7 @@
                 {% endfor %}
             </select>
         </label>
-        <label>Impact ≥
+        <label title="Минимальная оценка влияния на спрос (0–100)">Влияние ≥
             <input type="number" name="min_impact" min="0" max="100" step="1" value="{{ data.filters.min_impact or '' }}" placeholder="0">
         </label>
         <button type="submit">Применить</button>
@@ -49,102 +48,54 @@
     </form>
 </div>
 
-<div class="card">
-    <h2>Календарь ({{ data.horizon_days }} дн.)</h2>
-    <div class="events-calendar">
-    {% for day in data.calendar_days %}
-        {% set items = data.calendar.get(day, []) %}
-        <div class="events-cal-day {% if items %}has-events{% endif %}">
-            <span class="events-cal-date">{{ day[8:10] }}.{{ day[5:7] }}</span>
-            {% if items %}
-            <span class="events-cal-count" title="{{ items|length }} событий">{{ items|length }}</span>
-            {% endif %}
-        </div>
-    {% endfor %}
+{% if data.detail %}
+{% set d = data.detail %}
+<div class="card event-detail-card" id="event-detail">
+    <div class="event-detail-head">
+        <h2>Карточка события</h2>
+        <a class="btn-small" href="/events">← К списку</a>
     </div>
-</div>
-
-<div class="grid-2">
-<div class="card">
-    <h2>Список событий</h2>
-    {% if data.events %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Даты</th>
-                <th>Название</th>
-                <th>Категория</th>
-                <th>Impact</th>
-                <th>Статус</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for e in data.events %}
-            <tr class="{% if e.needs_approval %}row-warn{% endif %}{% if e.high_impact %} row-warn-strong{% endif %}">
-                <td>{{ e.start_at[8:10] }}.{{ e.start_at[5:7] }}{% if e.end_at != e.start_at %}–{{ e.end_at[8:10] }}.{{ e.end_at[5:7] }}{% endif %}</td>
-                <td>
-                    <a href="/events?event_id={{ e.id }}">{{ e.title }}</a>
-                    {% if e.in_forecast %}<span class="badge badge-green" title="Учтено в прогнозе">📈</span>{% endif %}
-                </td>
-                <td>{{ e.category_label }}</td>
-                <td><strong>{{ e.impact_score }}</strong> <span class="muted">({{ e.impact_level_label }})</span></td>
-                <td>{{ e.status_label }}</td>
-                <td class="events-actions">
-                    {% if e.needs_approval %}
-                    <form method="post" action="/events/{{ e.id }}/approve" style="display:inline">
-                        <button type="submit" class="btn-small" title="Подтвердить для прогноза и афиши">✅</button>
-                    </form>
-                    <form method="post" action="/events/{{ e.id }}/reject" style="display:inline">
-                        <button type="submit" class="btn-small btn-danger" title="Отклонить">❌</button>
-                    </form>
-                    {% endif %}
-                    <a href="/events?event_id={{ e.id }}" class="btn-small">Открыть</a>
-                </td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p class="muted">📭 Нет событий в горизонте. Нажмите «Обновить источники» или добавьте вручную.</p>
-    {% endif %}
-</div>
-
-<div class="card">
-    {% if data.detail %}
-    {% set d = data.detail %}
-    <h2>Карточка события</h2>
-    <p><strong>{{ d.event.title }}</strong></p>
-    <p>{{ d.event.start_at }} — {{ d.event.end_at or d.event.start_at }} · {{ d.event.category }} · {{ d.event.city }}</p>
-    <p>Площадка: {{ d.event.venue_name or '—' }}</p>
-    <p>Impact: <strong>{{ d.event.impact_score }}</strong> ({{ d.impact_level }}) · overnight {{ "%.2f"|format(d.event.overnight_likelihood) }} · demand {{ d.event_demand_score }} · {{ d.event.confidence }}</p>
+    <p class="event-detail-title"><strong>{{ d.event.title }}</strong></p>
     <p>
-        Статус:
-        <strong>
-        {% if d.event.status == 'candidate' %}На проверке
-        {% elif d.event.status == 'approved' %}Подтверждено
-        {% elif d.event.status == 'rejected' %}Отклонено
-        {% elif d.event.status == 'cancelled' %}Отменено
-        {% elif d.event.status == 'expired' %}Прошло
-        {% else %}{{ d.event.status }}{% endif %}
-        </strong>
+        {{ d.event.start_at }} — {{ d.event.end_at or d.event.start_at }}
+        · {{ d.category_label }}
+        · {{ d.event.city }}
+    </p>
+    <p>Площадка: {{ d.event.venue_name or '—' }}{% if d.event.venue_address %} · {{ d.event.venue_address }}{% endif %}</p>
+    <p>
+        <strong>Влияние на спрос:</strong> {{ d.event.impact_score }}
+        ({{ d.impact_level_label }})
+        · вероятность ночёвки {{ "%.0f"|format(d.event.overnight_likelihood * 100) }}%
+        · оценка спроса {{ d.event_demand_score }}
+        · достоверность {{ d.confidence_label }}
+    </p>
+    <p>Масштаб аудитории: {{ d.scope_label }} · туризм: {{ d.tourism_label }}</p>
+    <p>
+        Статус: <strong>{{ d.status_label }}</strong>
         {% if d.in_forecast %} · <span class="badge badge-green">учтено в прогнозе</span>{% endif %}
         {% if d.event.is_online %} · <span class="badge">онлайн</span>{% endif %}
     </p>
     {% if d.event.status == 'candidate' %}
     <p class="muted">Чтобы событие попало в прогноз и в печатную афишу — подтвердите его.</p>
     {% endif %}
-    {% if d.event.source_name %}<p class="muted">Источник: {{ d.event.source_name }}{% if d.event.updated_at %} · собрано/обновлено {{ d.event.updated_at }}{% endif %}</p>{% endif %}
-    {% if d.event.source_url %}<p><a href="{{ d.event.source_url }}" target="_blank" rel="noopener">Ссылка на карточку</a></p>{% endif %}
+    {% if d.event.source_name %}
+    <p class="muted">Источник: {{ d.event.source_name }}{% if d.event.updated_at %} · обновлено {{ d.event.updated_at }}{% endif %}</p>
+    {% endif %}
+    {% if d.event.source_url %}
+    <p><a href="{{ d.event.source_url }}" target="_blank" rel="noopener">Открыть на сайте организатора</a></p>
+    {% endif %}
     {% if d.event.description %}<p class="muted">{{ d.event.description }}</p>{% endif %}
 
     <h3>Источники</h3>
     <ul>
     {% for s in d.sources %}
-        <li><a href="{{ s.source_url }}" target="_blank" rel="noopener">{{ s.source_name }}</a> {% if s.is_primary %}(основной){% endif %}</li>
+        <li><a href="{{ s.source_url }}" target="_blank" rel="noopener">{{ s.source_name }}</a>{% if s.is_primary %} (основной){% endif %}</li>
+    {% else %}
+        <li class="muted">Нет дополнительных источников</li>
     {% endfor %}
     </ul>
 
+    <div class="event-detail-actions">
     {% if d.event.status == 'candidate' %}
     <form method="post" action="/events/{{ d.event.id }}/approve" style="display:inline">
         <button type="submit">✅ Подтвердить</button>
@@ -154,19 +105,22 @@
     </form>
     {% endif %}
     {% if d.event.status == 'approved' %}
-    <form method="post" action="/events/{{ d.event.id }}/cancel">
+    <form method="post" action="/events/{{ d.event.id }}/cancel" style="display:inline">
         <button type="submit" class="btn-small">Пометить отменённым</button>
     </form>
     {% endif %}
+    </div>
 
     <h3>Корректировка</h3>
     <form method="post" action="/events/{{ d.event.id }}/adjust" class="filters-form">
-        <label>Impact <input type="number" name="impact_score" min="0" max="100" step="0.1" value="{{ d.event.impact_score }}"></label>
+        <label title="Оценка влияния на спрос, 0–100">Влияние на спрос
+            <input type="number" name="impact_score" min="0" max="100" step="0.1" value="{{ d.event.impact_score }}">
+        </label>
         <label>Вместимость <input type="number" name="estimated_capacity" value="{{ d.event.estimated_capacity or '' }}"></label>
-        <label>Масштаб
+        <label>Масштаб аудитории
             <select name="audience_scope">
-                {% for scope in ['local','regional','national','international','unknown'] %}
-                <option value="{{ scope }}" {% if d.event.audience_scope == scope %}selected{% endif %}>{{ scope }}</option>
+                {% for scope in data.scopes %}
+                <option value="{{ scope.id }}" {% if d.event.audience_scope == scope.id %}selected{% endif %}>{{ scope.label }}</option>
                 {% endfor %}
             </select>
         </label>
@@ -184,8 +138,60 @@
     {% endfor %}
     </ul>
     {% endif %}
+</div>
+{% endif %}
 
+<div class="card">
+    <h2>Таблица проверки событий</h2>
+    <p class="muted">Здесь можно открыть карточку, подтвердить или отклонить событие.</p>
+    {% if data.events %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Даты</th>
+                <th>Название</th>
+                <th>Категория</th>
+                <th title="Оценка 0–100: насколько событие может увеличить спрос на проживание">Влияние на спрос</th>
+                <th>Статус</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for e in data.events %}
+            <tr class="{% if e.selected %}row-selected{% endif %}{% if e.needs_approval %} row-warn{% endif %}{% if e.high_impact %} row-warn-strong{% endif %}">
+                <td>{{ e.start_at[8:10] }}.{{ e.start_at[5:7] }}{% if e.end_at != e.start_at %}–{{ e.end_at[8:10] }}.{{ e.end_at[5:7] }}{% endif %}</td>
+                <td>
+                    <a href="/events/{{ e.id }}#event-detail">{{ e.title }}</a>
+                    {% if e.in_forecast %}<span class="badge badge-green" title="Учтено в прогнозе">📈</span>{% endif %}
+                </td>
+                <td>{{ e.category_label }}</td>
+                <td>
+                    <strong>{{ e.impact_score }}</strong>
+                    <span class="muted">({{ e.impact_level_label }})</span>
+                </td>
+                <td>{{ e.status_label }}</td>
+                <td class="events-actions">
+                    {% if e.needs_approval %}
+                    <form method="post" action="/events/{{ e.id }}/approve" style="display:inline">
+                        <button type="submit" class="btn-small" title="Подтвердить">✅</button>
+                    </form>
+                    <form method="post" action="/events/{{ e.id }}/reject" style="display:inline">
+                        <button type="submit" class="btn-small btn-danger" title="Отклонить">❌</button>
+                    </form>
+                    {% endif %}
+                    <a href="/events/{{ e.id }}#event-detail" class="btn-small">Карточка</a>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
     {% else %}
+    <p class="muted">📭 Нет событий в горизонте. Нажмите «Обновить источники» или добавьте вручную.</p>
+    {% endif %}
+</div>
+
+{% if not data.detail %}
+<div class="card">
     <h2>Добавить событие</h2>
     <form method="post" action="/events/create" class="filters-form">
         <label>Название <input type="text" name="title" required></label>
@@ -200,31 +206,35 @@
         </label>
         <label>Площадка <input type="text" name="venue_name"></label>
         <label>Вместимость <input type="number" name="estimated_capacity" min="0"></label>
-        <label>Масштаб
+        <label>Масштаб аудитории
             <select name="audience_scope">
-                <option value="unknown">unknown</option>
-                <option value="local">local</option>
-                <option value="regional">regional</option>
-                <option value="national">national</option>
-                <option value="international">international</option>
+                {% for scope in data.scopes %}
+                <option value="{{ scope.id }}">{{ scope.label }}</option>
+                {% endfor %}
             </select>
         </label>
         <label>Описание <input type="text" name="description"></label>
         <button type="submit">Создать (сразу подтверждено)</button>
     </form>
-    {% endif %}
 </div>
-</div>
+{% endif %}
 
 <style>
-.events-calendar { display: flex; flex-wrap: wrap; gap: 4px; }
-.events-cal-day { width: 42px; text-align: center; padding: 4px 2px; border-radius: 4px; background: var(--surface-2); font-size: .75rem; }
-.events-cal-day.has-events { background: var(--primary-soft); border: 1px solid var(--primary); }
-.events-cal-count { display: block; font-weight: bold; color: var(--primary-h); }
+.event-detail-card { border: 2px solid var(--primary); }
+.event-detail-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.event-detail-title { font-size: 1.15rem; margin: 0.35rem 0; }
+.event-detail-actions { margin: 0.75rem 0 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .row-warn { background: var(--warn-bg); }
 .row-warn-strong { box-shadow: inset 3px 0 0 var(--warn); }
+.row-selected { outline: 2px solid var(--primary); outline-offset: -2px; }
 .badge-green { background: var(--ok-bg); color: var(--ok); padding: 2px 6px; border-radius: 4px; font-size: .75rem; }
 .events-actions { white-space: nowrap; }
 .events-actions form { display: inline; }
 </style>
+<script>
+(function () {
+  var el = document.getElementById('event-detail');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+})();
+</script>
 {% endblock %}

@@ -350,11 +350,13 @@ async def events_page(
     redirect = _require_auth(request)
     if redirect:
         return redirect
+    # Старый формат ?event_id= → отдельная карточка
+    if event_id is not None:
+        return RedirectResponse(url=f"/events/{event_id}", status_code=status.HTTP_302_FOUND)
     data = queries.fetch_events_bundle(
         status=status,
         category=category,
         min_impact=min_impact,
-        event_id=event_id,
     )
     return templates.TemplateResponse(
         request,
@@ -403,6 +405,22 @@ async def events_public_page(
         request,
         "events_public.html",
         {"request": request, "data": data},
+    )
+
+
+@app.get("/events/{event_id}", response_class=HTMLResponse)
+async def events_detail_page(request: Request, event_id: int) -> Response:
+    """Подробная карточка события + таблица проверки."""
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    data = queries.fetch_events_bundle(event_id=event_id)
+    if not data.get("detail"):
+        return RedirectResponse(url="/events", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse(
+        request,
+        "events.html",
+        {"request": request, "data": data, "page": "events"},
     )
 
 
@@ -456,7 +474,7 @@ async def events_approve(request: Request, event_id: int, comment: str = Form(de
     from src.events.service import approve_event
 
     approve_event(event_id, comment=comment.strip() or None)
-    return RedirectResponse(url=f"/events?event_id={event_id}", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url=f"/events/{event_id}", status_code=status.HTTP_302_FOUND)
 
 
 @app.post("/events/{event_id}/reject")
@@ -467,7 +485,7 @@ async def events_reject(request: Request, event_id: int, comment: str = Form(def
     from src.events.service import reject_event
 
     reject_event(event_id, comment=comment.strip() or None)
-    return RedirectResponse(url=f"/events?event_id={event_id}", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url=f"/events/{event_id}", status_code=status.HTTP_302_FOUND)
 
 
 @app.post("/events/{event_id}/cancel")
@@ -478,7 +496,7 @@ async def events_cancel(request: Request, event_id: int, comment: str = Form(def
     from src.events.service import cancel_event
 
     cancel_event(event_id, comment=comment.strip() or None)
-    return RedirectResponse(url=f"/events?event_id={event_id}", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url=f"/events/{event_id}", status_code=status.HTTP_302_FOUND)
 
 
 @app.post("/events/{event_id}/adjust")
@@ -506,7 +524,7 @@ async def events_adjust(
         end_at=date.fromisoformat(end_at) if end_at.strip() else None,
         comment=comment.strip() or None,
     )
-    return RedirectResponse(url=f"/events?event_id={event_id}", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url=f"/events/{event_id}", status_code=status.HTTP_302_FOUND)
 
 
 @app.get("/snapshots", response_class=HTMLResponse)
