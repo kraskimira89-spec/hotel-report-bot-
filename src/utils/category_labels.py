@@ -76,3 +76,68 @@ def room_type_label(
     if re.search(r"[А-Яа-яЁё]", raw):
         return raw
     return category_label(raw)
+
+
+# Короткие подписи для сводки Max (slug / длинное имя → компактно).
+DEFAULT_CATEGORY_SHORT_MAP: dict[str, str] = {
+    "1room23": "1-КК 23",
+    "1room": "1-КК 27",
+    "uluchshennyie-odnokomnatnyie-kvartiryi": "1-КК ул.",
+    "family-30": "1-КК диван",
+    "dvuxkomnatnyie-kvartiryi-(2-krovati)": "2-КК (2кр)",
+    "dvuxkomnatnyie-kvartiryi-3": "2-КК (3кр)",
+    "80m2-apartamentyi": "2-КК люкс",
+    "luxe": "Люкс",
+    "lux": "Люкс",
+}
+
+
+def category_short_label(
+    name_or_slug: str,
+    short_map: dict[str, str] | None = None,
+) -> str:
+    """Короткая подпись категории для сводки Max (1-КК / 2-КК)."""
+    raw = (name_or_slug or "").strip()
+    if not raw:
+        return "—"
+    # Служебные строки сводки — не трогаем.
+    if raw.casefold() in {"итого", "все категории", "прочее"}:
+        return raw
+    if raw.casefold() in {"люкс", "luxe", "lux"}:
+        return "Люкс"
+
+    merged = {**DEFAULT_CATEGORY_SHORT_MAP, **(short_map or {})}
+    key = _normalize_slug(raw)
+    for cand in (key, raw, raw.strip().strip("/")):
+        if cand in merged:
+            return merged[cand]
+        for map_key, short in merged.items():
+            if _normalize_slug(map_key) == key:
+                return short
+
+    # Эвристики по русскому / slug тексту.
+    low = raw.casefold()
+    if "диван" in low or "family" in low:
+        return "1-КК диван"
+    if "улучш" in low or "uluchsh" in low:
+        return "1-КК ул."
+    if "люкс" in low or "80m2" in low:
+        return "2-КК люкс"
+    if "3 кроват" in low or "3кроват" in low or re.search(r"\b3\b", low) and "двух" in low:
+        return "2-КК (3кр)"
+    if "2 кроват" in low or "2кроват" in low or "(2" in low and "двух" in low:
+        return "2-КК (2кр)"
+    if "двухкомнат" in low or "dvux" in low or "2room" in low or "2-кк" in low:
+        return "2-КК"
+    m23 = re.search(r"23\s*м", low) or "1room23" in key
+    m27 = re.search(r"27\s*м", low) or (key == "1room")
+    if "однокомнат" in low or "1room" in key or "1-кк" in low or "1-комн" in low:
+        if m23 or re.search(r"\b23\b", low):
+            return "1-КК 23"
+        if m27 or re.search(r"\b27\b", low):
+            return "1-КК 27"
+        return "1-КК"
+    # Уже короткое (латиница/цифры без «квартир»).
+    if len(raw) <= 12 and "квартир" not in low:
+        return raw
+    return raw

@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, Field
 
+from src.analytics.prompt_loader import build_llm_prompt_parts
 from src.config import get_config, get_env_settings
 from src.data_sources.sheets import GoogleSheetsClient, OccupancyDay
 from src.metrics.guests import classify_channel
@@ -725,17 +726,15 @@ def _call_llm(
     folder_id: str = "",
 ) -> InsightCard | None:
     """Один вызов OpenAI-compatible Chat Completions (YandexGPT / OpenAI)."""
-    prompt = (
-        "Ты аналитик апарт-отеля 1apart (Томск, 44 кв.). "
-        "Пиши ТОЛЬКО по-русски: title, summary и recommendations на русском. "
-        "Запрещены английские фразы вроде Occupancy Data, unavailable, Regulation. "
-        "Аббревиатуры расшифровывай: "
-        f"{ADR_RU}; {REVPAR_RU}; ALS (средний срок проживания). "
-        "Загрузку называй «загрузка», не Occupancy. "
-        "По контексту верни ТОЛЬКО JSON без markdown:\n"
+    system_prompt, task_prompt = build_llm_prompt_parts("numeric")
+    user_prompt = (
+        f"{task_prompt}\n\n"
+        "Дополнительно для этой карточки ленты: верни ТОЛЬКО JSON без markdown:\n"
         '{"title":"...","summary":"1-2 предложения","recommendations":["...","..."],'
         '"severity":"info|attention|action"}\n'
-        f"Тема: {topic}\nКонтекст: {json.dumps(context, ensure_ascii=False)[:3500]}"
+        f"Аббревиатуры: {ADR_RU}; {REVPAR_RU}; ALS (средний срок проживания).\n"
+        f"Тема карточки: {topic}\n"
+        f"Контекст (JSON): {json.dumps(context, ensure_ascii=False)[:3500]}"
     )
     url = base_url.rstrip("/") + "/chat/completions"
     headers = _build_llm_headers(api_key, folder_id=folder_id)
@@ -747,14 +746,8 @@ def _call_llm(
                 json={
                     "model": model,
                     "messages": [
-                        {
-                            "role": "system",
-                            "content": (
-                                "Отвечай только валидным JSON. "
-                                "Весь текст полей — строго на русском языке."
-                            ),
-                        },
-                        {"role": "user", "content": prompt},
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
                     ],
                     "temperature": 0.3,
                 },

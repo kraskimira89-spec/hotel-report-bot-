@@ -60,6 +60,21 @@ def analytics_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def analytics_client(analytics_db: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     _ = analytics_db
     monkeypatch.setattr(
+        "src.analytics.ai_insights._resolve_llm_settings",
+        lambda: ("", "", "", ""),
+    )
+    monkeypatch.setattr(
+        "src.analytics.ai_insights._collect_sheets_overlay",
+        lambda *a, **k: {
+            "occupancy_series": [],
+            "occupancy_current": None,
+            "occupancy_previous": None,
+            "by_type": [],
+            "channels": None,
+            "available": False,
+        },
+    )
+    monkeypatch.setattr(
         "src.web.app.get_env_settings",
         lambda: type(
             "E",
@@ -92,8 +107,22 @@ def test_parse_llm_insight_json() -> None:
     assert "падает" in card.title.lower() or "Загрузка" in card.title
 
 
-def test_generate_insights_rule_based(analytics_db: Path) -> None:
+def test_generate_insights_rule_based(
+    analytics_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _ = analytics_db
+    monkeypatch.setattr(
+        "src.analytics.ai_insights._collect_sheets_overlay",
+        lambda *a, **k: {
+            "occupancy_series": [],
+            "occupancy_current": None,
+            "occupancy_previous": None,
+            "by_type": [],
+            "channels": None,
+            "available": False,
+        },
+    )
     cards = generate_insights(period_days=14, use_llm=False)
     assert len(cards) >= 8
     topics = {c.topic for c in cards}
@@ -101,8 +130,26 @@ def test_generate_insights_rule_based(analytics_db: Path) -> None:
     assert "competitors" in topics
 
 
-def test_run_insights_refresh_and_sort(analytics_db: Path) -> None:
+def test_run_insights_refresh_and_sort(
+    analytics_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _ = analytics_db
+    monkeypatch.setattr(
+        "src.analytics.ai_insights._resolve_llm_settings",
+        lambda: ("", "", "", ""),
+    )
+    monkeypatch.setattr(
+        "src.analytics.ai_insights._collect_sheets_overlay",
+        lambda *a, **k: {
+            "occupancy_series": [],
+            "occupancy_current": None,
+            "occupancy_previous": None,
+            "by_type": [],
+            "channels": None,
+            "available": False,
+        },
+    )
     saved = run_insights_refresh(period_days=14)
     assert saved >= 8
     rows = queries.get_insights()
@@ -169,8 +216,26 @@ def test_root_redirects_to_analytics(analytics_client: TestClient) -> None:
     assert "/analytics" in resp.headers.get("location", "")
 
 
-def test_fallback_rule_based_without_llm(analytics_db: Path) -> None:
+def test_fallback_rule_based_without_llm(
+    analytics_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _ = analytics_db
+    monkeypatch.setattr(
+        "src.analytics.ai_insights._resolve_llm_settings",
+        lambda: ("", "", "", ""),
+    )
+    monkeypatch.setattr(
+        "src.analytics.ai_insights._collect_sheets_overlay",
+        lambda *a, **k: {
+            "occupancy_series": [],
+            "occupancy_current": None,
+            "occupancy_previous": None,
+            "by_type": [],
+            "channels": None,
+            "available": False,
+        },
+    )
     run_insights_refresh(period_days=14)
     before = len(get_insights_records())
     cards = generate_insights(use_llm=False)

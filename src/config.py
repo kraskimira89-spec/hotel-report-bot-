@@ -37,6 +37,7 @@ class SchedulerConfig(BaseModel):
     weekly_email_cron: str = "0 8 * * 1"
     weekly_trends_cron: str = "0 7 * * 1"
     competitor_prices_cron: str = "30 9 * * 1"  # пн 09:30 — автосбор цен (Playwright)
+    mail_inbox_cron: str = "45 9 * * *"  # ежедневно после snapshot / аналитики
 
 
 class DeployConfig(BaseModel):
@@ -236,6 +237,33 @@ class AnalyticsConfig(BaseModel):
     openai_base_url: str = "https://api.openai.com/v1"
 
 
+class ImapMailboxConfig(BaseModel):
+    """Один IMAP-ящик (Яндекс / Gmail)."""
+
+    enabled: bool = False
+    host: str = ""
+    port: int = 993
+    use_ssl: bool = True
+    folders: list[str] = Field(default_factory=lambda: ["INBOX"])
+    # Ключ секретов в EnvSettings: yandex | gmail
+    account: str = "yandex"
+
+
+class MailInboxConfig(BaseModel):
+    """Чтение входящей почты (Issue #13)."""
+
+    enabled: bool = False
+    lookback_days: int = 7
+    report_senders: list[str] = Field(
+        default_factory=lambda: [
+            "noreply@travelline.ru",
+            "reports@travelline.ru",
+            "@travelline.ru",
+        ]
+    )
+    mailboxes: list[ImapMailboxConfig] = Field(default_factory=list)
+
+
 class AppConfig(BaseModel):
     """Полная конфигурация приложения из settings.yaml."""
 
@@ -258,6 +286,7 @@ class AppConfig(BaseModel):
     sheets: SheetsConfig = Field(default_factory=SheetsConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     analytics: AnalyticsConfig = Field(default_factory=AnalyticsConfig)
+    mail_inbox: MailInboxConfig = Field(default_factory=MailInboxConfig)
 
 
 class EnvSettings(BaseSettings):
@@ -302,6 +331,11 @@ class EnvSettings(BaseSettings):
         alias="LLM_BASE_URL",
     )
     llm_model: str = Field(default="", alias="LLM_MODEL")
+    # IMAP входящая почта (Issue #13)
+    imap_yandex_user: str = Field(default="", alias="IMAP_YANDEX_USER")
+    imap_yandex_password: str = Field(default="", alias="IMAP_YANDEX_PASSWORD")
+    imap_gmail_user: str = Field(default="", alias="IMAP_GMAIL_USER")
+    imap_gmail_password: str = Field(default="", alias="IMAP_GMAIL_PASSWORD")
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

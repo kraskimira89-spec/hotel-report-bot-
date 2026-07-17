@@ -124,11 +124,11 @@ def test_build_daily_summary_text_contains_sections() -> None:
     text = build_daily_summary_text(_sample_summary())
     assert "07.07.2026" in text
     assert "🟢 72.5%" in text
-    assert "1-комн. 23" in text
+    assert "1-КК" in text
     assert "Итого" in text
     assert "Новые брони" in text
     assert "1apart.ru" in text
-    assert "Однокомнатные квартиры 23 м²" in text
+    assert "1-КК 23" in text
     assert "1room" not in text
     assert "4 500" in text or "4500" in text
 

@@ -13,6 +13,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from src.analytics.ai_insights import run_insights_refresh
 from src.config import get_config
+from src.data_sources.mail_inbox import collect_and_save_mail_inbox
 from src.data_sources.market_trends import (
     collect_and_save_competitor_prices,
     run_weekly_trends_collection,
@@ -96,6 +97,32 @@ def job_competitor_prices(
         run_date,
         report_date,
         lambda: collect_and_save_competitor_prices(report_date),
+    )
+
+
+def job_mail_inbox(
+    report_date: date | None = None,
+    run_date: date | None = None,
+) -> None:
+    """Ежедневный сбор входящей почты (IMAP)."""
+    run_date = run_date or _msk_now().date()
+    report_date = report_date or run_date
+    cfg = get_config()
+    if not getattr(cfg.mail_inbox, "enabled", False):
+        logger.info("mail_inbox выключен — задача пропущена")
+        return
+    logger.info(
+        "Задача mail_inbox: report_date=%s, run_date=%s",
+        report_date,
+        run_date,
+    )
+    lookback = max(1, int(getattr(cfg.mail_inbox, "lookback_days", 7) or 7))
+    period_start = report_date - timedelta(days=lookback)
+    _run_job(
+        "mail_inbox",
+        run_date,
+        report_date,
+        lambda: collect_and_save_mail_inbox(period_start, report_date),
     )
 
 
@@ -281,6 +308,8 @@ def create_scheduler() -> BackgroundScheduler:
     analytics_cron = getattr(cfg.analytics, "refresh_cron", "15 9 * * *")
     analytics_kw = _parse_cron(analytics_cron)
     competitors_kw = _parse_cron(cfg.scheduler.competitor_prices_cron)
+    mail_cron = getattr(cfg.scheduler, "mail_inbox_cron", "45 9 * * *")
+    mail_kw = _parse_cron(mail_cron)
 
     scheduler.add_job(
         job_price_snapshot,
@@ -319,6 +348,13 @@ def create_scheduler() -> BackgroundScheduler:
         id="competitor_prices",
         name="Цены конкурентов",
     )
+    if getattr(cfg.mail_inbox, "enabled", False):
+        scheduler.add_job(
+            job_mail_inbox,
+            CronTrigger(timezone=tz, **mail_kw),
+            id="mail_inbox",
+            name="Входящая почта",
+        )
 
     scheduler.add_listener(_on_job_finished, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
 

@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 TRENDS_RETENTION_DAYS = 180
 INSIGHTS_RETENTION_DAYS = 90
@@ -147,8 +147,25 @@ TABLES: list[str] = [
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS mail_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id TEXT NOT NULL,
+        mailbox TEXT NOT NULL,
+        folder TEXT NOT NULL DEFAULT 'INBOX',
+        from_addr TEXT NOT NULL DEFAULT '',
+        subject TEXT NOT NULL DEFAULT '',
+        received_at TEXT,
+        body_excerpt TEXT NOT NULL DEFAULT '',
+        mail_class TEXT NOT NULL DEFAULT 'other',
+        for_reviews INTEGER NOT NULL DEFAULT 0,
+        parsed_json TEXT NOT NULL DEFAULT '{}',
+        headers_hash TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(message_id, mailbox)
+    )
+    """,
 ]
-
 INDEXES: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_price_snapshots_date ON price_snapshots(snapshot_date)",
     "CREATE INDEX IF NOT EXISTS idx_price_snapshots_at ON price_snapshots(snapshot_at)",
@@ -168,6 +185,9 @@ INDEXES: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_insights_topic ON insights(topic)",
     "CREATE INDEX IF NOT EXISTS idx_insights_severity ON insights(severity)",
     "CREATE INDEX IF NOT EXISTS idx_insights_updated ON insights(updated_at)",
+    "CREATE INDEX IF NOT EXISTS idx_mail_messages_received ON mail_messages(received_at)",
+    "CREATE INDEX IF NOT EXISTS idx_mail_messages_class ON mail_messages(mail_class)",
+    "CREATE INDEX IF NOT EXISTS idx_mail_messages_for_reviews ON mail_messages(for_reviews)",
 ]
 
 MIGRATIONS_V2: list[str] = [
@@ -259,6 +279,31 @@ MIGRATIONS_V6: list[str] = [
     "ALTER TABLE competitor_prices ADD COLUMN category TEXT NOT NULL DEFAULT ''",
     "CREATE INDEX IF NOT EXISTS idx_competitor_prices_name_cat_date "
     "ON competitor_prices(competitor_name, category, date)",
+]
+
+MIGRATIONS_V7: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS mail_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id TEXT NOT NULL,
+        mailbox TEXT NOT NULL,
+        folder TEXT NOT NULL DEFAULT 'INBOX',
+        from_addr TEXT NOT NULL DEFAULT '',
+        subject TEXT NOT NULL DEFAULT '',
+        received_at TEXT,
+        body_excerpt TEXT NOT NULL DEFAULT '',
+        mail_class TEXT NOT NULL DEFAULT 'other',
+        for_reviews INTEGER NOT NULL DEFAULT 0,
+        parsed_json TEXT NOT NULL DEFAULT '{}',
+        headers_hash TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(message_id, mailbox)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_mail_messages_received ON mail_messages(received_at)",
+    "CREATE INDEX IF NOT EXISTS idx_mail_messages_class ON mail_messages(mail_class)",
+    "CREATE INDEX IF NOT EXISTS idx_mail_messages_for_reviews "
+    "ON mail_messages(for_reviews)",
 ]
 
 
@@ -394,6 +439,24 @@ class InsightRecord(BaseModel):
     period: str = ""
     detail_payload: dict = {}
     updated_at: datetime | None = None
+    id: int | None = None
+
+
+class MailMessageRecord(BaseModel):
+    """Письмо из IMAP (Issue #13)."""
+
+    message_id: str
+    mailbox: str
+    folder: str = "INBOX"
+    from_addr: str = ""
+    subject: str = ""
+    received_at: datetime | None = None
+    body_excerpt: str = ""
+    mail_class: str = "other"
+    for_reviews: bool = False
+    parsed_json: dict = {}
+    headers_hash: str = ""
+    created_at: datetime | None = None
     id: int | None = None
 
 

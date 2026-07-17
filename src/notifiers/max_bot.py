@@ -28,7 +28,11 @@ from src.storage.db import (
     save_report_log,
 )
 from src.storage.models import ErrorLogRecord, ReportLogRecord
-from src.utils.category_labels import category_label, room_type_label
+from src.utils.category_labels import (
+    category_label,
+    category_short_label,
+    room_type_label,
+)
 from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -450,7 +454,8 @@ def build_daily_summary_text(data: DailySummaryData) -> str:
 
     for row in data.room_types:
         lines.append(
-            f"• {row.label}: {row.free} / {row.occupied} / {row.booked}"
+            f"• {category_short_label(row.label)}: "
+            f"{row.free} / {row.occupied} / {row.booked}"
         )
     if data.totals:
         t = data.totals
@@ -480,7 +485,7 @@ def build_daily_summary_text(data: DailySummaryData) -> str:
                 sign = "+" if price.change_pct > 0 else ""
                 change_txt = f"{sign}{price.change_pct:.1f}%"
             lines.append(
-                f"{price.traffic_light} {price.category}: "
+                f"{price.traffic_light} {category_short_label(price.category)}: "
                 f"{price.price:,.0f} ₽ ({change_txt})".replace(",", " ")
             )
     else:

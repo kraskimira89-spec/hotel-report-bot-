@@ -16,6 +16,7 @@ from src.storage.models import (
     MIGRATIONS_V4,
     MIGRATIONS_V5,
     MIGRATIONS_V6,
+    MIGRATIONS_V7,
     SCHEMA_VERSION,
     TABLES,
     TRENDS_RETENTION_DAYS,
@@ -24,6 +25,7 @@ from src.storage.models import (
     ErrorLogRecord,
     GuestRecord,
     InsightRecord,
+    MailMessageRecord,
     MetricsDailyRecord,
     PeriodComparison,
     PricePeriodComparison,
@@ -132,6 +134,12 @@ def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
                 logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
     if current < 6:
         for ddl in MIGRATIONS_V6:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 7:
+        for ddl in MIGRATIONS_V7:
             try:
                 conn.execute(ddl)
             except sqlite3.OperationalError as exc:
@@ -1112,3 +1120,110 @@ def insights_count() -> int:
     with db_session() as conn:
         row = conn.execute("SELECT COUNT(*) AS c FROM insights").fetchone()
     return int(row["c"])
+
+
+def save_mail_messages(
+    records: Iterable[MailMessageRecord],
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Upsert писем по (message_id, mailbox)."""
+    import json
+
+    sql = """
+        INSERT INTO mail_messages (
+            message_id, mailbox, folder, from_addr, subject, received_at,
+            body_excerpt, mail_class, for_reviews, parsed_json, headers_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(message_id, mailbox) DO UPDATE SET
+            folder=excluded.folder,
+            from_addr=excluded.from_addr,
+            subject=excluded.subject,
+            received_at=excluded.received_at,
+            body_excerpt=excluded.body_excerpt,
+            mail_class=excluded.mail_class,
+            for_reviews=excluded.for_reviews,
+            parsed_json=excluded.parsed_json,
+            headers_hash=excluded.headers_hash
+    """
+
+    def _save(c: sqlite3.Connection) -> int:
+        count = 0
+        for item in records:
+            c.execute(
+                sql,
+                (
+                    item.message_id,
+                    item.mailbox,
+                    item.folder,
+                    item.from_addr,
+                    item.subject,
+                    _dt_str(item.received_at) if item.received_at else None,
+                    item.body_excerpt,
+                    item.mail_class,
+                    1 if item.for_reviews else 0,
+                    json.dumps(item.parsed_json or {}, ensure_ascii=False),
+                    item.headers_hash,
+                ),
+            )
+            count += 1
+        return count
+
+    if conn is not None:
+        return _save(conn)
+    with db_session() as connection:
+        return _save(connection)
+
+
+def get_mail_messages(
+    *,
+    mail_class: str | None = None,
+    for_reviews: bool | None = None,
+    limit: int = 200,
+) -> list[MailMessageRecord]:
+    """Прочитать письма из inbox-хранилища."""
+    import json
+
+    sql = "SELECT * FROM mail_messages WHERE 1=1"
+    params: list[object] = []
+    if mail_class:
+        sql += " AND mail_class = ?"
+        params.append(mail_class)
+    if for_reviews is not None:
+        sql += " AND for_reviews = ?"
+        params.append(1 if for_reviews else 0)
+    sql += " ORDER BY received_at DESC, id DESC LIMIT ?"
+    params.append(limit)
+
+    with db_session() as conn:
+        rows = conn.execute(sql, params).fetchall()
+
+    out: list[MailMessageRecord] = []
+    for row in rows:
+        parsed: dict = {}
+        try:
+            parsed = json.loads(row["parsed_json"] or "{}")
+        except json.JSONDecodeError:
+            parsed = {}
+        received = None
+        if row["received_at"]:
+            try:
+                received = datetime.fromisoformat(str(row["received_at"]))
+            except ValueError:
+                received = None
+        out.append(
+            MailMessageRecord(
+                id=row["id"],
+                message_id=row["message_id"],
+                mailbox=row["mailbox"],
+                folder=row["folder"],
+                from_addr=row["from_addr"],
+                subject=row["subject"],
+                received_at=received,
+                body_excerpt=row["body_excerpt"],
+                mail_class=row["mail_class"],
+                for_reviews=bool(row["for_reviews"]),
+                parsed_json=parsed,
+                headers_hash=row["headers_hash"],
+            )
+        )
+    return out
