@@ -176,6 +176,70 @@ def _push_enabled() -> bool:
     }
 
 
+def _maybe_push(*, reason: str) -> None:
+    """Push HEAD to upstream if branch is ahead (Sync Changes)."""
+    if not _push_enabled():
+        # #region agent log
+        _dbg("H2", "post_task_commit.py:_maybe_push", "push disabled", {"reason": reason})
+        # #endregion
+        print("post_task_commit: push отключён (CURSOR_AUTO_PUSH=0)", file=sys.stderr)
+        return
+
+    behind, ahead = _ahead_behind()
+    # #region agent log
+    _dbg(
+        "H1",
+        "post_task_commit.py:_maybe_push:before",
+        "considering push",
+        {"reason": reason, "behind": behind, "ahead": ahead},
+    )
+    # #endregion
+    if ahead <= 0:
+        return
+
+    # Не пушим, если remote ушёл вперёд — иначе нужен pull/merge
+    if behind > 0:
+        print(
+            f"post_task_commit: push пропущен — behind={behind}, ahead={ahead}",
+            file=sys.stderr,
+        )
+        # #region agent log
+        _dbg(
+            "H2",
+            "post_task_commit.py:_maybe_push:diverged",
+            "skip push due to divergence",
+            {"behind": behind, "ahead": ahead},
+        )
+        # #endregion
+        return
+
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip() or "HEAD"
+    push = _git("push", "-u", "origin", "HEAD")
+    behind2, ahead2 = _ahead_behind()
+    # #region agent log
+    _dbg(
+        "H2",
+        "post_task_commit.py:_maybe_push:after",
+        "push finished",
+        {
+            "reason": reason,
+            "branch": branch,
+            "returncode": push.returncode,
+            "stderr": (push.stderr or "")[-500:],
+            "stdout": (push.stdout or "")[-500:],
+            "behind_after": behind2,
+            "ahead_after": ahead2,
+            "push_attempted": True,
+        },
+    )
+    # #endregion
+    if push.returncode != 0:
+        err = (push.stderr or push.stdout or "push failed").strip()
+        print(f"post_task_commit: push error: {err}", file=sys.stderr)
+        return
+    print(f"post_task_commit: pushed {branch} (ahead→{ahead2})")
+
+
 def main() -> int:
     # stdin от Cursor (JSON) — читаем и игнорируем ошибки
     try:
@@ -233,10 +297,11 @@ def main() -> int:
         _dbg(
             "H1",
             "post_task_commit.py:main:nothing",
-            "no commit; check if still ahead without push",
-            {"behind": behind, "ahead": ahead, "push_attempted": False},
+            "no commit; may still need push",
+            {"behind": behind, "ahead": ahead},
         )
         # #endregion
+        _maybe_push(reason="nothing_to_commit_but_maybe_ahead")
         return 0
 
     msg = _commit_message(paths)
@@ -299,17 +364,17 @@ def main() -> int:
     _dbg(
         "H1",
         "post_task_commit.py:main:after_commit",
-        "commit done; push path status",
+        "commit done; calling push",
         {
             "short": short,
             "behind": behind1,
             "ahead": ahead1,
-            "push_attempted": False,
-            "reason": "push not implemented in hook yet",
         },
     )
     # #endregion
+    _maybe_push(reason="after_commit")
     return 0
+
 
 
 if __name__ == "__main__":
