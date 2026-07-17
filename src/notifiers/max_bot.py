@@ -402,9 +402,35 @@ def prepare_daily_summary_data(
             )
         )
 
+    # Fallback: сегодняшние или последние snapshot (до 7 дней назад)
+    if not price_lines:
+        snaps = get_price_snapshots_by_date(report_date)
+        snap_date = report_date
+        if not snaps:
+            for back in range(1, 8):
+                snap_date = report_date - timedelta(days=back)
+                snaps = get_price_snapshots_by_date(snap_date)
+                if snaps:
+                    warnings.append(
+                        f"Цены «от» взяты за {snap_date.strftime('%d.%m.%Y')} "
+                        f"(за {report_date.strftime('%d.%m.%Y')} snapshot нет)."
+                    )
+                    break
+        for snap in snaps:
+            price_lines.append(
+                CategoryPriceLine(
+                    category=category_label(snap.category, cfg.category_slug_map),
+                    price=snap.price,
+                    change_pct=None,
+                    traffic_light="🟡",
+                )
+            )
+
     snapshots = get_price_snapshots_by_date(report_date)
     if any(s.is_fallback for s in snapshots):
         warnings.append("Часть данных по ценам из последнего снимка.")
+    if not price_lines:
+        warnings.append("Нет snapshot цен — в сводке только статус номеров.")
 
     revenue: float | None = None
     revenue_change_pct: float | None = None
@@ -511,7 +537,7 @@ def build_daily_summary_sections(data: DailySummaryData) -> list[str]:
         f"📊 *Сводка за {data.report_date.strftime('%d.%m.%Y')}*",
         f"*Загрузка:* {data.occupancy_light} {data.occupancy_pct:.1f}%",
         "",
-        "*Категории* (цена «от» / св / зан / брон):",
+        "*Категории* (цена «от» / зан / брон / св):",
     ]
     for row in data.room_types:
         short = category_short_label(row.label)
@@ -519,16 +545,16 @@ def build_daily_summary_sections(data: DailySummaryData) -> list[str]:
         if price is not None:
             section_occupancy.append(
                 f"• {short}. за {_format_price_rub(price.price)} ₽  "
-                f"{row.free} / {row.occupied} / {row.booked}"
+                f"{row.occupied} / {row.booked} / {row.free}"
             )
         else:
             section_occupancy.append(
-                f"• {short}.  —  {row.free} / {row.occupied} / {row.booked}"
+                f"• {short}.  —  {row.occupied} / {row.booked} / {row.free}"
             )
     if data.totals:
         t = data.totals
         total_line = (
-            f"*Итого:* {t.free} / {t.occupied} / {t.booked} "
+            f"*Итого:* {t.occupied} / {t.booked} / {t.free} "
             f"(всего {t.total})"
         )
         if data.revenue is not None:

@@ -134,7 +134,7 @@ def test_build_daily_summary_text_contains_sections() -> None:
     assert "1-КК 23" in text
     assert "1room" not in text
     assert "за 4 500 ₽" in text
-    assert "1 / 4 / 1" in text
+    assert "4 / 1 / 1" in text
     assert "выручка 185 000 ₽" in text
     assert "🟢 +8.5% к вчера" in text
     assert "Цены «от» по категориям" not in text
