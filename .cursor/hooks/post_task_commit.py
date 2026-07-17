@@ -237,7 +237,7 @@ def _maybe_push(*, reason: str) -> None:
         err = (push.stderr or push.stdout or "push failed").strip()
         print(f"post_task_commit: push error: {err}", file=sys.stderr)
         return
-    print(f"post_task_commit: pushed {branch} (ahead→{ahead2})")
+    print(f"post_task_commit: pushed {branch} (ahead->{ahead2})")
 
 
 def main() -> int:
