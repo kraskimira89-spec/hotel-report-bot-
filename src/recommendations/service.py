@@ -161,8 +161,9 @@ def sync_price_recommendations(limit: int = 200) -> int:
             instruction_payload_json=payload,
             evidence_snapshot_json=evidence,
             expected_result=tmpl["expected_result"],
-            success_criteria_json={"items": tmpl["success_criteria"]},
-            rollback_plan="; ".join(tmpl["rollback_steps"]),
+            # Критерии и откат — только из шаблона при рендере (без дублей в JSON)
+            success_criteria_json={},
+            rollback_plan="",
             source_ref=f"price:{pr.id}",
         )
         upsert_recommendation(rec)
@@ -225,8 +226,8 @@ def build_system_recommendations() -> int:
                 "error_type": err.error_type,
             },
             expected_result=t["expected_result"],
-            success_criteria_json={"items": t["success_criteria"]},
-            rollback_plan="; ".join(t["rollback_steps"]),
+            success_criteria_json={},
+            rollback_plan="",
             source_ref=f"error:{digest}",
         )
         upsert_recommendation(rec)
@@ -262,8 +263,8 @@ def build_system_recommendations() -> int:
                     "report_status": rep.status,
                 },
                 expected_result=t["expected_result"],
-                success_criteria_json={"items": t["success_criteria"]},
-                rollback_plan="; ".join(t["rollback_steps"]),
+                success_criteria_json={},
+                rollback_plan="",
                 source_ref=ref,
             )
         )
@@ -292,8 +293,8 @@ def build_system_recommendations() -> int:
                     "model_version": run.model_version,
                 },
                 expected_result=t["expected_result"],
-                success_criteria_json={"items": t["success_criteria"]},
-                rollback_plan="; ".join(t["rollback_steps"]),
+                success_criteria_json={},
+                rollback_plan="",
                 source_ref="forecast_quality:h7",
             )
         )
@@ -376,22 +377,20 @@ def build_trend_pilot_recommendations(limit: int = 5) -> int:
                     "check_hours": 24 * 30,
                 },
                 evidence_snapshot_json={
+                    # Только контекст; пилот/метрики/критерий — в шагах и проверке
                     "what_happens": [
                         f"Тренд: {item['title']}.",
                         f"Уровень: {region} → потенциальная адаптация для Томска.",
                         f"Факт: практика подтверждена источником от {pub}.",
                         f"Гипотеза: {item['summary']}",
                         "Применимость к 1apart: средняя (требует пилота).",
-                        f"Пилот: {pilot}.",
-                        f"Метрики: {metrics}.",
-                        f"Условие масштабирования: {scale}.",
                     ],
                     "external_trend": item,
                     "local_confirmation": False,
                 },
                 expected_result=t["expected_result"],
-                success_criteria_json={"items": [scale]},
-                rollback_plan="; ".join(t["rollback_steps"]),
+                success_criteria_json={},
+                rollback_plan="",
                 source_ref=f"trend:{tid}",
             )
         )

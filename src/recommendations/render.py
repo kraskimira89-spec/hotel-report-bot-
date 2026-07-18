@@ -37,6 +37,49 @@ def substitute(text: str, variables: dict[str, Any]) -> str:
     return _VAR_RE.sub(repl, text)
 
 
+def _norm_text(text: str) -> str:
+    return " ".join(str(text).casefold().replace(";", " ").split())
+
+
+def dedupe_texts(items: list[str]) -> list[str]:
+    """Убрать точные и «склеенные» дубли (A; B vs A + B)."""
+    cleaned: list[str] = []
+    for raw in items:
+        t = " ".join(str(raw).split()).strip()
+        if not t or t == "—":
+            continue
+        cleaned.append(t)
+
+    atomics = [t for t in cleaned if ";" not in t]
+    joined = [t for t in cleaned if ";" in t]
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for t in atomics:
+        n = _norm_text(t)
+        if n in seen:
+            continue
+        seen.add(n)
+        out.append(t)
+
+    for t in joined:
+        parts = [p.strip() for p in t.split(";") if p.strip()]
+        if parts and all(_norm_text(p) in seen for p in parts):
+            continue
+        for p in parts:
+            pn = _norm_text(p)
+            if pn in seen:
+                continue
+            seen.add(pn)
+            out.append(p)
+        if not parts:
+            n = _norm_text(t)
+            if n not in seen:
+                seen.add(n)
+                out.append(t)
+    return out
+
+
 def render_instruction_card(rec: RecommendationRecord) -> dict[str, Any]:
     """Собрать блоки карточки для HTML/DOCX."""
     tmpl = get_template(rec.instruction_template)
@@ -63,17 +106,48 @@ def render_instruction_card(rec: RecommendationRecord) -> dict[str, Any]:
         if not what_happens and rec.summary:
             what_happens.append(rec.summary)
 
-    steps = [substitute(s, variables) for s in tmpl["steps"]]
+    steps = dedupe_texts([substitute(s, variables) for s in tmpl["steps"]])
     success = [substitute(s, variables) for s in tmpl["success_criteria"]]
     if rec.success_criteria_json:
         for item in rec.success_criteria_json.get("items") or []:
             success.append(substitute(str(item), variables))
+    success = dedupe_texts(success)
+
     rollback = [substitute(s, variables) for s in tmpl["rollback_steps"]]
     if rec.rollback_plan:
-        rollback.insert(0, substitute(rec.rollback_plan, variables))
+        rollback.append(substitute(rec.rollback_plan, variables))
+    rollback = dedupe_texts(rollback)
 
     goal = substitute(rec.expected_result or tmpl["expected_result"] or tmpl["goal"], variables)
     goal_detail = substitute(tmpl["goal"], variables)
+    if _norm_text(goal) == _norm_text(goal_detail):
+        goal_detail = ""
+
+    what_rendered = dedupe_texts([substitute(x, variables) for x in what_happens])
+    # Не повторять в «Что происходит» критерии/откат/шаги и блоки пилота
+    skip_norms = {_norm_text(x) for x in success + rollback + steps}
+    _moved_prefixes = (
+        "пилот:",
+        "метрики:",
+        "условие масштабирования:",
+    )
+
+    def _keep_what(line: str) -> bool:
+        n = _norm_text(line)
+        if n in skip_norms:
+            return False
+        for prefix in _moved_prefixes:
+            if n.startswith(prefix):
+                return False
+        return True
+
+    what_rendered = [x for x in what_rendered if _keep_what(x)]
+
+    check_hours = variables.get("check_hours", 24)
+    expected = substitute(rec.expected_result or tmpl["expected_result"], variables)
+    check_text = f"Проверить через: {_fmt(check_hours)} ч."
+    if expected and _norm_text(expected) != _norm_text(goal):
+        check_text += f" Ожидаемый результат: {expected}"
 
     return {
         "id": rec.id,
@@ -91,17 +165,15 @@ def render_instruction_card(rec: RecommendationRecord) -> dict[str, Any]:
         "target_date": rec.target_date.isoformat() if rec.target_date else None,
         "due_at": rec.due_at.isoformat(sep=" ", timespec="minutes") if rec.due_at else None,
         "due_hint": substitute(tmpl["due_hint"], variables),
-        "what_happens": [substitute(x, variables) for x in what_happens],
+        "what_happens": what_rendered,
         "goal": goal,
         "goal_detail": goal_detail,
-        "preconditions": [substitute(p, variables) for p in tmpl["preconditions"]],
+        "preconditions": dedupe_texts(
+            [substitute(p, variables) for p in tmpl["preconditions"]]
+        ),
         "steps": steps,
         "success_criteria": success,
-        "check_text": substitute(
-            "Проверить через: {{ check_hours }} ч. Ожидаемый результат: "
-            + (rec.expected_result or tmpl["expected_result"]),
-            {**variables, "check_hours": variables.get("check_hours", 24)},
-        ),
+        "check_text": check_text,
         "rollback_steps": rollback,
         "escalation": substitute(tmpl["escalation"], variables),
         "evidence": evidence,

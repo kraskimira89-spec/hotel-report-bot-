@@ -350,6 +350,62 @@ def test_render_card_blocks(client: TestClient) -> None:
     assert "4900" in card["steps"][3]
 
 
+def test_render_no_duplicate_success_or_rollback(client: TestClient) -> None:
+    """Шаблон + JSON/rollback_plan не должны давать двойные пункты."""
+    scale = "не менее 80% успешных операций пилота без роста обращений"
+    rec = RecommendationRecord(
+        id=2,
+        source_module="trends",
+        recommendation_type="trend_pilot",
+        title="Пилот: Москва дефицит",
+        instruction_template="trend_pilot",
+        status="new",
+        owner="Менеджер объекта",
+        instruction_payload_json={
+            "trend_title": "Москва дефицит предложения рост цен",
+            "trend_region": "moscow",
+            "source_url": "https://example.com/t",
+            "published_at": "2026-07-01",
+            "pilot_plan": "тест на 3 квартирах",
+            "success_metrics": "обращения",
+            "pilot_days": 30,
+            "scale_condition": scale,
+            "check_hours": 720,
+        },
+        evidence_snapshot_json={
+            "what_happens": [
+                "Тренд: Москва дефицит.",
+                f"Пилот: тест.",
+                f"Метрики: обращения.",
+                f"Условие масштабирования: {scale}.",
+            ]
+        },
+        success_criteria_json={"items": [scale]},
+        rollback_plan="Остановить пилот; Зафиксировать выводы без масштабирования",
+        expected_result="Безопасная проверка гипотезы для Томска",
+    )
+    card = render_instruction_card(rec)
+    assert card["success_criteria"].count(scale) == 1
+    assert len(card["success_criteria"]) == 1
+    assert card["rollback_steps"] == [
+        "Остановить пилот",
+        "Зафиксировать выводы без масштабирования",
+    ]
+    assert not any(x.lower().startswith("пилот:") for x in card["what_happens"])
+    assert not any("условие масштабирования" in x.lower() for x in card["what_happens"])
+    assert "Тренд: Москва дефицит." in card["what_happens"]
+
+
+def test_prompt_forbids_duplicate_recommendations() -> None:
+    from src.analytics.prompt_loader import clear_prompt_cache, load_prompt_file
+
+    clear_prompt_cache()
+    base = load_prompt_file("00_system_base.md")
+    reco = load_prompt_file("03_recommendations.md")
+    assert "Не дублируй" in base or "не дублируй" in base.casefold()
+    assert "Не повторяй" in reco or "без дублей" in reco.casefold()
+
+
 def test_refresh_center(client: TestClient) -> None:
     stats = refresh_recommendations_center()
     assert "expired" in stats

@@ -19,9 +19,16 @@
 - `_row_to_trend`: дата из `created_at`, если нет `published_at`
 - Тесты: payload из БД, `trend_pilot`, секция промпта про Томск
 
+## Устранение дублей в карточке (тот же день)
+
+- `render.dedupe_texts`: шаблон + `success_criteria_json` / `rollback_plan` без повторов
+- билдеры больше не копируют критерии/откат из шаблона в JSON
+- `trend_pilot`: в «Что происходит» только контекст (без пилота/метрик/условия)
+- промпты `00_system_base` и `03_recommendations`: запрет дублировать выводы
+
 ## Тесты
 
-`pytest tests/test_recommendations_center.py` — 12 passed
+`pytest tests/test_recommendations_center.py`
 
 ## Деплой
 

@@ -30,7 +30,11 @@
 
 <div class="card">
     <h2>Цель</h2>
+    {% if card.goal_detail %}
     <p>{{ card.goal_detail }}</p>
+    {% else %}
+    <p>{{ card.goal }}</p>
+    {% endif %}
 </div>
 
 <div class="card">
