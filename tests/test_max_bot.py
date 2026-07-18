@@ -17,6 +17,7 @@ from src.data_sources.sheets import (
     RoomTypeOccupancy,
     RoomUnit,
 )
+from src.metrics.occupancy import calc_occupancy
 from src.notifiers.max_bot import (
     CategoryPriceLine,
     ChannelBookingLine,
@@ -148,7 +149,7 @@ def test_build_daily_summary_text_contains_sections() -> None:
     assert "1apart.ru" in text
     assert "за 4 500 ₽" not in text
     assert "4 / 1 / 1" not in text
-    assert "*Категории* (занято):" in text
+    assert "*Занято по категориям:*" in text
     assert "выручка" not in text
     assert "к вчера" not in text
     assert "Конкурент:" in text
@@ -172,7 +173,7 @@ def test_build_daily_summary_sections_split_by_blocks() -> None:
 def test_occupancy_total_without_revenue() -> None:
     data = _sample_summary()
     text = build_daily_summary_sections(data)[0]
-    assert "*Итого занято:* 6 (всего 9)" in text
+    assert "*Итого занято:* 6 из 9" in text
     assert "выручка" not in text
     assert "к вчера" not in text
 
@@ -290,9 +291,10 @@ def test_send_daily_summary_writes_reports_log(
     assert len(client.calls) == 4
     assert client.calls[0]["params"]["chat_id"] == 364502022
     first_text = client.calls[0]["json"]["text"]
-    assert "1-КК 23: 4" in first_text
+    assert "1-КК 23: 5" in first_text
     assert "за 4 500" not in first_text
     assert "выручка" not in first_text
+    assert "из 9" in first_text
     assert "Конкурент:" in client.calls[2]["json"]["text"]
     assert "брон" not in first_text
     assert any("Конкурент:" in call["json"]["text"] for call in client.calls)
@@ -379,3 +381,51 @@ def test_prepare_daily_summary_prefers_travelline(
     assert data.totals.free == 19  # available 44 − occupied 25
     assert data.totals.occupied == 25
     assert data.totals.total == 44
+
+
+def test_prepare_reconciles_sold_vs_category_sum(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """% и «Итого занято» из sold; остаток — отдельная строка категорий."""
+    from src.data_sources.sheets import BookingsSheetData, OccupancySheetData
+    from src.data_sources.travelline import StayOccupancyResult
+    from src.notifiers.max_bot import build_daily_summary_sections, prepare_daily_summary_data
+
+    db_file = tmp_path / "summary_gap.db"
+    monkeypatch.setattr(storage_db, "get_db_path", lambda: db_file)
+    monkeypatch.setattr("src.config.get_db_path", lambda: db_file)
+    init_db()
+
+    class _FakeTL:
+        def get_stay_occupancy(self, stay_date: date) -> StayOccupancyResult:
+            return StayOccupancyResult(
+                stay_date=stay_date,
+                sold=24,
+                available=44,
+                occupancy_pct=round(24 / 44 * 100, 2),
+                by_type={"Однокомнатные квартиры 23 м²": 10},
+                free_by_type={"Однокомнатные квартиры 23 м²": 5},
+                booked_by_type={"Однокомнатные квартиры 23 м²": 0},
+            )
+
+        def get_channels(self, start: date, end: date) -> list[dict]:
+            return []
+
+    monkeypatch.setattr(
+        "src.data_sources.travelline.TravelLineClient",
+        lambda *a, **k: _FakeTL(),
+    )
+    data = prepare_daily_summary_data(
+        date(2026, 7, 18),
+        occupancy=OccupancySheetData(is_available=True),
+        bookings=BookingsSheetData(is_available=True, records=[]),
+    )
+    assert data.totals is not None
+    assert data.totals.occupied == 24
+    assert data.totals.total == 44
+    assert abs(data.occupancy_pct - calc_occupancy(24, 44)) < 0.01
+    assert any("Не разнесено" in r.label for r in data.room_types)
+    text = build_daily_summary_sections(data)[0]
+    assert "54.5%" in text or f"{data.occupancy_pct:.1f}%" in text
+    assert "24 из 44" in text

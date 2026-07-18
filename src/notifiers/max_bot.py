@@ -233,7 +233,6 @@ def prepare_daily_summary_data(
                 "используем ГуглТабл."
             )
         else:
-            free_total = max(tl_occ.available - tl_occ.sold, 0)
             labels = sorted(
                 set(tl_occ.by_type)
                 | set(tl_occ.free_by_type)
@@ -254,33 +253,44 @@ def prepare_daily_summary_data(
                     or tl_occ.booked_by_type.get(label, 0)
                 )
             ]
-            if not room_types:
+            available = int(tl_occ.available or cfg.property.total_units)
+            sold = int(tl_occ.sold)
+            if not room_types and sold > 0:
                 room_types = [
                     RoomStatusSummary(
                         label="Все категории",
-                        free=free_total,
-                        occupied=tl_occ.sold,
+                        free=max(available - sold, 0),
+                        occupied=sold,
                         booked=0,
                     )
                 ]
-            occ_total = sum(r.occupied for r in room_types)
-            book_total = sum(r.booked for r in room_types)
-            # Свободные = инвентарь − (зан+брон); эталон фонда — total_units /rooms.
-            free_total = max(tl_occ.available - occ_total - book_total, 0)
+            # Эталон загрузки — sold/available; сумма категорий часто меньше
+            # (несопоставленные stays). Добиваем остаток, чтобы цифры сходились.
+            matched = sum(r.occupied + r.booked for r in room_types)
+            if sold > matched:
+                room_types.append(
+                    RoomStatusSummary(
+                        label="Не разнесено по категориям",
+                        free=0,
+                        occupied=sold - matched,
+                        booked=0,
+                    )
+                )
             totals = RoomStatusSummary(
                 label="Итого",
-                free=free_total,
-                occupied=occ_total,
-                booked=book_total,
+                free=max(available - sold, 0),
+                occupied=sold,
+                booked=0,
             )
-            occupancy_pct = tl_occ.occupancy_pct
+            occupancy_pct = calc_occupancy(sold, available)
             occupancy_source = "travelline"
             logger.info(
-                "Загрузка из TravelLine на %s: %.1f%% (%s/%s)",
+                "Загрузка из TravelLine на %s: %.1f%% (%s/%s), категорий matched=%s",
                 report_date,
                 occupancy_pct,
-                tl_occ.sold,
-                tl_occ.available,
+                sold,
+                available,
+                matched,
             )
     except TravelLineError as exc:
         warnings.append(f"Загрузка TravelLine недоступна, берём ГуглТабл: {exc}")
@@ -586,15 +596,17 @@ def build_daily_summary_sections(data: DailySummaryData) -> list[str]:
         f"📊 *Сводка за {data.report_date.strftime('%d.%m.%Y')}*",
         f"*Загрузка:* {data.occupancy_light} {data.occupancy_pct:.1f}%",
         "",
-        "*Категории* (занято):",
+        "*Занято по категориям:*",
     ]
     for row in data.room_types:
         short = category_short_label(row.label)
-        section_occupancy.append(f"• {short}: {row.occupied}")
+        used = row.occupied + row.booked
+        section_occupancy.append(f"• {short}: {used}")
     if data.totals:
         t = data.totals
+        inventory = t.total if t.total > 0 else t.occupied
         section_occupancy.append(
-            f"*Итого занято:* {t.occupied} (всего {t.total})"
+            f"*Итого занято:* {t.occupied} из {inventory}"
         )
     sections.append("\n".join(section_occupancy))
 
