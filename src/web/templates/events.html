@@ -57,7 +57,8 @@
     </div>
     <p class="event-detail-title"><strong>{{ d.event.title }}</strong></p>
     <p>
-        {{ d.event.start_at }} — {{ d.event.end_at or d.event.start_at }}
+        <strong>Когда:</strong> {{ d.when_label }}
+        {% if d.start_time %}<span class="muted"> (начало в {{ d.start_time }})</span>{% endif %}
         · {{ d.category_label }}
         <span class="muted">({{ d.category_source_label }}{% if d.event.category_manual %}, зафиксировано{% endif %})</span>
         · {{ d.event.city }}
@@ -134,6 +135,7 @@
             </select>
         </label>
         <label>Начало <input type="date" name="start_at" value="{{ d.event.start_at.isoformat() }}"></label>
+        <label>Время начала <input type="time" name="start_time" value="{{ d.start_time or d.event.start_time or '' }}"></label>
         <label>Конец <input type="date" name="end_at" value="{{ (d.event.end_at or d.event.start_at).isoformat() }}"></label>
         <label>Комментарий <input type="text" name="comment" placeholder="Причина изменения"></label>
         <button type="submit">Сохранить</button>
@@ -157,7 +159,7 @@
     <table class="data-table">
         <thead>
             <tr>
-                <th>Даты</th>
+                <th>Дата и время</th>
                 <th>Название</th>
                 <th>Категория</th>
                 <th title="Оценка 0–100: насколько событие может увеличить спрос на проживание">Влияние на спрос</th>
@@ -168,7 +170,7 @@
         <tbody>
         {% for e in data.events %}
             <tr class="{% if e.selected %}row-selected{% endif %}{% if e.needs_approval %} row-warn{% endif %}{% if e.high_impact %} row-warn-strong{% endif %}">
-                <td>{{ e.start_at[8:10] }}.{{ e.start_at[5:7] }}{% if e.end_at != e.start_at %}–{{ e.end_at[8:10] }}.{{ e.end_at[5:7] }}{% endif %}</td>
+                <td>{{ e.when_label }}</td>
                 <td>
                     <a href="/events/{{ e.id }}#event-detail">{{ e.title }}</a>
                     {% if e.in_forecast %}<span class="badge badge-green" title="Учтено в прогнозе">📈</span>{% endif %}
@@ -205,6 +207,7 @@
     <form method="post" action="/events/create" class="filters-form">
         <label>Название <input type="text" name="title" required></label>
         <label>Начало <input type="date" name="start_at" required></label>
+        <label>Время начала <input type="time" name="start_time"></label>
         <label>Конец <input type="date" name="end_at"></label>
         <label>Категория
             <select name="category">

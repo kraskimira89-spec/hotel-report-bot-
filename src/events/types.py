@@ -13,6 +13,7 @@ class ParsedEvent:
     title: str
     start_at: date
     end_at: date | None = None
+    start_time: str | None = None  # "HH:MM"
     venue_name: str | None = None
     venue_address: str | None = None
     source_url: str = ""

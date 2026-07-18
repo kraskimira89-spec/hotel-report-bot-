@@ -25,6 +25,8 @@ from src.storage.models import (
     MIGRATIONS_V12,
     MIGRATIONS_V13,
     MIGRATIONS_V14,
+    MIGRATIONS_V15,
+    MIGRATIONS_V16,
     SCHEMA_VERSION,
     TABLES,
     TRENDS_RETENTION_DAYS,
@@ -43,6 +45,7 @@ from src.storage.models import (
     PeriodComparison,
     PricePeriodComparison,
     PriceRecommendationRecord,
+    RecommendationRecord,
     PriceSnapshotRecord,
     ReportLogRecord,
     TrendRecord,
@@ -198,6 +201,20 @@ def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
                     logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
     if current < 14:
         for ddl in MIGRATIONS_V14:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 15:
+        for ddl in MIGRATIONS_V15:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower() and "already exists" not in str(exc).lower():
+                    logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 16:
+        for ddl in MIGRATIONS_V16:
             try:
                 conn.execute(ddl)
             except sqlite3.OperationalError as exc:
@@ -1809,6 +1826,321 @@ def rollback_price_recommendation(
         return cur.rowcount > 0
 
 
+def _row_to_recommendation(row: sqlite3.Row) -> RecommendationRecord:
+    import json
+
+    def _j(key: str) -> dict:
+        raw = row[key] if key in row.keys() else None
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def _odt(key: str) -> datetime | None:
+        if key not in row.keys() or not row[key]:
+            return None
+        try:
+            return datetime.fromisoformat(str(row[key]))
+        except ValueError:
+            return None
+
+    target = None
+    if row["target_date"]:
+        try:
+            target = _parse_date(row["target_date"])
+        except ValueError:
+            target = None
+
+    return RecommendationRecord(
+        id=row["id"],
+        source_module=row["source_module"],
+        recommendation_type=row["recommendation_type"],
+        title=row["title"],
+        summary=row["summary"] or "",
+        priority=row["priority"] or "medium",
+        status=row["status"] or "new",
+        target_date=target,
+        due_at=_odt("due_at"),
+        owner=row["owner"] or "Менеджер объекта",
+        instruction_template=row["instruction_template"],
+        instruction_payload_json=_j("instruction_payload_json"),
+        evidence_snapshot_json=_j("evidence_snapshot_json"),
+        expected_result=row["expected_result"] or "",
+        success_criteria_json=_j("success_criteria_json"),
+        rollback_plan=row["rollback_plan"] or "",
+        source_ref=row["source_ref"],
+        created_at=_odt("created_at"),
+        accepted_at=_odt("accepted_at"),
+        completed_at=_odt("completed_at"),
+        completed_by=row["completed_by"] if "completed_by" in row.keys() else None,
+        completion_note=row["completion_note"] if "completion_note" in row.keys() else None,
+    )
+
+
+def get_recommendation_by_id(rec_id: int) -> RecommendationRecord | None:
+    with db_session() as conn:
+        row = conn.execute(
+            "SELECT * FROM recommendations WHERE id = ?", (rec_id,)
+        ).fetchone()
+    return _row_to_recommendation(row) if row else None
+
+
+def get_recommendation_by_source_ref(source_ref: str) -> RecommendationRecord | None:
+    with db_session() as conn:
+        row = conn.execute(
+            "SELECT * FROM recommendations WHERE source_ref = ?",
+            (source_ref,),
+        ).fetchone()
+    return _row_to_recommendation(row) if row else None
+
+
+def list_recommendations(
+    *,
+    status: str | None = None,
+    statuses: list[str] | None = None,
+    priority: str | None = None,
+    source_module: str | None = None,
+    limit: int = 200,
+) -> list[RecommendationRecord]:
+    sql = "SELECT * FROM recommendations WHERE 1=1"
+    params: list[object] = []
+    if status:
+        sql += " AND status = ?"
+        params.append(status)
+    if statuses:
+        placeholders = ",".join("?" for _ in statuses)
+        sql += f" AND status IN ({placeholders})"
+        params.extend(statuses)
+    if priority:
+        sql += " AND priority = ?"
+        params.append(priority)
+    if source_module:
+        sql += " AND source_module = ?"
+        params.append(source_module)
+    sql += """
+        ORDER BY
+            CASE priority
+                WHEN 'critical' THEN 0
+                WHEN 'high' THEN 1
+                WHEN 'medium' THEN 2
+                ELSE 3
+            END,
+            COALESCE(due_at, created_at) ASC,
+            id DESC
+        LIMIT ?
+    """
+    params.append(limit)
+    with db_session() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [_row_to_recommendation(r) for r in rows]
+
+
+def upsert_recommendation(rec: RecommendationRecord) -> int:
+    """Вставить или обновить по source_ref.
+
+    Если запись уже принята/в работе/выполнена — не затираем status и completion,
+    обновляем только evidence/payload/title при статусе new (или вставляем новую).
+    """
+    import json
+
+    payload = json.dumps(rec.instruction_payload_json or {}, ensure_ascii=False)
+    evidence = json.dumps(rec.evidence_snapshot_json or {}, ensure_ascii=False)
+    criteria = json.dumps(rec.success_criteria_json or {}, ensure_ascii=False)
+    due = _dt_str(rec.due_at) if rec.due_at else None
+    target = _date_str(rec.target_date) if rec.target_date else None
+
+    with db_session() as conn:
+        existing = None
+        if rec.source_ref:
+            existing = conn.execute(
+                "SELECT * FROM recommendations WHERE source_ref = ?",
+                (rec.source_ref,),
+            ).fetchone()
+        if existing is None:
+            cur = conn.execute(
+                """
+                INSERT INTO recommendations (
+                    source_module, recommendation_type, title, summary, priority,
+                    status, target_date, due_at, owner, instruction_template,
+                    instruction_payload_json, evidence_snapshot_json,
+                    expected_result, success_criteria_json, rollback_plan, source_ref
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    rec.source_module,
+                    rec.recommendation_type,
+                    rec.title,
+                    rec.summary,
+                    rec.priority,
+                    rec.status,
+                    target,
+                    due,
+                    rec.owner,
+                    rec.instruction_template,
+                    payload,
+                    evidence,
+                    rec.expected_result,
+                    criteria,
+                    rec.rollback_plan,
+                    rec.source_ref,
+                ),
+            )
+            return int(cur.lastrowid)
+
+        ex_status = existing["status"]
+        if ex_status in ("new", "expired"):
+            conn.execute(
+                """
+                UPDATE recommendations SET
+                    source_module = ?, recommendation_type = ?, title = ?, summary = ?,
+                    priority = ?, status = ?, target_date = ?, due_at = ?, owner = ?,
+                    instruction_template = ?, instruction_payload_json = ?,
+                    evidence_snapshot_json = ?, expected_result = ?,
+                    success_criteria_json = ?, rollback_plan = ?
+                WHERE id = ?
+                """,
+                (
+                    rec.source_module,
+                    rec.recommendation_type,
+                    rec.title,
+                    rec.summary,
+                    rec.priority,
+                    rec.status,
+                    target,
+                    due,
+                    rec.owner,
+                    rec.instruction_template,
+                    payload,
+                    evidence,
+                    rec.expected_result,
+                    criteria,
+                    rec.rollback_plan,
+                    existing["id"],
+                ),
+            )
+        else:
+            # Сохраняем статус пользователя, обновляем только факты
+            conn.execute(
+                """
+                UPDATE recommendations SET
+                    title = ?, summary = ?, priority = ?, target_date = ?, due_at = ?,
+                    instruction_payload_json = ?, evidence_snapshot_json = ?,
+                    expected_result = ?, success_criteria_json = ?, rollback_plan = ?
+                WHERE id = ?
+                """,
+                (
+                    rec.title,
+                    rec.summary,
+                    rec.priority,
+                    target,
+                    due,
+                    payload,
+                    evidence,
+                    rec.expected_result,
+                    criteria,
+                    rec.rollback_plan,
+                    existing["id"],
+                ),
+            )
+        return int(existing["id"])
+
+
+def update_recommendation_status(
+    rec_id: int,
+    status: str,
+    *,
+    actor: str | None = None,
+    note: str | None = None,
+) -> bool:
+    with db_session() as conn:
+        if status == "accepted":
+            cur = conn.execute(
+                """
+                UPDATE recommendations
+                SET status = 'accepted', accepted_at = datetime('now')
+                WHERE id = ?
+                """,
+                (rec_id,),
+            )
+        elif status == "done":
+            cur = conn.execute(
+                """
+                UPDATE recommendations
+                SET status = 'done',
+                    completed_at = datetime('now'),
+                    completed_by = ?,
+                    completion_note = ?
+                WHERE id = ?
+                """,
+                (actor, note, rec_id),
+            )
+        elif status == "in_progress":
+            cur = conn.execute(
+                """
+                UPDATE recommendations SET status = 'in_progress' WHERE id = ?
+                """,
+                (rec_id,),
+            )
+        else:
+            cur = conn.execute(
+                """
+                UPDATE recommendations
+                SET status = ?, completion_note = COALESCE(?, completion_note)
+                WHERE id = ?
+                """,
+                (status, note, rec_id),
+            )
+        return cur.rowcount > 0
+
+
+def expire_overdue_recommendations() -> int:
+    """Просроченные new/accepted/in_progress → expired."""
+    with db_session() as conn:
+        cur = conn.execute(
+            """
+            UPDATE recommendations
+            SET status = 'expired'
+            WHERE status IN ('new', 'accepted', 'in_progress')
+              AND due_at IS NOT NULL
+              AND due_at < datetime('now')
+            """
+        )
+        return cur.rowcount
+
+
+def count_recommendations_summary() -> dict[str, int]:
+    with db_session() as conn:
+        critical = conn.execute(
+            """
+            SELECT COUNT(*) AS c FROM recommendations
+            WHERE priority = 'critical'
+              AND status IN ('new', 'accepted', 'in_progress')
+            """
+        ).fetchone()["c"]
+        due_today = conn.execute(
+            """
+            SELECT COUNT(*) AS c FROM recommendations
+            WHERE status IN ('new', 'accepted', 'in_progress')
+              AND date(due_at) = date('now')
+            """
+        ).fetchone()["c"]
+        done_week = conn.execute(
+            """
+            SELECT COUNT(*) AS c FROM recommendations
+            WHERE status = 'done'
+              AND completed_at >= datetime('now', '-7 days')
+            """
+        ).fetchone()["c"]
+    return {
+        "critical": int(critical),
+        "due_today": int(due_today),
+        "done_week": int(done_week),
+    }
+
+
 def get_forecast_accuracy_rows(start: date, end: date) -> list[dict]:
     """Строки base-прогноза (all) для оценки точности."""
     with db_session() as conn:
@@ -1890,6 +2222,7 @@ def _row_to_city_event(row: sqlite3.Row) -> CityEventRecord:
         location_confirmed=bool(row["location_confirmed"]) if "location_confirmed" in keys else False,
         category_manual=bool(row["category_manual"]) if "category_manual" in keys else False,
         category_source=row["category_source"] if "category_source" in keys else "rules",
+        start_time=row["start_time"] if "start_time" in keys else None,
         created_at=_parse_dt(row["created_at"]),
         updated_at=_parse_dt(row["updated_at"]),
     )
@@ -1932,6 +2265,7 @@ def save_city_event(record: CityEventRecord) -> CityEventRecord:
                 """
                 UPDATE city_events SET
                     title=?, normalized_title=?, category=?, start_at=?, end_at=?,
+                    start_time=?,
                     city=?, venue_name=?, venue_address=?, estimated_capacity=?,
                     audience_scope=?, source_url=?, source_name=?, source_priority=?,
                     status=?, impact_score=?, confidence=?,
@@ -1949,6 +2283,7 @@ def save_city_event(record: CityEventRecord) -> CityEventRecord:
                     record.category,
                     _date_str(record.start_at),
                     _date_str(record.end_at) if record.end_at else None,
+                    record.start_time,
                     record.city,
                     record.venue_name,
                     record.venue_address,
@@ -1983,7 +2318,7 @@ def save_city_event(record: CityEventRecord) -> CityEventRecord:
         cur = conn.execute(
             """
             INSERT INTO city_events (
-                title, normalized_title, category, start_at, end_at, city,
+                title, normalized_title, category, start_at, end_at, start_time, city,
                 venue_name, venue_address, estimated_capacity, audience_scope,
                 source_url, source_name, source_priority, status, impact_score,
                 confidence, expected_guest_nights_min, expected_guest_nights_max,
@@ -1992,7 +2327,7 @@ def save_city_event(record: CityEventRecord) -> CityEventRecord:
                 attendance_source, tourism_relevance, overnight_likelihood,
                 is_public_holiday, location_confirmed,
                 category_manual, category_source, created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 record.title,
@@ -2000,6 +2335,7 @@ def save_city_event(record: CityEventRecord) -> CityEventRecord:
                 record.category,
                 _date_str(record.start_at),
                 _date_str(record.end_at) if record.end_at else None,
+                record.start_time,
                 record.city,
                 record.venue_name,
                 record.venue_address,

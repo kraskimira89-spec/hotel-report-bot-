@@ -350,6 +350,14 @@ class ForecastConfig(BaseModel):
     rollback_price_band_pct: float = 3.0
 
 
+class RecommendationsConfig(BaseModel):
+    """Центр рекомендаций: владелец, сроки, приоритет техсбоев."""
+
+    default_owner: str = "Менеджер объекта"
+    default_due_hours: int = 24
+    tech_priority: str = "critical"
+
+
 class AppConfig(BaseModel):
     """Полная конфигурация приложения из settings.yaml."""
 
@@ -374,6 +382,7 @@ class AppConfig(BaseModel):
     analytics: AnalyticsConfig = Field(default_factory=AnalyticsConfig)
     mail_inbox: MailInboxConfig = Field(default_factory=MailInboxConfig)
     forecast: ForecastConfig = Field(default_factory=ForecastConfig)
+    recommendations: RecommendationsConfig = Field(default_factory=RecommendationsConfig)
     events: EventsConfig = Field(default_factory=EventsConfig)
 
 

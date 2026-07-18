@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 16
 
 TRENDS_RETENTION_DAYS = 180
 INSIGHTS_RETENTION_DAYS = 90
@@ -229,6 +229,32 @@ TABLES: list[str] = [
         FOREIGN KEY (forecast_id) REFERENCES forecast_daily(id) ON DELETE SET NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS recommendations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_module TEXT NOT NULL,
+        recommendation_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        priority TEXT NOT NULL DEFAULT 'medium',
+        status TEXT NOT NULL DEFAULT 'new',
+        target_date TEXT,
+        due_at TEXT,
+        owner TEXT NOT NULL DEFAULT 'Менеджер объекта',
+        instruction_template TEXT NOT NULL,
+        instruction_payload_json TEXT NOT NULL DEFAULT '{}',
+        evidence_snapshot_json TEXT NOT NULL DEFAULT '{}',
+        expected_result TEXT NOT NULL DEFAULT '',
+        success_criteria_json TEXT NOT NULL DEFAULT '{}',
+        rollback_plan TEXT NOT NULL DEFAULT '',
+        source_ref TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        accepted_at TEXT,
+        completed_at TEXT,
+        completed_by TEXT,
+        completion_note TEXT
+    )
+    """,
 ]
 INDEXES: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_price_snapshots_date ON price_snapshots(snapshot_date)",
@@ -257,6 +283,12 @@ INDEXES: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_price_reco_status ON price_recommendations(status)",
     "CREATE INDEX IF NOT EXISTS idx_price_reco_date ON price_recommendations(target_date)",
     "CREATE INDEX IF NOT EXISTS idx_price_reco_horizon ON price_recommendations(horizon_days)",
+    "CREATE INDEX IF NOT EXISTS idx_recommendations_status ON recommendations(status)",
+    "CREATE INDEX IF NOT EXISTS idx_recommendations_priority ON recommendations(priority)",
+    "CREATE INDEX IF NOT EXISTS idx_recommendations_source ON recommendations(source_module)",
+    "CREATE INDEX IF NOT EXISTS idx_recommendations_due ON recommendations(due_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_recommendations_source_ref "
+    "ON recommendations(source_ref)",
 ]
 
 MIGRATIONS_V2: list[str] = [
@@ -561,6 +593,45 @@ MIGRATIONS_V14: list[str] = [
     "ALTER TABLE price_recommendations ADD COLUMN manager_comment TEXT",
 ]
 
+MIGRATIONS_V15: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS recommendations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_module TEXT NOT NULL,
+        recommendation_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        priority TEXT NOT NULL DEFAULT 'medium',
+        status TEXT NOT NULL DEFAULT 'new',
+        target_date TEXT,
+        due_at TEXT,
+        owner TEXT NOT NULL DEFAULT 'Менеджер объекта',
+        instruction_template TEXT NOT NULL,
+        instruction_payload_json TEXT NOT NULL DEFAULT '{}',
+        evidence_snapshot_json TEXT NOT NULL DEFAULT '{}',
+        expected_result TEXT NOT NULL DEFAULT '',
+        success_criteria_json TEXT NOT NULL DEFAULT '{}',
+        rollback_plan TEXT NOT NULL DEFAULT '',
+        source_ref TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        accepted_at TEXT,
+        completed_at TEXT,
+        completed_by TEXT,
+        completion_note TEXT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_recommendations_status ON recommendations(status)",
+    "CREATE INDEX IF NOT EXISTS idx_recommendations_priority ON recommendations(priority)",
+    "CREATE INDEX IF NOT EXISTS idx_recommendations_source ON recommendations(source_module)",
+    "CREATE INDEX IF NOT EXISTS idx_recommendations_due ON recommendations(due_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_recommendations_source_ref "
+    "ON recommendations(source_ref)",
+]
+
+MIGRATIONS_V16: list[str] = [
+    "ALTER TABLE city_events ADD COLUMN start_time TEXT",
+]
+
 
 class PriceSnapshotRecord(BaseModel):
     """Запись snapshot цены."""
@@ -788,6 +859,33 @@ class PriceRecommendationRecord(BaseModel):
     id: int | None = None
 
 
+class RecommendationRecord(BaseModel):
+    """Универсальная рекомендация Центра рекомендаций."""
+
+    source_module: str
+    recommendation_type: str
+    title: str
+    summary: str = ""
+    priority: str = "medium"
+    status: str = "new"
+    target_date: date | None = None
+    due_at: datetime | None = None
+    owner: str = "Менеджер объекта"
+    instruction_template: str
+    instruction_payload_json: dict = {}
+    evidence_snapshot_json: dict = {}
+    expected_result: str = ""
+    success_criteria_json: dict = {}
+    rollback_plan: str = ""
+    source_ref: str | None = None
+    created_at: datetime | None = None
+    accepted_at: datetime | None = None
+    completed_at: datetime | None = None
+    completed_by: str | None = None
+    completion_note: str | None = None
+    id: int | None = None
+
+
 class CityEventRecord(BaseModel):
     """Событие города, влияющее на спрос."""
 
@@ -796,6 +894,7 @@ class CityEventRecord(BaseModel):
     category: str = "other"
     start_at: date
     end_at: date | None = None
+    start_time: str | None = None  # HH:MM, время начала
     city: str = "Томск"
     venue_name: str | None = None
     venue_address: str | None = None

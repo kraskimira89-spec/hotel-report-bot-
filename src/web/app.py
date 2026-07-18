@@ -297,6 +297,13 @@ async def forecast_recommendation_detail(request: Request, rec_id: int) -> Respo
     redirect = _require_auth(request)
     if redirect:
         return redirect
+    uni_id = queries.resolve_universal_id_for_price(rec_id)
+    if uni_id is not None:
+        return RedirectResponse(
+            url=f"/recommendations/{uni_id}",
+            status_code=status.HTTP_302_FOUND,
+        )
+    # Фолбэк на старую карточку, если sync ещё не создал запись
     from src.storage.db import get_price_recommendation_by_id, mark_recommendation_reviewed
 
     existing = get_price_recommendation_by_id(rec_id)
@@ -304,13 +311,195 @@ async def forecast_recommendation_detail(request: Request, rec_id: int) -> Respo
         return HTMLResponse("Рекомендация не найдена", status_code=404)
     if existing.status == "new":
         mark_recommendation_reviewed(rec_id, _actor_name())
-        logger.info("Рекомендация %s просмотрена (%s)", rec_id, _actor_name())
     card = queries.fetch_recommendation_card(rec_id)
     if card is None:
         return HTMLResponse("Рекомендация не найдена", status_code=404)
     return templates.TemplateResponse(
+        request,
         "recommendation_detail.html",
-        {"request": request, "card": card, "page": "forecast"},
+        {"card": card, "page": "forecast"},
+    )
+
+
+@app.get("/recommendations", response_class=HTMLResponse)
+async def recommendations_page(
+    request: Request,
+    bucket: str = Query(default="all"),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    data = queries.fetch_recommendations_bundle(bucket=bucket)
+    return templates.TemplateResponse(
+        request,
+        "recommendations.html",
+        {"data": data, "page": "recommendations"},
+    )
+
+
+@app.post("/recommendations/refresh")
+async def recommendations_refresh(request: Request) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.recommendations.service import refresh_recommendations_center
+
+    refresh_recommendations_center()
+    return RedirectResponse(url="/recommendations", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/recommendations/{rec_id}", response_class=HTMLResponse)
+async def recommendation_universal_detail(request: Request, rec_id: int) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    card = queries.fetch_universal_recommendation_card(rec_id)
+    if card is None:
+        return HTMLResponse("Рекомендация не найдена", status_code=404)
+    return templates.TemplateResponse(
+        request,
+        "recommendation_universal_detail.html",
+        {"card": card, "page": "recommendations"},
+    )
+
+
+@app.get("/recommendations/{rec_id}/export.docx")
+async def recommendation_universal_export(request: Request, rec_id: int) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from urllib.parse import quote
+
+    from src.notifiers.docx_export import (
+        build_universal_recommendation_docx,
+        universal_docx_filename,
+    )
+
+    card = queries.fetch_universal_recommendation_card(rec_id)
+    if card is None:
+        return HTMLResponse("Рекомендация не найдена", status_code=404)
+    payload = build_universal_recommendation_docx(card)
+    filename = universal_docx_filename(int(card["id"]), card.get("title") or "rec")
+    headers = {
+        "Content-Disposition": (
+            f'attachment; filename="rec_{rec_id}.docx"; '
+            f"filename*=UTF-8''{quote(filename)}"
+        )
+    }
+    return Response(
+        content=payload,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ),
+        headers=headers,
+    )
+
+
+@app.post("/recommendations/{rec_id}/accept")
+async def recommendation_accept(request: Request, rec_id: int) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import update_recommendation_status
+
+    update_recommendation_status(rec_id, "accepted")
+    logger.info("Центр: рекомендация %s принята (%s)", rec_id, _actor_name())
+    return RedirectResponse(
+        url=f"/recommendations/{rec_id}", status_code=status.HTTP_302_FOUND
+    )
+
+
+@app.post("/recommendations/{rec_id}/defer")
+async def recommendation_defer(request: Request, rec_id: int) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import update_recommendation_status
+
+    update_recommendation_status(rec_id, "in_progress")
+    logger.info("Центр: рекомендация %s в работе (%s)", rec_id, _actor_name())
+    return RedirectResponse(
+        url=f"/recommendations/{rec_id}", status_code=status.HTTP_302_FOUND
+    )
+
+
+@app.post("/recommendations/{rec_id}/reject")
+async def recommendation_reject(request: Request, rec_id: int) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import update_recommendation_status
+
+    update_recommendation_status(rec_id, "rejected")
+    logger.info("Центр: рекомендация %s отклонена (%s)", rec_id, _actor_name())
+    return RedirectResponse(url="/recommendations", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/recommendations/{rec_id}/complete")
+async def recommendation_complete(
+    request: Request,
+    rec_id: int,
+    completion_note: str = Form(default=""),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import update_recommendation_status
+
+    update_recommendation_status(
+        rec_id,
+        "done",
+        actor=_actor_name(),
+        note=completion_note.strip() or None,
+    )
+    logger.info("Центр: рекомендация %s выполнена (%s)", rec_id, _actor_name())
+    return RedirectResponse(
+        url=f"/recommendations/{rec_id}", status_code=status.HTTP_302_FOUND
+    )
+
+
+@app.post("/recommendations/{rec_id}/problem")
+async def recommendation_problem(
+    request: Request,
+    rec_id: int,
+    note: str = Form(...),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import update_recommendation_status
+
+    update_recommendation_status(
+        rec_id,
+        "in_progress",
+        note=f"Проблема: {note.strip()}",
+    )
+    logger.info("Центр: проблема по %s (%s): %s", rec_id, _actor_name(), note)
+    return RedirectResponse(
+        url=f"/recommendations/{rec_id}", status_code=status.HTTP_302_FOUND
+    )
+
+
+@app.post("/recommendations/{rec_id}/verify")
+async def recommendation_verify(
+    request: Request,
+    rec_id: int,
+    note: str = Form(default=""),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import update_recommendation_status
+
+    update_recommendation_status(
+        rec_id,
+        "done",
+        actor=_actor_name(),
+        note=f"Проверено: {note.strip()}" if note.strip() else "Проверено",
+    )
+    logger.info("Центр: проверка %s (%s)", rec_id, _actor_name())
+    return RedirectResponse(
+        url=f"/recommendations/{rec_id}", status_code=status.HTTP_302_FOUND
     )
 
 
@@ -657,6 +846,7 @@ async def events_create(
     title: str = Form(...),
     start_at: str = Form(...),
     end_at: str = Form(default=""),
+    start_time: str = Form(default=""),
     category: str = Form(default="other"),
     venue_name: str = Form(default=""),
     estimated_capacity: int | None = Form(default=None),
@@ -673,6 +863,7 @@ async def events_create(
         title=title.strip(),
         start_at=date.fromisoformat(start_at),
         end_at=end,
+        start_time=start_time.strip() or None,
         category=category,
         venue_name=venue_name.strip() or None,
         estimated_capacity=estimated_capacity,
@@ -725,6 +916,7 @@ async def events_adjust(
     estimated_capacity: int | None = Form(default=None),
     start_at: str = Form(default=""),
     end_at: str = Form(default=""),
+    start_time: str = Form(default=""),
     comment: str = Form(default=""),
 ) -> Response:
     redirect = _require_auth(request)
@@ -740,6 +932,7 @@ async def events_adjust(
         estimated_capacity=estimated_capacity,
         start_at=date.fromisoformat(start_at) if start_at.strip() else None,
         end_at=date.fromisoformat(end_at) if end_at.strip() else None,
+        start_time=start_time.strip(),
         comment=comment.strip() or None,
     )
     return RedirectResponse(url=f"/events/{event_id}", status_code=status.HTTP_302_FOUND)

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Рекомендации — 1apart{% endblock %}
+{% block content %}
+<h1>Центр рекомендаций</h1>
+
+<div class="card" style="margin-bottom:1rem">
+    <p>
+        🔴 {{ data.summary.critical }} критичных ·
+        🟡 {{ data.summary.due_today }} на сегодня ·
+        🟢 {{ data.summary.done_week }} выполнено за неделю
+    </p>
+    <form method="post" action="/recommendations/refresh" style="display:inline">
+        <button type="submit" class="btn-small">Обновить</button>
+    </form>
+</div>
+
+<p style="margin-bottom:1rem">
+    {% for tab in data.tabs %}
+    <a class="btn-small {% if data.bucket == tab.id %}active{% endif %}"
+       href="/recommendations?bucket={{ tab.id }}">{{ tab.label }}</a>
+    {% endfor %}
+</p>
+
+{% if data.rows %}
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Заголовок</th>
+            <th>Раздел</th>
+            <th>Приоритет</th>
+            <th>Статус</th>
+            <th>Срок</th>
+            <th>Ответственный</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for r in data.rows %}
+        <tr>
+            <td>
+                <strong>{{ r.title }}</strong>
+                <div class="muted">{{ r.expected_result }}</div>
+            </td>
+            <td>{{ r.module_label }}</td>
+            <td>{{ r.priority_label }}</td>
+            <td>{{ r.status_label }}</td>
+            <td>{{ r.due_at }}</td>
+            <td>{{ r.owner }}</td>
+            <td>
+                <a class="btn-small" href="/recommendations/{{ r.id }}">Подробнее</a>
+                <a class="btn-small" href="/recommendations/{{ r.id }}/export.docx">Word</a>
+                {% if r.status == 'new' %}
+                <form method="post" action="/recommendations/{{ r.id }}/accept" style="display:inline">
+                    <button type="submit" class="btn-small">Принять</button>
+                </form>
+                <form method="post" action="/recommendations/{{ r.id }}/defer" style="display:inline">
+                    <button type="submit" class="btn-small">Отложить</button>
+                </form>
+                <form method="post" action="/recommendations/{{ r.id }}/reject" style="display:inline">
+                    <button type="submit" class="btn-small">Отклонить</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="muted">Нет рекомендаций в этом разделе.</p>
+{% endif %}
+{% endblock %}

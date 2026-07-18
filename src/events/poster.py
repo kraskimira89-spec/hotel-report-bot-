@@ -66,9 +66,14 @@ def format_event_when(ev: CityEventRecord) -> str:
     end = ev.end_at or start
     if end != start:
         if start.month == end.month and start.year == end.year:
-            return f"{start.day}–{end.day} {_MONTHS_RU[start.month]}"
-        return f"{format_day_month(start)} – {format_day_month(end)}"
-    return format_day_month(start)
+            label = f"{start.day}–{end.day} {_MONTHS_RU[start.month]}"
+        else:
+            label = f"{format_day_month(start)} – {format_day_month(end)}"
+    else:
+        label = format_day_month(start)
+    if ev.start_time:
+        label = f"{label}, {ev.start_time}"
+    return label
 
 
 def guest_display_category(ev: CityEventRecord) -> str:

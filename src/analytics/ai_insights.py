@@ -278,16 +278,21 @@ def _collect_context(period_days: int = 14) -> dict[str, Any]:
         competitors = []
 
     trends = []
+    external_trends = []
     try:
+        from src.recommendations.service import build_external_trends_payload
+
+        external_trends = build_external_trends_payload(days=90, limit=8)
         trends = [
             {
-                "title": t.title,
-                "category": t.category,
-                "region": t.region,
-                "source_url": t.source_url,
-                "takeaway": t.takeaway,
+                "title": t["title"],
+                "category": t["category"],
+                "region": t["region"],
+                "source_url": t["source_url"],
+                "published_at": t["published_at"],
+                "takeaway": t.get("summary") or "",
             }
-            for t in get_trends_records(days=90)[:8]
+            for t in external_trends
         ]
     except Exception as exc:  # noqa: BLE001
         logger.debug("Тренды недоступны: %s", exc)
@@ -333,6 +338,7 @@ def _collect_context(period_days: int = 14) -> dict[str, Any]:
         "als": {"current": cur_als, "previous": prev_als},
         "competitors": competitors,
         "trends": trends,
+        "external_trends": external_trends,
         "data_sources": {
             "occupancy": occ_source,
             "channels": channels_agg.get("source", "sqlite"),

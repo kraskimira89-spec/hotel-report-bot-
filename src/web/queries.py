@@ -120,7 +120,111 @@ def fetch_dashboard_data() -> dict[str, Any]:
         "guest_stats": guest_stats,
         "snapshot_count": snapshot_count,
         "booking_count": booking_count,
+        "recommendations_summary": _recommendations_dashboard_summary(),
     }
+
+
+def _recommendations_dashboard_summary() -> dict[str, int]:
+    try:
+        from src.storage.db import count_recommendations_summary
+
+        return count_recommendations_summary()
+    except Exception:  # noqa: BLE001
+        return {"critical": 0, "due_today": 0, "done_week": 0}
+
+
+def fetch_recommendations_bundle(bucket: str = "all") -> dict[str, Any]:
+    """Список Центра рекомендаций с фильтрами-вкладками."""
+    from src.recommendations.service import refresh_recommendations_center
+    from src.recommendations.templates_lib import (
+        MODULE_LABELS,
+        PRIORITY_LABELS,
+        STATUS_LABELS,
+    )
+    from src.storage.db import list_recommendations
+
+    refresh_recommendations_center()
+    bucket = bucket or "all"
+    status_filter: str | None = None
+    statuses: list[str] | None = None
+    priority: str | None = None
+    if bucket == "new":
+        status_filter = "new"
+    elif bucket == "in_progress":
+        statuses = ["accepted", "in_progress"]
+    elif bucket == "critical":
+        priority = "critical"
+        statuses = ["new", "accepted", "in_progress"]
+    elif bucket == "done":
+        status_filter = "done"
+    elif bucket == "archive":
+        statuses = ["rejected", "expired", "done"]
+    else:
+        statuses = ["new", "accepted", "in_progress"]
+
+    rows = list_recommendations(
+        status=status_filter,
+        statuses=statuses,
+        priority=priority,
+        limit=200,
+    )
+    items = []
+    for r in rows:
+        items.append(
+            {
+                "id": r.id,
+                "title": r.title,
+                "summary": r.summary,
+                "module": r.source_module,
+                "module_label": MODULE_LABELS.get(r.source_module, r.source_module),
+                "priority": r.priority,
+                "priority_label": PRIORITY_LABELS.get(r.priority, r.priority),
+                "status": r.status,
+                "status_label": STATUS_LABELS.get(r.status, r.status),
+                "owner": r.owner,
+                "due_at": r.due_at.strftime("%d.%m.%Y %H:%M") if r.due_at else "—",
+                "target_date": r.target_date.isoformat() if r.target_date else None,
+                "expected_result": r.expected_result,
+            }
+        )
+    from src.storage.db import count_recommendations_summary
+
+    return {
+        "bucket": bucket,
+        "rows": items,
+        "summary": count_recommendations_summary(),
+        "tabs": [
+            {"id": "all", "label": "Все"},
+            {"id": "new", "label": "Новые"},
+            {"id": "in_progress", "label": "В работе"},
+            {"id": "critical", "label": "Критичные"},
+            {"id": "done", "label": "Выполненные"},
+            {"id": "archive", "label": "Архив"},
+        ],
+    }
+
+
+def fetch_universal_recommendation_card(rec_id: int) -> dict[str, Any] | None:
+    from datetime import date as date_cls
+
+    from src.recommendations.render import render_instruction_card
+    from src.storage.db import get_recommendation_by_id
+
+    rec = get_recommendation_by_id(rec_id)
+    if rec is None:
+        return None
+    card = render_instruction_card(rec)
+    card["exported_at"] = date_cls.today().strftime("%d.%m.%Y")
+    return card
+
+
+def resolve_universal_id_for_price(price_rec_id: int) -> int | None:
+    from src.recommendations.service import sync_price_recommendations
+    from src.storage.db import get_recommendation_by_source_ref
+
+    sync_price_recommendations()
+    row = get_recommendation_by_source_ref(f"price:{price_rec_id}")
+    return int(row.id) if row and row.id is not None else None
 
 
 def fetch_snapshot_rows(limit: int = 200) -> list[dict[str, Any]]:
@@ -1076,7 +1180,6 @@ def fetch_recommendation_card(rec_id: int) -> dict[str, Any] | None:
         build_manager_steps,
         can_show_apply_price,
         format_date_ru,
-        format_price_rub,
     )
     from src.storage.db import get_price_recommendation_by_id, get_price_snapshots_by_date
 
@@ -1228,7 +1331,6 @@ def fetch_recommendation_card(rec_id: int) -> dict[str, Any] | None:
             "can_rollback": can_rollback,
             "apply_blocked_reason": apply_blocked_reason,
         },
-        "format_price": format_price_rub,
     }
 
 
@@ -1289,6 +1391,36 @@ _EVENT_TOURISM_LABELS = {
 }
 
 
+def _format_event_when(start_iso: str, end_iso: str, start_time: str | None) -> str:
+    """Дата(ы) и время начала для таблицы/карточки."""
+    try:
+        start_d = date.fromisoformat(start_iso[:10])
+        end_d = date.fromisoformat(end_iso[:10])
+    except ValueError:
+        return f"{start_iso}" + (f", {start_time}" if start_time else "")
+    if start_d == end_d:
+        label = start_d.strftime("%d.%m.%Y")
+    else:
+        label = f"{start_d.strftime('%d.%m.%Y')}–{end_d.strftime('%d.%m.%Y')}"
+    if start_time:
+        label += f", {start_time}"
+    return label
+
+
+def _resolve_event_start_time(ev: Any, sources: list | None = None) -> str | None:
+    """Время из поля события или из raw_date источника."""
+    if getattr(ev, "start_time", None):
+        return ev.start_time
+    from src.events.parsers import parse_time_from_text
+
+    for src in sources or []:
+        t = parse_time_from_text(getattr(src, "raw_date", None))
+        if t:
+            return t
+    t = parse_time_from_text(getattr(ev, "description", None))
+    return t
+
+
 def fetch_events_bundle(
     *,
     status: str | None = None,
@@ -1311,14 +1443,41 @@ def fetch_events_bundle(
         category=category or None,
         min_impact=min_impact,
     )
+    # Сырые даты источников для фолбэка времени у старых записей
+    raw_by_event: dict[int, str] = {}
+    missing_ids = [int(ev.id) for ev in events if ev.id and not ev.start_time]
+    if missing_ids:
+        with db_session() as conn:
+            placeholders = ",".join("?" for _ in missing_ids)
+            for row in conn.execute(
+                f"""
+                SELECT event_id, raw_date FROM event_sources
+                WHERE event_id IN ({placeholders}) AND raw_date IS NOT NULL
+                ORDER BY is_primary DESC, id ASC
+                """,
+                missing_ids,
+            ).fetchall():
+                eid = int(row["event_id"])
+                if eid not in raw_by_event and row["raw_date"]:
+                    raw_by_event[eid] = str(row["raw_date"])
+
     rows = []
     for ev in events:
         level = impact_level(ev.impact_score)
+        start_iso = ev.start_at.isoformat()
+        end_iso = (ev.end_at or ev.start_at).isoformat()
+        start_time = ev.start_time
+        if not start_time and ev.id in raw_by_event:
+            from src.events.parsers import parse_time_from_text
+
+            start_time = parse_time_from_text(raw_by_event[ev.id])
         item = {
             "id": ev.id,
             "title": ev.title,
-            "start_at": ev.start_at.isoformat(),
-            "end_at": (ev.end_at or ev.start_at).isoformat(),
+            "start_at": start_iso,
+            "end_at": end_iso,
+            "start_time": start_time,
+            "when_label": _format_event_when(start_iso, end_iso, start_time),
             "category": ev.category,
             "category_label": _EVENT_CATEGORY_LABELS.get(ev.category, ev.category),
             "category_source": ev.category_source,
@@ -1358,6 +1517,8 @@ def fetch_events_bundle(
     if detail:
         ev = detail["event"]
         level = impact_level(ev.impact_score)
+        sources = detail.get("sources") or []
+        start_time = _resolve_event_start_time(ev, sources)
         detail["status_label"] = _EVENT_STATUS_LABELS.get(ev.status, ev.status)
         detail["category_label"] = _EVENT_CATEGORY_LABELS.get(ev.category, ev.category)
         detail["category_source_label"] = _EVENT_CATEGORY_SOURCE_LABELS.get(
@@ -1368,6 +1529,12 @@ def fetch_events_bundle(
         detail["impact_level_label"] = _EVENT_IMPACT_LABELS.get(level, level)
         detail["tourism_label"] = _EVENT_TOURISM_LABELS.get(
             ev.tourism_relevance, ev.tourism_relevance
+        )
+        detail["start_time"] = start_time
+        detail["when_label"] = _format_event_when(
+            ev.start_at.isoformat(),
+            (ev.end_at or ev.start_at).isoformat(),
+            start_time,
         )
 
     return {

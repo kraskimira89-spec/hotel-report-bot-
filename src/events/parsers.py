@@ -50,6 +50,27 @@ def _month_number(token: str) -> int | None:
     return None
 
 
+def parse_time_from_text(text: str | None) -> str | None:
+    """Извлечь время начала HH:MM из текста афиши."""
+    if not text:
+        return None
+    # ISO datetime
+    m = re.search(r"T(\d{1,2}):(\d{2})", text)
+    if m:
+        h, mi = int(m.group(1)), int(m.group(2))
+        if 0 <= h <= 23 and 0 <= mi <= 59:
+            return f"{h:02d}:{mi:02d}"
+    # 19:00 / 19.00 / 19：00
+    m = re.search(r"(?<!\d)([01]?\d|2[0-3])[:.\uFF1A]([0-5]\d)(?!\d)", text)
+    if m:
+        return f"{int(m.group(1)):02d}:{int(m.group(2)):02d}"
+    # «в 19 часов» / «19 ч»
+    m = re.search(r"(?:в\s*)?([01]?\d|2[0-3])\s*(?:часов|часа|час|ч\.?)(?!\d)", text, re.I)
+    if m:
+        return f"{int(m.group(1)):02d}:00"
+    return None
+
+
 def parse_russian_date(text: str, default_year: int | None = None) -> date | None:
     """Разобрать дату из текста."""
     text = text.strip()
@@ -154,6 +175,7 @@ def _make_event(
         title=title,
         start_at=start,
         end_at=end,
+        start_time=parse_time_from_text(date_text),
         venue_name=venue,
         source_url=url,
         source_name=source_name,

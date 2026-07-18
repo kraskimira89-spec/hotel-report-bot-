@@ -69,6 +69,7 @@ def _parsed_to_record(parsed: ParsedEvent, status: str = "candidate") -> CityEve
         category=parsed.category,
         start_at=parsed.start_at,
         end_at=parsed.end_at,
+        start_time=parsed.start_time,
         city=parsed.city or "Томск",
         venue_name=parsed.venue_name,
         venue_address=parsed.venue_address,
@@ -101,6 +102,8 @@ def _merge_parsed_into_event(
         existing.normalized_title = normalize_title(parsed.title)
         existing.start_at = parsed.start_at
         existing.end_at = parsed.end_at or existing.end_at
+        if parsed.start_time:
+            existing.start_time = parsed.start_time
         if parsed.venue_name:
             existing.venue_name = parsed.venue_name
         existing.source_url = parsed.source_url
@@ -516,6 +519,7 @@ def adjust_event(
     estimated_capacity: int | None = None,
     start_at: date | None = None,
     end_at: date | None = None,
+    start_time: str | None = None,
     comment: str | None = None,
 ) -> CityEventRecord | None:
     ev = get_city_event(event_id)
@@ -580,6 +584,10 @@ def adjust_event(
     if end_at is not None:
         ev.end_at = end_at
         changes.append("end")
+    if start_time is not None:
+        cleaned = start_time.strip()
+        ev.start_time = cleaned or None
+        changes.append("start_time")
     if changes:
         src_cnt = count_event_sources(event_id)
         if impact_score is None:
@@ -611,6 +619,7 @@ def create_manual_event(
     title: str,
     start_at: date,
     end_at: date | None = None,
+    start_time: str | None = None,
     category: str = "other",
     venue_name: str | None = None,
     estimated_capacity: int | None = None,
@@ -628,6 +637,7 @@ def create_manual_event(
         category=category,
         start_at=start_at,
         end_at=end_at or start_at,
+        start_time=(start_time or "").strip() or None,
         city=city,
         venue_name=venue_name,
         estimated_capacity=estimated_capacity,

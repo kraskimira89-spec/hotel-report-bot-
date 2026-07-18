@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Рекомендация №{{ card.id }} — 1apart{% endblock %}
+{% block content %}
+<p class="muted" style="margin-bottom:1rem">
+    <a href="/recommendations">← К списку</a>
+    ·
+    <a href="/recommendations/{{ card.id }}/export.docx">Скачать Word (.docx)</a>
+</p>
+
+<div class="card">
+    <h1>{{ card.title }}</h1>
+    <p><strong>Раздел:</strong> {{ card.module_label }}</p>
+    <p><strong>Приоритет:</strong> {{ card.priority_label }}</p>
+    <p><strong>Статус:</strong> {{ card.status_label }}</p>
+    <p><strong>Целевой результат:</strong> {{ card.goal }}</p>
+    <p><strong>Срок:</strong> {{ card.due_at or card.due_hint }}</p>
+    <p><strong>Ответственный:</strong> {{ card.owner }}</p>
+</div>
+
+<div class="card">
+    <h2>Что происходит</h2>
+    <ul>
+        {% for line in card.what_happens %}
+        <li>{{ line }}</li>
+        {% else %}
+        <li class="muted">Нет детализации</li>
+        {% endfor %}
+    </ul>
+</div>
+
+<div class="card">
+    <h2>Цель</h2>
+    <p>{{ card.goal_detail }}</p>
+</div>
+
+<div class="card">
+    <h2>Пошаговые действия</h2>
+    {% if card.preconditions %}
+    <p class="muted">Предусловия:</p>
+    <ul>
+        {% for p in card.preconditions %}<li>{{ p }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    <ol>
+        {% for step in card.steps %}
+        <li>{{ step }}</li>
+        {% endfor %}
+    </ol>
+</div>
+
+<div class="card">
+    <h2>Проверка результата</h2>
+    <p>{{ card.check_text }}</p>
+    <ul>
+        {% for c in card.success_criteria %}
+        <li>{{ c }}</li>
+        {% endfor %}
+    </ul>
+</div>
+
+<div class="card">
+    <h2>Если результата нет</h2>
+    <ol>
+        {% for r in card.rollback_steps %}
+        <li>{{ r }}</li>
+        {% endfor %}
+    </ol>
+    {% if card.escalation and card.escalation != '—' %}
+    <p><strong>Эскалация:</strong> {{ card.escalation }}</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Действия</h2>
+    {% if card.actions.can_accept %}
+    <form method="post" action="/recommendations/{{ card.id }}/accept" style="display:inline">
+        <button type="submit" class="btn-small">Принять</button>
+    </form>
+    <form method="post" action="/recommendations/{{ card.id }}/defer" style="display:inline">
+        <button type="submit" class="btn-small">Отложить / в работу</button>
+    </form>
+    <form method="post" action="/recommendations/{{ card.id }}/reject" style="display:inline">
+        <button type="submit" class="btn-small">Отклонить</button>
+    </form>
+    {% endif %}
+
+    {% if card.actions.can_complete %}
+    <form method="post" action="/recommendations/{{ card.id }}/complete" style="margin-top:1rem">
+        <label>Комментарий о выполнении</label><br>
+        <input type="text" name="completion_note" style="width:100%;max-width:40rem">
+        <button type="submit" class="btn-small" style="margin-top:.5rem">Отметить выполненной</button>
+    </form>
+    {% endif %}
+
+    {% if card.actions.can_problem %}
+    <form method="post" action="/recommendations/{{ card.id }}/problem" style="margin-top:1rem">
+        <label>Сообщить о проблеме</label><br>
+        <input type="text" name="note" required style="width:100%;max-width:40rem">
+        <button type="submit" class="btn-small" style="margin-top:.5rem">Сообщить о проблеме</button>
+    </form>
+    {% endif %}
+
+    {% if card.status == 'done' %}
+    <form method="post" action="/recommendations/{{ card.id }}/verify" style="margin-top:1rem">
+        <label>Проверить результат</label><br>
+        <input type="text" name="note" placeholder="результат проверки" style="width:100%;max-width:40rem">
+        <button type="submit" class="btn-small" style="margin-top:.5rem">Проверить результат</button>
+    </form>
+    {% endif %}
+
+    <p class="muted" style="margin-top:1.25rem">
+        Рекомендация требует ручного подтверждения; автоматическое действие системой не выполнялось.
+    </p>
+</div>
+{% endblock %}

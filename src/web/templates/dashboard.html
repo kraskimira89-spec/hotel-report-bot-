@@ -3,6 +3,18 @@
 {% block content %}
 <h1>Дашборд</h1>
 
+{% if data.recommendations_summary %}
+<div class="card" style="margin-bottom:1rem">
+    <h2>Рекомендации</h2>
+    <p>
+        🔴 {{ data.recommendations_summary.critical }} критичных ·
+        🟡 {{ data.recommendations_summary.due_today }} на сегодня ·
+        🟢 {{ data.recommendations_summary.done_week }} выполнено за неделю
+    </p>
+    <p><a href="/recommendations">Открыть Центр рекомендаций →</a></p>
+</div>
+{% endif %}
+
 <div class="grid-2">
 <div class="card">
     <h2>Объект</h2>

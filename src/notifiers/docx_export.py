@@ -167,11 +167,82 @@ def build_recommendation_docx(card: dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
+def build_universal_recommendation_docx(card: dict[str, Any]) -> bytes:
+    """Word-инструкция для любой рекомендации Центра."""
+    doc = Document()
+    style = doc.styles["Normal"]
+    style.font.name = "Arial"
+    style.font.size = Pt(11)
+
+    title = doc.add_heading("1apart — рабочая инструкция", level=0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph(
+        f"Дата формирования: {card.get('exported_at') or date.today().strftime('%d.%m.%Y')}"
+    )
+
+    doc.add_heading("1. Название и номер", level=1)
+    doc.add_paragraph(f"Рекомендация №{card.get('id')}: {card.get('title')}")
+    doc.add_paragraph(
+        f"Раздел: {card.get('module_label')} · Приоритет: {card.get('priority_label')} · "
+        f"Статус: {card.get('status_label')}"
+    )
+
+    doc.add_heading("2. Цель и приоритет", level=1)
+    doc.add_paragraph(card.get("goal") or "—")
+    doc.add_paragraph(card.get("goal_detail") or "")
+
+    doc.add_heading("3. Что происходит (основание)", level=1)
+    for line in card.get("what_happens") or []:
+        doc.add_paragraph(line, style="List Bullet")
+
+    doc.add_heading("4. Пошаговый план", level=1)
+    for i, step in enumerate(card.get("steps") or [], start=1):
+        doc.add_paragraph(f"{i}. {step}")
+
+    doc.add_heading("5. Срок и ответственный", level=1)
+    doc.add_paragraph(f"Ответственный: {card.get('owner') or '—'}")
+    doc.add_paragraph(f"Срок: {card.get('due_at') or card.get('due_hint') or '—'}")
+
+    doc.add_heading("6. Критерии результата", level=1)
+    doc.add_paragraph(card.get("check_text") or "")
+    for item in card.get("success_criteria") or []:
+        doc.add_paragraph(item, style="List Bullet")
+
+    doc.add_heading("7. Если результата нет", level=1)
+    for item in card.get("rollback_steps") or []:
+        doc.add_paragraph(item, style="List Bullet")
+    if card.get("escalation"):
+        doc.add_paragraph(f"Эскалация: {card['escalation']}")
+
+    doc.add_heading("8. Отметка о выполнении", level=1)
+    doc.add_paragraph("ФИО / должность: _______________________________")
+    doc.add_paragraph("Дата выполнения: _______________________________")
+    doc.add_paragraph("Комментарий: ___________________________________")
+
+    disc = doc.add_paragraph()
+    run = disc.add_run(
+        "Рекомендация требует ручного подтверждения; "
+        "автоматическое выполнение системой не выполнялось."
+    )
+    run.italic = True
+
+    buf = BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def universal_docx_filename(rec_id: int, title: str) -> str:
+    slug = _slug_category(title)
+    return f"1apart_рекомендация_{rec_id}_{slug}.docx"
+
+
 # re-export for callers
 __all__ = [
     "STATUS_LABELS",
     "TYPE_LABELS",
     "build_recommendation_docx",
+    "build_universal_recommendation_docx",
     "format_date_ru",
     "recommendation_docx_filename",
+    "universal_docx_filename",
 ]

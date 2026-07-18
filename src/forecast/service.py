@@ -253,4 +253,10 @@ def run_forecast_refresh(
             quality_warn,
             history_days,
         )
+    try:
+        from src.recommendations.service import sync_price_recommendations
+
+        stats["center_sync"] = sync_price_recommendations()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Sync Центра рекомендаций не удался: %s", exc)
     return stats
