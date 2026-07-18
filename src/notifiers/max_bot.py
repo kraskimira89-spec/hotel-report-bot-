@@ -593,19 +593,9 @@ def build_daily_summary_sections(data: DailySummaryData) -> list[str]:
         section_occupancy.append(f"• {short}: {row.occupied}")
     if data.totals:
         t = data.totals
-        total_line = f"*Итого занято:* {t.occupied} (всего {t.total})"
-        if data.revenue is not None:
-            total_line += f" · выручка {_format_price_rub(data.revenue)} ₽"
-            if (
-                data.revenue_change_pct is not None
-                and abs(data.revenue_change_pct) >= 0.1
-            ):
-                sign = "+" if data.revenue_change_pct > 0 else ""
-                light = "🟢" if data.revenue_change_pct > 0 else "🔴"
-                total_line += (
-                    f" · {light} {sign}{data.revenue_change_pct:.1f}% к вчера"
-                )
-        section_occupancy.append(total_line)
+        section_occupancy.append(
+            f"*Итого занято:* {t.occupied} (всего {t.total})"
+        )
     sections.append("\n".join(section_occupancy))
 
     section_bookings = [f"*Новые брони:* {data.new_bookings_light} {data.new_bookings_total}"]
@@ -616,20 +606,19 @@ def build_daily_summary_sections(data: DailySummaryData) -> list[str]:
         section_bookings.append("- нет данных")
     sections.append("\n".join(section_bookings))
 
-    section_comp = ["*Конкуренты* (цены на сегодня):"]
     if data.competitors:
         for comp in data.competitors:
-            section_comp.append(f"• *{comp.name}*")
+            section_comp = [f"*Конкурент:* {comp.name}"]
             for item in comp.items:
                 if item.label == "от":
-                    section_comp.append(f"  от {_format_price_rub(item.price)} ₽")
+                    section_comp.append(f"от {_format_price_rub(item.price)} ₽")
                 else:
                     section_comp.append(
-                        f"  {item.label}: {_format_price_rub(item.price)} ₽"
+                        f"{item.label}: {_format_price_rub(item.price)} ₽"
                     )
+            sections.append("\n".join(section_comp))
     else:
-        section_comp.append("- нет данных")
-    sections.append("\n".join(section_comp))
+        sections.append("*Конкуренты*\n- нет данных")
 
     if data.warnings:
         section_notes = ["*Примечания:*"]

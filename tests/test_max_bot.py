@@ -149,9 +149,9 @@ def test_build_daily_summary_text_contains_sections() -> None:
     assert "за 4 500 ₽" not in text
     assert "4 / 1 / 1" not in text
     assert "*Категории* (занято):" in text
-    assert "выручка 185 000 ₽" in text
-    assert "🟢 +8.5% к вчера" in text
-    assert "Конкуренты" in text
+    assert "выручка" not in text
+    assert "к вчера" not in text
+    assert "Конкурент:" in text
     assert "Bon Apart" in text
     assert "5 200 ₽" in text
     assert "Цены «от» по категориям" not in text
@@ -159,19 +159,21 @@ def test_build_daily_summary_text_contains_sections() -> None:
 
 def test_build_daily_summary_sections_split_by_blocks() -> None:
     sections = build_daily_summary_sections(_sample_summary())
-    assert len(sections) >= 3
+    # загрузка + брони + по сообщению на каждого конкурента
+    assert len(sections) >= 4
     assert "Загрузка" in sections[0]
-    assert "за 4 500 ₽" not in sections[0]
-    assert "выручка 185 000 ₽" in sections[0]
+    assert "выручка" not in sections[0]
     assert "Новые брони" in sections[1]
-    assert "Конкуренты" in sections[2]
+    assert "Конкурент:" in sections[2]
+    assert "Bon Apart" in sections[2]
+    assert "Гоголь" in sections[3]
 
 
-def test_itoго_hides_status_when_no_revenue_change() -> None:
+def test_occupancy_total_without_revenue() -> None:
     data = _sample_summary()
-    data.revenue_change_pct = 0.0
     text = build_daily_summary_sections(data)[0]
-    assert "выручка 185 000 ₽" in text
+    assert "*Итого занято:* 6 (всего 9)" in text
+    assert "выручка" not in text
     assert "к вчера" not in text
 
 
@@ -284,14 +286,16 @@ def test_send_daily_summary_writes_reports_log(
 
     assert result["status"] == "sent"
     assert result["dry_run"] is True
-    assert result["parts"] == 3
-    assert len(client.calls) == 3
+    assert result["parts"] == 4
+    assert len(client.calls) == 4
     assert client.calls[0]["params"]["chat_id"] == 364502022
     first_text = client.calls[0]["json"]["text"]
     assert "1-КК 23: 4" in first_text
     assert "за 4 500" not in first_text
+    assert "выручка" not in first_text
+    assert "Конкурент:" in client.calls[2]["json"]["text"]
     assert "брон" not in first_text
-    assert any("Конкуренты" in call["json"]["text"] for call in client.calls)
+    assert any("Конкурент:" in call["json"]["text"] for call in client.calls)
 
     conn = storage_db.get_connection()
     try:
