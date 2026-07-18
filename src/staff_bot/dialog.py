@@ -27,13 +27,25 @@ def _send(
     kwargs: dict[str, Any] = {"format": "markdown"}
     if attachments:
         kwargs["attachments"] = attachments
-    # В личном диалоге Max надёжнее user_id; chat_id — запасной
+    # Предпочитаем chat_id: user_id из callback иногда путают с id бота
+    last_exc: Exception | None = None
+    if chat_id is not None:
+        try:
+            api.send_message(text, chat_id=chat_id, **kwargs)
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            logger.warning("staff_bot send chat_id=%s failed: %s", chat_id, exc)
     if user_id is not None:
-        api.send_message(text, user_id=user_id, **kwargs)
-    elif chat_id is not None:
-        api.send_message(text, chat_id=chat_id, **kwargs)
-    else:
-        logger.warning("staff_bot: нет chat_id/user_id для ответа")
+        try:
+            api.send_message(text, user_id=user_id, **kwargs)
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            logger.warning("staff_bot send user_id=%s failed: %s", user_id, exc)
+    if last_exc is not None:
+        raise last_exc
+    logger.warning("staff_bot: нет chat_id/user_id для ответа")
 
 
 def _log(user_id: int | None, command: str, status: str, detail: str | None = None) -> None:
@@ -106,27 +118,45 @@ def handle_onboarding_choice(
     if client is None:
         return {"ok": False, "reason": "no_max_token"}
 
-    if choice in ("wait_9", "wait_until_9"):
-        reply = handlers.reply_wait_until_9()
+    try:
+        if choice in ("wait_9", "wait_until_9"):
+            reply = handlers.reply_wait_until_9()
+            _send(client, chat_id=chat_id, user_id=user_id, text=reply["text"])
+            _log(user_id, "wait_until_9", "ok")
+            if callback_id:
+                try:
+                    client.answer_callback(callback_id, notification="Ждём 9:00")
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("answer_callback wait: %s", exc)
+            return {"ok": True, "command": "wait_until_9"}
+
+        reply = handlers.reply_summary(config=cfg)
         _send(client, chat_id=chat_id, user_id=user_id, text=reply["text"])
-        _log(user_id, "wait_until_9", "ok")
+        _log(user_id, "send_last_summary", "ok")
         if callback_id:
             try:
-                client.answer_callback(callback_id, notification="Ждём 9:00")
+                client.answer_callback(callback_id, notification="Сводка отправлена")
             except Exception as exc:  # noqa: BLE001
-                logger.debug("answer_callback wait: %s", exc)
-        return {"ok": True, "command": "wait_until_9"}
-
-    # send_last — последняя сводка из метрик
-    reply = handlers.reply_summary(config=cfg)
-    _send(client, chat_id=chat_id, user_id=user_id, text=reply["text"])
-    _log(user_id, "send_last_summary", "ok")
-    if callback_id:
+                logger.debug("answer_callback summary: %s", exc)
+        return {"ok": True, "command": "send_last_summary"}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("onboarding choice failed: %s", exc)
+        _log(user_id, choice, "error", str(exc)[:500])
         try:
-            client.answer_callback(callback_id, notification="Сводка отправлена")
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("answer_callback summary: %s", exc)
-    return {"ok": True, "command": "send_last_summary"}
+            _send(
+                client,
+                chat_id=chat_id,
+                user_id=user_id,
+                text="Не удалось отправить сводку. Попробуйте ещё раз или напишите /start.",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        if callback_id:
+            try:
+                client.answer_callback(callback_id, notification="Ошибка")
+            except Exception:  # noqa: BLE001
+                pass
+        return {"ok": False, "error": str(exc)}
 
 
 def handle_staff_command(

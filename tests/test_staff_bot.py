@@ -78,21 +78,27 @@ def test_resolve_command() -> None:
     assert resolve_command("⚠️ Проблемы") == "problems"
 
 
-def test_parse_single_webhook_update() -> None:
+def test_parse_message_callback_uses_callback_user_not_bot_sender() -> None:
+    """В message_callback sender — бот; человек — в callback.user."""
     payload = {
-        "update_type": "message_created",
+        "update_type": "message_callback",
         "timestamp": 1,
+        "callback": {
+            "callback_id": "cb1",
+            "payload": "onboarding:send_last",
+            "user": {"user_id": 364502022, "name": "Сергей"},
+        },
         "message": {
-            "sender": {"user_id": 42, "name": "Test"},
-            "recipient": {"chat_id": 42},
-            "body": {"text": "/start"},
+            "sender": {"user_id": 366484126, "name": "Bot", "is_bot": True},
+            "recipient": {"chat_id": 364502022},
+            "body": {"text": "hi"},
         },
     }
     updates = parse_updates(payload)
     assert len(updates) == 1
-    assert updates[0].user_id == 42
-    assert updates[0].chat_id == 42
-    assert extract_message_text(updates[0].raw) == "/start"
+    assert updates[0].user_id == 364502022
+    assert updates[0].chat_id == 364502022
+
 
 
 def test_acl_deny_unknown(staff_db: Path) -> None:

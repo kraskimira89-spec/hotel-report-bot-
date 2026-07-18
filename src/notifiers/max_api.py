@@ -267,29 +267,47 @@ def parse_updates(payload: dict[str, Any]) -> list[MaxUpdate]:
     for raw in normalized.get("updates", []):
         if not isinstance(raw, dict):
             continue
+        update_type = str(raw.get("update_type", ""))
         user_id = raw.get("user_id")
         chat_id = raw.get("chat_id")
         user = raw.get("user")
         if isinstance(user, dict) and user_id is None:
             user_id = user.get("user_id")
-        message = raw.get("message")
-        if isinstance(message, dict):
-            if chat_id is None:
+
+        callback = raw.get("callback")
+        # message_callback: человек в callback.user (не в message.sender — там бот)
+        if update_type == "message_callback" and isinstance(callback, dict):
+            cb_user = callback.get("user") or {}
+            if isinstance(cb_user, dict) and cb_user.get("user_id") is not None:
+                user_id = cb_user.get("user_id")
+            # chat_id часто в message.recipient
+            message = raw.get("message")
+            if isinstance(message, dict) and chat_id is None:
                 recipient = message.get("recipient") or {}
                 if isinstance(recipient, dict) and recipient.get("chat_id") is not None:
                     chat_id = recipient.get("chat_id")
-            if user_id is None:
-                sender = message.get("sender") or {}
-                if isinstance(sender, dict):
-                    user_id = sender.get("user_id")
-        callback = raw.get("callback")
-        if isinstance(callback, dict) and user_id is None:
-            cb_user = callback.get("user") or {}
-            if isinstance(cb_user, dict):
-                user_id = cb_user.get("user_id")
+                # иногда chat_id = user_id диалога
+                if chat_id is None and user_id is not None:
+                    chat_id = user_id
+        else:
+            message = raw.get("message")
+            if isinstance(message, dict):
+                if chat_id is None:
+                    recipient = message.get("recipient") or {}
+                    if isinstance(recipient, dict) and recipient.get("chat_id") is not None:
+                        chat_id = recipient.get("chat_id")
+                if user_id is None:
+                    sender = message.get("sender") or {}
+                    if isinstance(sender, dict):
+                        user_id = sender.get("user_id")
+            if isinstance(callback, dict) and user_id is None:
+                cb_user = callback.get("user") or {}
+                if isinstance(cb_user, dict):
+                    user_id = cb_user.get("user_id")
+
         items.append(
             MaxUpdate(
-                update_type=str(raw.get("update_type", "")),
+                update_type=update_type,
                 chat_id=int(chat_id) if chat_id is not None else None,
                 user_id=int(user_id) if user_id is not None else None,
                 timestamp=raw.get("timestamp"),
