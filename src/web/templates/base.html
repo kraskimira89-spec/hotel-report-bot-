@@ -238,6 +238,82 @@
             font-size: .82rem;
         }
 
+        a.btn-small {
+            display: inline-block;
+            text-decoration: none;
+            background: linear-gradient(180deg, var(--primary-2), var(--primary));
+            color: var(--dark);
+            border: none;
+            border-radius: var(--radius-sm);
+            font-weight: 600;
+            cursor: pointer;
+            line-height: 1.4;
+            transition: .15s ease;
+        }
+
+        a.btn-small:hover {
+            background: var(--primary-h);
+            color: #fff;
+        }
+
+        a.btn-small.active {
+            background: var(--dark-brown);
+            color: #fff;
+        }
+
+        .btn-detail {
+            background: #4A6FA5 !important;
+            color: #fff !important;
+        }
+        .btn-detail:hover { background: #3A5A8A !important; color: #fff !important; }
+
+        .btn-accept {
+            background: var(--ok) !important;
+            color: #fff !important;
+        }
+        .btn-accept:hover { background: #1B5E20 !important; color: #fff !important; }
+
+        .btn-defer {
+            background: var(--warn) !important;
+            color: #fff !important;
+        }
+        .btn-defer:hover { background: #8A5200 !important; color: #fff !important; }
+
+        .btn-reject {
+            background: var(--err) !important;
+            color: #fff !important;
+        }
+        .btn-reject:hover { background: #8B1E18 !important; color: #fff !important; }
+
+        .btn-export {
+            background: var(--dark-brown) !important;
+            color: #fff !important;
+        }
+        .btn-export:hover { background: #1a0a05 !important; color: #fff !important; }
+
+        .reco-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .5rem;
+            margin: .75rem 0 1rem;
+        }
+
+        .reco-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .35rem;
+            align-items: center;
+        }
+
+        .reco-actions form {
+            display: inline;
+            margin: 0;
+        }
+
+        .reco-actions form button {
+            margin: 0;
+        }
+
         .grid-2 {
             display: grid;
             grid-template-columns: 1fr 1fr;

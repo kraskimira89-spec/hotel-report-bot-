@@ -231,6 +231,70 @@ def build_universal_recommendation_docx(card: dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
+def build_recommendations_list_docx(
+    rows: list[dict[str, Any]],
+    *,
+    bucket_label: str = "Все",
+) -> bytes:
+    """Сводный Word по текущему фильтру списка Центра."""
+    doc = Document()
+    style = doc.styles["Normal"]
+    style.font.name = "Arial"
+    style.font.size = Pt(11)
+
+    title = doc.add_heading("1apart — список рекомендаций", level=0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph(f"Фильтр: {bucket_label}")
+    doc.add_paragraph(f"Дата: {date.today().strftime('%d.%m.%Y')}")
+    doc.add_paragraph(f"Всего: {len(rows)}")
+
+    table = doc.add_table(rows=1, cols=6)
+    table.style = "Table Grid"
+    hdr = table.rows[0].cells
+    headers = ("№", "Заголовок", "Раздел", "Приоритет", "Статус", "Срок")
+    for i, name in enumerate(headers):
+        hdr[i].text = name
+
+    for r in rows:
+        cells = table.add_row().cells
+        cells[0].text = str(r.get("id") or "")
+        cells[1].text = str(r.get("title") or "")
+        cells[2].text = str(r.get("module_label") or "")
+        cells[3].text = str(r.get("priority_label") or "")
+        cells[4].text = str(r.get("status_label") or "")
+        cells[5].text = str(r.get("due_at") or "—")
+
+    buf = BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def build_recommendations_list_csv(rows: list[dict[str, Any]]) -> bytes:
+    """CSV для открытия в Excel (UTF-8 BOM)."""
+    import csv
+    from io import StringIO
+
+    buf = StringIO()
+    writer = csv.writer(buf, delimiter=";")
+    writer.writerow(
+        ["id", "title", "module", "priority", "status", "due_at", "owner", "expected_result"]
+    )
+    for r in rows:
+        writer.writerow(
+            [
+                r.get("id") or "",
+                r.get("title") or "",
+                r.get("module_label") or "",
+                r.get("priority_label") or "",
+                r.get("status_label") or "",
+                r.get("due_at") or "",
+                r.get("owner") or "",
+                r.get("expected_result") or "",
+            ]
+        )
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+
 def universal_docx_filename(rec_id: int, title: str) -> str:
     slug = _slug_category(title)
     return f"1apart_рекомендация_{rec_id}_{slug}.docx"
@@ -241,6 +305,8 @@ __all__ = [
     "STATUS_LABELS",
     "TYPE_LABELS",
     "build_recommendation_docx",
+    "build_recommendations_list_csv",
+    "build_recommendations_list_docx",
     "build_universal_recommendation_docx",
     "format_date_ru",
     "recommendation_docx_filename",

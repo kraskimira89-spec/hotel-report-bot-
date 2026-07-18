@@ -348,6 +348,69 @@ async def recommendations_refresh(request: Request) -> Response:
     return RedirectResponse(url="/recommendations", status_code=status.HTTP_302_FOUND)
 
 
+@app.get("/recommendations/export.docx")
+async def recommendations_list_export_docx(
+    request: Request,
+    bucket: str = Query(default="all"),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from urllib.parse import quote
+
+    from src.notifiers.docx_export import build_recommendations_list_docx
+
+    data = queries.fetch_recommendations_bundle(bucket=bucket)
+    tab_label = next(
+        (t["label"] for t in data["tabs"] if t["id"] == data["bucket"]),
+        data["bucket"],
+    )
+    payload = build_recommendations_list_docx(data["rows"], bucket_label=tab_label)
+    filename = f"1apart_recomendacii_{data['bucket']}.docx"
+    headers = {
+        "Content-Disposition": (
+            f'attachment; filename="{filename}"; '
+            f"filename*=UTF-8''{quote(filename)}"
+        )
+    }
+    return Response(
+        content=payload,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ),
+        headers=headers,
+    )
+
+
+@app.get("/recommendations/export.xlsx")
+async def recommendations_list_export_xlsx(
+    request: Request,
+    bucket: str = Query(default="all"),
+) -> Response:
+    """Таблица списка для Excel (CSV UTF-8 BOM, открывается в Excel)."""
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from urllib.parse import quote
+
+    from src.notifiers.docx_export import build_recommendations_list_csv
+
+    data = queries.fetch_recommendations_bundle(bucket=bucket)
+    payload = build_recommendations_list_csv(data["rows"])
+    filename = f"1apart_recomendacii_{data['bucket']}.csv"
+    headers = {
+        "Content-Disposition": (
+            f'attachment; filename="{filename}"; '
+            f"filename*=UTF-8''{quote(filename)}"
+        )
+    }
+    return Response(
+        content=payload,
+        media_type="text/csv; charset=utf-8",
+        headers=headers,
+    )
+
+
 @app.get("/recommendations/{rec_id}", response_class=HTMLResponse)
 async def recommendation_universal_detail(request: Request, rec_id: int) -> Response:
     redirect = _require_auth(request)

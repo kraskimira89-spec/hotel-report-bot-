@@ -166,11 +166,40 @@ def test_list_and_detail_auth(client: TestClient) -> None:
     page = client.get("/recommendations")
     assert page.status_code == 200
     assert "Центр рекомендаций" in page.text
+    assert 'href="/recommendations/export.docx?bucket=' in page.text
+    assert 'href="/recommendations/export.xlsx?bucket=' in page.text
+    assert 'class="btn-small btn-detail"' in page.text
+    # Word только в тулбаре списка, не в каждой строке
+    assert page.text.count("/export.docx") >= 2
     row = list_recommendations(limit=1)[0]
+    assert f'/recommendations/{row.id}/export.docx' not in page.text
     detail = client.get(f"/recommendations/{row.id}")
     assert detail.status_code == 200
     assert "Пошаговые действия" in detail.text
     assert "TravelLine" in detail.text
+    assert f'/recommendations/{row.id}/export.docx' in detail.text
+
+
+def test_list_export_word_and_excel(client: TestClient) -> None:
+    upsert_recommendation(
+        RecommendationRecord(
+            source_module="system",
+            recommendation_type="travelline_sync_error",
+            title="TravelLine не синхронизируется",
+            instruction_template="travelline_sync_error",
+            source_ref="error:list-export",
+            priority="critical",
+            evidence_snapshot_json={"what_happens": ["API down"]},
+        )
+    )
+    _login(client)
+    docx = client.get("/recommendations/export.docx?bucket=all")
+    assert docx.status_code == 200
+    assert docx.content[:2] == b"PK"
+    xlsx = client.get("/recommendations/export.xlsx?bucket=all")
+    assert xlsx.status_code == 200
+    assert "TravelLine" in xlsx.text
+    assert xlsx.headers["content-type"].startswith("text/csv")
 
 
 def test_docx_universal(client: TestClient) -> None:

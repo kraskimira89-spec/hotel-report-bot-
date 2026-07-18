@@ -22,6 +22,11 @@
 </p>
 
 {% if data.rows %}
+<div class="reco-toolbar">
+    <a class="btn-small btn-export" href="/recommendations/export.docx?bucket={{ data.bucket }}">Word</a>
+    <a class="btn-small btn-export" href="/recommendations/export.xlsx?bucket={{ data.bucket }}">Excel</a>
+</div>
+
 <table class="data-table">
     <thead>
         <tr>
@@ -47,24 +52,30 @@
             <td>{{ r.due_at }}</td>
             <td>{{ r.owner }}</td>
             <td>
-                <a class="btn-small" href="/recommendations/{{ r.id }}">Подробнее</a>
-                <a class="btn-small" href="/recommendations/{{ r.id }}/export.docx">Word</a>
-                {% if r.status == 'new' %}
-                <form method="post" action="/recommendations/{{ r.id }}/accept" style="display:inline">
-                    <button type="submit" class="btn-small">Принять</button>
-                </form>
-                <form method="post" action="/recommendations/{{ r.id }}/defer" style="display:inline">
-                    <button type="submit" class="btn-small">Отложить</button>
-                </form>
-                <form method="post" action="/recommendations/{{ r.id }}/reject" style="display:inline">
-                    <button type="submit" class="btn-small">Отклонить</button>
-                </form>
-                {% endif %}
+                <div class="reco-actions">
+                    <a class="btn-small btn-detail" href="/recommendations/{{ r.id }}">Подробнее</a>
+                    {% if r.status == 'new' %}
+                    <form method="post" action="/recommendations/{{ r.id }}/accept">
+                        <button type="submit" class="btn-small btn-accept">Принять</button>
+                    </form>
+                    <form method="post" action="/recommendations/{{ r.id }}/defer">
+                        <button type="submit" class="btn-small btn-defer">Отложить</button>
+                    </form>
+                    <form method="post" action="/recommendations/{{ r.id }}/reject">
+                        <button type="submit" class="btn-small btn-reject">Отклонить</button>
+                    </form>
+                    {% endif %}
+                </div>
             </td>
         </tr>
     {% endfor %}
     </tbody>
 </table>
+
+<div class="reco-toolbar">
+    <a class="btn-small btn-export" href="/recommendations/export.docx?bucket={{ data.bucket }}">Word</a>
+    <a class="btn-small btn-export" href="/recommendations/export.xlsx?bucket={{ data.bucket }}">Excel</a>
+</div>
 {% else %}
 <p class="muted">Нет рекомендаций в этом разделе.</p>
 {% endif %}
