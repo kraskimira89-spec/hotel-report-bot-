@@ -121,6 +121,7 @@ class MaxApiClient:
         user_id: int | str | None = None,
         format: str = "markdown",
         notify: bool | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """POST /messages — chat_id/user_id в query, тело NewMessageBody."""
         params: dict[str, Any] = {}
@@ -131,7 +132,28 @@ class MaxApiClient:
         body: dict[str, Any] = {"text": text, "format": format}
         if notify is not None:
             body["notify"] = notify
+        if attachments:
+            body["attachments"] = attachments
         data = self._request("POST", "/messages", params=params, json=body).json()
+        return data if isinstance(data, dict) else {"value": data}
+
+    def answer_callback(
+        self,
+        callback_id: str,
+        *,
+        notification: str | None = None,
+        message: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """POST /answers — ответ на message_callback."""
+        params = {"callback_id": callback_id}
+        body: dict[str, Any] = {}
+        if notification is not None:
+            body["notification"] = notification
+        if message is not None:
+            body["message"] = message
+        if not body:
+            body["notification"] = "OK"
+        data = self._request("POST", "/answers", params=params, json=body).json()
         return data if isinstance(data, dict) else {"value": data}
 
     def get_updates(
@@ -192,22 +214,102 @@ def build_max_api_client(config: AppConfig | None = None) -> MaxApiClient | None
     return MaxApiClient(env.max_token, config=cfg.max_bot)
 
 
+def normalize_updates_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Webhook шлёт один Update; long polling — {updates: [...]}."""
+    if "updates" in payload:
+        return payload
+    if payload.get("update_type"):
+        return {"updates": [payload]}
+    return payload
+
+
 def parse_updates(payload: dict[str, Any]) -> list[MaxUpdate]:
     """Разобрать ответ GET /updates или webhook body."""
+    normalized = normalize_updates_payload(payload)
     items: list[MaxUpdate] = []
-    for raw in payload.get("updates", []):
+    for raw in normalized.get("updates", []):
         if not isinstance(raw, dict):
             continue
+        user_id = raw.get("user_id")
+        chat_id = raw.get("chat_id")
+        user = raw.get("user")
+        if isinstance(user, dict) and user_id is None:
+            user_id = user.get("user_id")
+        message = raw.get("message")
+        if isinstance(message, dict):
+            if chat_id is None:
+                recipient = message.get("recipient") or {}
+                if isinstance(recipient, dict) and recipient.get("chat_id") is not None:
+                    chat_id = recipient.get("chat_id")
+            if user_id is None:
+                sender = message.get("sender") or {}
+                if isinstance(sender, dict):
+                    user_id = sender.get("user_id")
+        callback = raw.get("callback")
+        if isinstance(callback, dict) and user_id is None:
+            cb_user = callback.get("user") or {}
+            if isinstance(cb_user, dict):
+                user_id = cb_user.get("user_id")
         items.append(
             MaxUpdate(
                 update_type=str(raw.get("update_type", "")),
-                chat_id=raw.get("chat_id"),
-                user_id=raw.get("user_id"),
+                chat_id=int(chat_id) if chat_id is not None else None,
+                user_id=int(user_id) if user_id is not None else None,
                 timestamp=raw.get("timestamp"),
                 raw=raw,
             )
         )
     return items
+
+
+def extract_message_text(raw: dict[str, Any]) -> str:
+    message = raw.get("message")
+    if not isinstance(message, dict):
+        return ""
+    body = message.get("body")
+    if isinstance(body, dict):
+        return str(body.get("text") or "")
+    return str(message.get("text") or "")
+
+
+def extract_display_name(raw: dict[str, Any]) -> str:
+    for key in ("user",):
+        obj = raw.get(key)
+        if isinstance(obj, dict):
+            name = obj.get("name") or obj.get("first_name") or ""
+            if name:
+                return str(name)
+    message = raw.get("message")
+    if isinstance(message, dict):
+        sender = message.get("sender") or {}
+        if isinstance(sender, dict):
+            name = sender.get("name") or sender.get("first_name") or ""
+            if name:
+                return str(name)
+    callback = raw.get("callback")
+    if isinstance(callback, dict):
+        user = callback.get("user") or {}
+        if isinstance(user, dict):
+            name = user.get("name") or user.get("first_name") or ""
+            if name:
+                return str(name)
+    return ""
+
+
+def extract_callback(raw: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Вернуть (callback_id, payload)."""
+    callback = raw.get("callback")
+    if not isinstance(callback, dict):
+        return None, None
+    callback_id = callback.get("callback_id")
+    payload = callback.get("payload")
+    if payload is None:
+        # иногда payload лежит в attachment
+        payload = raw.get("payload")
+    return (
+        str(callback_id) if callback_id else None,
+        str(payload) if payload is not None else None,
+    )
 
 
 def discover_chat_ids(payload: dict[str, Any]) -> list[int]:

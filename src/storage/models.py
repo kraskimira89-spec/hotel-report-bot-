@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 TRENDS_RETENTION_DAYS = 180
 INSIGHTS_RETENTION_DAYS = 90
@@ -255,6 +255,30 @@ TABLES: list[str] = [
         completion_note TEXT
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS staff_users (
+        user_id INTEGER PRIMARY KEY,
+        display_name TEXT NOT NULL DEFAULT '',
+        role TEXT NOT NULL DEFAULT 'viewer',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        notify_daily INTEGER NOT NULL DEFAULT 1,
+        notify_critical INTEGER NOT NULL DEFAULT 1,
+        notify_recommendations INTEGER NOT NULL DEFAULT 1,
+        notify_events INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS staff_command_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        command TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'ok',
+        detail TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
 ]
 INDEXES: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_price_snapshots_date ON price_snapshots(snapshot_date)",
@@ -289,6 +313,10 @@ INDEXES: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_recommendations_due ON recommendations(due_at)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_recommendations_source_ref "
     "ON recommendations(source_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_staff_users_role ON staff_users(role)",
+    "CREATE INDEX IF NOT EXISTS idx_staff_users_active ON staff_users(is_active)",
+    "CREATE INDEX IF NOT EXISTS idx_staff_command_log_user ON staff_command_log(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_staff_command_log_created ON staff_command_log(created_at)",
 ]
 
 MIGRATIONS_V2: list[str] = [
@@ -632,6 +660,37 @@ MIGRATIONS_V16: list[str] = [
     "ALTER TABLE city_events ADD COLUMN start_time TEXT",
 ]
 
+MIGRATIONS_V17: list[str] = [
+    """
+    CREATE TABLE IF NOT EXISTS staff_users (
+        user_id INTEGER PRIMARY KEY,
+        display_name TEXT NOT NULL DEFAULT '',
+        role TEXT NOT NULL DEFAULT 'viewer',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        notify_daily INTEGER NOT NULL DEFAULT 1,
+        notify_critical INTEGER NOT NULL DEFAULT 1,
+        notify_recommendations INTEGER NOT NULL DEFAULT 1,
+        notify_events INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS staff_command_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        command TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'ok',
+        detail TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_staff_users_role ON staff_users(role)",
+    "CREATE INDEX IF NOT EXISTS idx_staff_users_active ON staff_users(is_active)",
+    "CREATE INDEX IF NOT EXISTS idx_staff_command_log_user ON staff_command_log(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_staff_command_log_created ON staff_command_log(created_at)",
+]
+
 
 class PriceSnapshotRecord(BaseModel):
     """Запись snapshot цены."""
@@ -709,6 +768,32 @@ class ErrorLogRecord(BaseModel):
     message: str
     details: str | None = None
     resolved: bool = False
+    id: int | None = None
+
+
+class StaffUserRecord(BaseModel):
+    """Сотрудник внутреннего бота Max."""
+
+    user_id: int
+    display_name: str = ""
+    role: str = "viewer"
+    is_active: bool = True
+    notify_daily: bool = True
+    notify_critical: bool = True
+    notify_recommendations: bool = True
+    notify_events: bool = True
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class StaffCommandLogRecord(BaseModel):
+    """Журнал команд внутреннего бота."""
+
+    user_id: int
+    command: str
+    status: str = "ok"
+    detail: str | None = None
+    created_at: datetime | None = None
     id: int | None = None
 
 

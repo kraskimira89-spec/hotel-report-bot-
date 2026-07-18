@@ -197,8 +197,33 @@ class MaxBotConfig(BaseModel):
     backoff_max_sec: float = 60.0
     webhook_url: str = ""
     webhook_update_types: list[str] = Field(
-        default_factory=lambda: ["bot_started", "message_created", "bot_added"]
+        default_factory=lambda: [
+            "bot_started",
+            "message_created",
+            "message_callback",
+            "bot_added",
+        ]
     )
+
+
+class StaffEmployeeConfig(BaseModel):
+    """Сотрудник из settings.yaml (allowlist)."""
+
+    user_id: int
+    name: str = ""
+    role: str = "viewer"
+    active: bool = True
+
+
+class StaffBotConfig(BaseModel):
+    """Внутренний бот сотрудников Max."""
+
+    enabled: bool = True
+    # True → отвечаем только test_user_ids
+    dry_run: bool = True
+    admin_base_url: str = "https://bot.masterklepa.online"
+    test_user_ids: list[int] = Field(default_factory=list)
+    employees: list[StaffEmployeeConfig] = Field(default_factory=list)
 
 
 class EmailConfig(BaseModel):
@@ -376,6 +401,7 @@ class AppConfig(BaseModel):
     market_news: MarketNewsConfig = Field(default_factory=MarketNewsConfig)
     travelline: TravelLineConfig = Field(default_factory=TravelLineConfig)
     max_bot: MaxBotConfig = Field(default_factory=MaxBotConfig)
+    staff_bot: StaffBotConfig = Field(default_factory=StaffBotConfig)
     email: EmailConfig = Field(default_factory=EmailConfig)
     sheets: SheetsConfig = Field(default_factory=SheetsConfig)
     web: WebConfig = Field(default_factory=WebConfig)

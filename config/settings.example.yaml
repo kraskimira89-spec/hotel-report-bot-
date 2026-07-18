@@ -304,7 +304,23 @@ max_bot:
   webhook_update_types:
   - bot_started
   - message_created
+  - message_callback
   - bot_added
+staff_bot:
+  enabled: true
+  dry_run: true
+  admin_base_url: https://bot.masterklepa.online
+  test_user_ids: []
+  employees: []
+  # Пример:
+  # test_user_ids: [364502022]
+  # employees:
+  # - user_id: 364502022
+  #   name: Сергей
+  #   role: owner
+  # - user_id: 111222333
+  #   name: Екатерина
+  #   role: manager
 email:
   from_address: reports@1apart.ru
   to_addresses:

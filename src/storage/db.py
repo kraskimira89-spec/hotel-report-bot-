@@ -27,6 +27,7 @@ from src.storage.models import (
     MIGRATIONS_V14,
     MIGRATIONS_V15,
     MIGRATIONS_V16,
+    MIGRATIONS_V17,
     SCHEMA_VERSION,
     TABLES,
     TRENDS_RETENTION_DAYS,
@@ -48,6 +49,8 @@ from src.storage.models import (
     RecommendationRecord,
     PriceSnapshotRecord,
     ReportLogRecord,
+    StaffCommandLogRecord,
+    StaffUserRecord,
     TrendRecord,
 )
 
@@ -219,6 +222,14 @@ def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
                 conn.execute(ddl)
             except sqlite3.OperationalError as exc:
                 if "duplicate column name" not in str(exc).lower():
+                    logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 17:
+        for ddl in MIGRATIONS_V17:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                msg = str(exc).lower()
+                if "duplicate column name" not in msg and "already exists" not in msg:
                     logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
     conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
 
@@ -2614,3 +2625,129 @@ def upsert_event_source_state(
                 ),
             )
 
+
+def _row_to_staff_user(row: sqlite3.Row) -> StaffUserRecord:
+    return StaffUserRecord(
+        user_id=int(row["user_id"]),
+        display_name=row["display_name"] or "",
+        role=row["role"] or "viewer",
+        is_active=bool(row["is_active"]),
+        notify_daily=bool(row["notify_daily"]),
+        notify_critical=bool(row["notify_critical"]),
+        notify_recommendations=bool(row["notify_recommendations"]),
+        notify_events=bool(row["notify_events"]),
+        created_at=_parse_dt(row["created_at"]) if row["created_at"] else None,
+        updated_at=_parse_dt(row["updated_at"]) if row["updated_at"] else None,
+    )
+
+
+def get_staff_user(user_id: int) -> StaffUserRecord | None:
+    with db_session() as conn:
+        row = conn.execute(
+            "SELECT * FROM staff_users WHERE user_id = ?",
+            (int(user_id),),
+        ).fetchone()
+    return _row_to_staff_user(row) if row else None
+
+
+def list_staff_users(*, active_only: bool = False) -> list[StaffUserRecord]:
+    sql = "SELECT * FROM staff_users"
+    if active_only:
+        sql += " WHERE is_active = 1"
+    sql += " ORDER BY display_name, user_id"
+    with db_session() as conn:
+        rows = conn.execute(sql).fetchall()
+    return [_row_to_staff_user(r) for r in rows]
+
+
+def upsert_staff_user(user: StaffUserRecord) -> None:
+    with db_session() as conn:
+        conn.execute(
+            """
+            INSERT INTO staff_users (
+                user_id, display_name, role, is_active,
+                notify_daily, notify_critical, notify_recommendations, notify_events,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(user_id) DO UPDATE SET
+                display_name = excluded.display_name,
+                role = excluded.role,
+                is_active = excluded.is_active,
+                updated_at = datetime('now')
+            """,
+            (
+                int(user.user_id),
+                user.display_name,
+                user.role,
+                int(user.is_active),
+                int(user.notify_daily),
+                int(user.notify_critical),
+                int(user.notify_recommendations),
+                int(user.notify_events),
+            ),
+        )
+
+
+def update_staff_notifications(
+    user_id: int,
+    *,
+    notify_daily: bool | None = None,
+    notify_critical: bool | None = None,
+    notify_recommendations: bool | None = None,
+    notify_events: bool | None = None,
+) -> None:
+    user = get_staff_user(user_id)
+    if user is None:
+        return
+    with db_session() as conn:
+        conn.execute(
+            """
+            UPDATE staff_users SET
+                notify_daily = ?,
+                notify_critical = ?,
+                notify_recommendations = ?,
+                notify_events = ?,
+                updated_at = datetime('now')
+            WHERE user_id = ?
+            """,
+            (
+                int(user.notify_daily if notify_daily is None else notify_daily),
+                int(user.notify_critical if notify_critical is None else notify_critical),
+                int(
+                    user.notify_recommendations
+                    if notify_recommendations is None
+                    else notify_recommendations
+                ),
+                int(user.notify_events if notify_events is None else notify_events),
+                int(user_id),
+            ),
+        )
+
+
+def save_staff_command_log(record: StaffCommandLogRecord) -> int:
+    with db_session() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO staff_command_log (user_id, command, status, detail)
+            VALUES (?, ?, ?, ?)
+            """,
+            (int(record.user_id), record.command, record.status, record.detail),
+        )
+        return int(cur.lastrowid)
+
+
+def list_staff_for_notify(kind: str) -> list[StaffUserRecord]:
+    """kind: daily | critical | recommendations | events"""
+    col = {
+        "daily": "notify_daily",
+        "critical": "notify_critical",
+        "recommendations": "notify_recommendations",
+        "events": "notify_events",
+    }.get(kind)
+    if not col:
+        return []
+    with db_session() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM staff_users WHERE is_active = 1 AND {col} = 1"
+        ).fetchall()
+    return [_row_to_staff_user(r) for r in rows]
