@@ -20,6 +20,8 @@ from src.data_sources.sheets import (
 from src.notifiers.max_bot import (
     CategoryPriceLine,
     ChannelBookingLine,
+    CompetitorCategoryPrice,
+    CompetitorSummaryLine,
     DailySummaryData,
     RoomStatusSummary,
     aggregate_room_status,
@@ -118,6 +120,19 @@ def _sample_summary() -> DailySummaryData:
                 traffic_light="🟡",
             ),
         ],
+        competitors=[
+            CompetitorSummaryLine(
+                name="Bon Apart",
+                items=[
+                    CompetitorCategoryPrice(label="1-КК ул.", price=5200.0),
+                    CompetitorCategoryPrice(label="2-КК", price=7800.0),
+                ],
+            ),
+            CompetitorSummaryLine(
+                name="Гоголь",
+                items=[CompetitorCategoryPrice(label="от", price=6100.0)],
+            ),
+        ],
         revenue=185000.0,
         revenue_change_pct=8.5,
     )
@@ -128,25 +143,28 @@ def test_build_daily_summary_text_contains_sections() -> None:
     assert "07.07.2026" in text
     assert "🟢 72.5%" in text
     assert "1-КК" in text
-    assert "Итого" in text
+    assert "Итого занято" in text
     assert "Новые брони" in text
     assert "1apart.ru" in text
-    assert "1-КК 23" in text
-    assert "1room" not in text
-    assert "за 4 500 ₽" in text
-    assert "4 / 1 / 1" in text
+    assert "за 4 500 ₽" not in text
+    assert "4 / 1 / 1" not in text
+    assert "*Категории* (занято):" in text
     assert "выручка 185 000 ₽" in text
     assert "🟢 +8.5% к вчера" in text
+    assert "Конкуренты" in text
+    assert "Bon Apart" in text
+    assert "5 200 ₽" in text
     assert "Цены «от» по категориям" not in text
 
 
 def test_build_daily_summary_sections_split_by_blocks() -> None:
     sections = build_daily_summary_sections(_sample_summary())
-    assert len(sections) == 2
+    assert len(sections) >= 3
     assert "Загрузка" in sections[0]
-    assert "за 4 500 ₽" in sections[0]
+    assert "за 4 500 ₽" not in sections[0]
     assert "выручка 185 000 ₽" in sections[0]
     assert "Новые брони" in sections[1]
+    assert "Конкуренты" in sections[2]
 
 
 def test_itoго_hides_status_when_no_revenue_change() -> None:
@@ -266,10 +284,14 @@ def test_send_daily_summary_writes_reports_log(
 
     assert result["status"] == "sent"
     assert result["dry_run"] is True
-    assert result["parts"] == 2
-    assert len(client.calls) == 2
+    assert result["parts"] == 3
+    assert len(client.calls) == 3
     assert client.calls[0]["params"]["chat_id"] == 364502022
-    assert "за 4 500 ₽" in client.calls[0]["json"]["text"]
+    first_text = client.calls[0]["json"]["text"]
+    assert "1-КК 23: 4" in first_text
+    assert "за 4 500" not in first_text
+    assert "брон" not in first_text
+    assert any("Конкуренты" in call["json"]["text"] for call in client.calls)
 
     conn = storage_db.get_connection()
     try:

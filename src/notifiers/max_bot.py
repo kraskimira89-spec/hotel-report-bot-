@@ -71,6 +71,20 @@ class CategoryPriceLine(BaseModel):
     traffic_light: str = "🟡"
 
 
+class CompetitorCategoryPrice(BaseModel):
+    """Цена категории конкурента."""
+
+    label: str
+    price: float
+
+
+class CompetitorSummaryLine(BaseModel):
+    """Цены конкурента для сводки Max."""
+
+    name: str
+    items: list[CompetitorCategoryPrice] = Field(default_factory=list)
+
+
 class DailySummaryData(BaseModel):
     """Данные для формирования ежедневной сводки."""
 
@@ -85,6 +99,7 @@ class DailySummaryData(BaseModel):
     bookings_source: str = "none"
     bookings_by_channel: list[ChannelBookingLine] = Field(default_factory=list)
     prices: list[CategoryPriceLine] = Field(default_factory=list)
+    competitors: list[CompetitorSummaryLine] = Field(default_factory=list)
     revenue: float | None = None
     revenue_change_pct: float | None = None
     warnings: list[str] = Field(default_factory=list)
@@ -506,6 +521,7 @@ def prepare_daily_summary_data(
         bookings_source=bookings_source,
         bookings_by_channel=bookings_by_channel,
         prices=price_lines,
+        competitors=_collect_competitor_summary(report_date),
         revenue=revenue,
         revenue_change_pct=revenue_change_pct,
         warnings=warnings,
@@ -514,49 +530,70 @@ def prepare_daily_summary_data(
     )
 
 
+def _collect_competitor_summary(report_date: date) -> list[CompetitorSummaryLine]:
+    """Текущие цены конкурентов по категориям (на дату отчёта или последние)."""
+    from src.storage.db import get_competitor_category_prices, get_competitor_prices_latest
+
+    cfg = get_config()
+    result: list[CompetitorSummaryLine] = []
+    names = [c.name for c in (cfg.competitors or [])]
+    if not names:
+        names = [r.competitor_name for r in get_competitor_prices_latest()]
+
+    for name in names:
+        raw: list[CompetitorCategoryPrice] = []
+        cat_rows = get_competitor_category_prices(name, on_date=report_date)
+        if not cat_rows:
+            cat_rows = get_competitor_category_prices(name, on_date=None)
+        for row in cat_rows:
+            if row.price_from is None or row.price_from <= 0:
+                continue
+            label = category_short_label(row.category) if row.category else "от"
+            raw.append(CompetitorCategoryPrice(label=label, price=float(row.price_from)))
+        if not raw:
+            for agg in get_competitor_prices_latest():
+                if agg.competitor_name != name:
+                    continue
+                if agg.price_from and agg.price_from > 0:
+                    raw.append(
+                        CompetitorCategoryPrice(label="от", price=float(agg.price_from))
+                    )
+                break
+        seen: set[str] = set()
+        uniq: list[CompetitorCategoryPrice] = []
+        for item in raw:
+            if item.label in seen:
+                continue
+            seen.add(item.label)
+            uniq.append(item)
+            if len(uniq) >= 6:
+                break
+        if uniq:
+            result.append(CompetitorSummaryLine(name=name, items=uniq))
+    return result
+
+
 def _format_price_rub(price: float) -> str:
     """Формат цены: 5 800."""
     return f"{price:,.0f}".replace(",", " ")
 
 
-def _price_by_short_label(prices: list[CategoryPriceLine]) -> dict[str, CategoryPriceLine]:
-    """Индекс цен по короткой подписи категории."""
-    result: dict[str, CategoryPriceLine] = {}
-    for price in prices:
-        key = category_short_label(price.category)
-        result[key] = price
-    return result
-
-
 def build_daily_summary_sections(data: DailySummaryData) -> list[str]:
     """Сформировать сводку в виде отдельных разделов."""
     sections: list[str] = []
-    prices_map = _price_by_short_label(data.prices)
 
     section_occupancy = [
         f"📊 *Сводка за {data.report_date.strftime('%d.%m.%Y')}*",
         f"*Загрузка:* {data.occupancy_light} {data.occupancy_pct:.1f}%",
         "",
-        "*Категории* (цена «от» / зан / брон / св):",
+        "*Категории* (занято):",
     ]
     for row in data.room_types:
         short = category_short_label(row.label)
-        price = prices_map.get(short)
-        if price is not None:
-            section_occupancy.append(
-                f"• {short}. за {_format_price_rub(price.price)} ₽  "
-                f"{row.occupied} / {row.booked} / {row.free}"
-            )
-        else:
-            section_occupancy.append(
-                f"• {short}.  —  {row.occupied} / {row.booked} / {row.free}"
-            )
+        section_occupancy.append(f"• {short}: {row.occupied}")
     if data.totals:
         t = data.totals
-        total_line = (
-            f"*Итого:* {t.occupied} / {t.booked} / {t.free} "
-            f"(всего {t.total})"
-        )
+        total_line = f"*Итого занято:* {t.occupied} (всего {t.total})"
         if data.revenue is not None:
             total_line += f" · выручка {_format_price_rub(data.revenue)} ₽"
             if (
@@ -578,6 +615,21 @@ def build_daily_summary_sections(data: DailySummaryData) -> list[str]:
     else:
         section_bookings.append("- нет данных")
     sections.append("\n".join(section_bookings))
+
+    section_comp = ["*Конкуренты* (цены на сегодня):"]
+    if data.competitors:
+        for comp in data.competitors:
+            section_comp.append(f"• *{comp.name}*")
+            for item in comp.items:
+                if item.label == "от":
+                    section_comp.append(f"  от {_format_price_rub(item.price)} ₽")
+                else:
+                    section_comp.append(
+                        f"  {item.label}: {_format_price_rub(item.price)} ₽"
+                    )
+    else:
+        section_comp.append("- нет данных")
+    sections.append("\n".join(section_comp))
 
     if data.warnings:
         section_notes = ["*Примечания:*"]
