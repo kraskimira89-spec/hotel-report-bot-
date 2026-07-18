@@ -14,6 +14,7 @@ from src.forecast.engine import (
     calc_dow_coefficients,
     calc_seasonal_coefficients,
     forecast_day,
+    forecast_horizon,
     manual_event_boost,
     pickup_for_scenario,
 )
@@ -233,6 +234,66 @@ def test_manual_event_boost() -> None:
     assert boost == 10.0
     assert name == "Концерт"
     assert manual_event_boost(date(2026, 7, 1), events)[0] == 0.0
+
+
+def test_forecast_horizon_falls_back_when_category_history_thin() -> None:
+    """Мало дней по категории → база объекта, не low/manual_review из 11 дн."""
+    as_of = date(2026, 7, 18)
+    object_metrics = [
+        MetricsDailyRecord(
+            report_date=as_of - timedelta(days=i),
+            occupancy_pct=60.0,
+            adr=5000.0,
+            metric_type="daily",
+        )
+        for i in range(120)
+    ]
+    thin_cat = [
+        MetricsDailyRecord(
+            report_date=as_of - timedelta(days=i),
+            occupancy_pct=40.0,
+            adr=4500.0,
+            metric_type="category:1room",
+        )
+        for i in range(11)
+    ]
+    days = forecast_horizon(
+        as_of=as_of,
+        horizon_days=3,
+        metrics=object_metrics,
+        total_units=44,
+        min_history_days=365,
+        room_types=["", "1room"],
+        category_metrics={"1room": thin_cat},
+        category_units={"1room": 10},
+    )
+    cat_base = [
+        d
+        for d in days
+        if d.room_type == "1room" and d.scenario == "base"
+    ]
+    assert cat_base
+    assert cat_base[0].factors.history_days >= 100
+    # Блокер цен: low AND history_days < 30 — после fallback history достаточна
+    assert cat_base[0].factors.history_days >= 30
+    assert any("использована база объекта" in n for n in cat_base[0].factors.notes)
+    from src.forecast.recommendations import build_price_recommendation
+
+    rec = build_price_recommendation(
+        cat_base[0],
+        current_price=5000.0,
+        market_median=5200.0,
+        pickup_7d=5,
+        min_price=3000.0,
+        max_price=15000.0,
+        max_change_pct=15.0,
+        use_competitors=True,
+        pickup_3d=2,
+    )
+    assert rec is not None
+    assert rec.recommendation_type != "manual_review" or "недостаточно" not in (
+        rec.reason or ""
+    )
 
 
 def test_forecast_day_applies_manual_event() -> None:

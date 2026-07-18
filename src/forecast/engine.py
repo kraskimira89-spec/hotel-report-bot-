@@ -437,33 +437,51 @@ def forecast_horizon(
     room_types = room_types if room_types is not None else [""]
     category_metrics = category_metrics or {}
     category_units = category_units or {}
+    # Пока по категории мало дней — не блокируем цены: берём базу объекта
+    min_category_days = max(30, min_history_days // 4)
     results: list[DayForecast] = []
     for offset in range(horizon_days):
         target = as_of + timedelta(days=offset)
         for scenario in SCENARIOS:
             for room_type in room_types:
+                fallback_note = ""
                 if room_type and room_type in category_metrics:
-                    mset = category_metrics[room_type]
-                    units = category_units.get(room_type) or max(1, total_units // max(len(room_types) - 1, 1))
+                    cat_rows = category_metrics[room_type]
+                    cat_days = len({m.report_date for m in cat_rows})
+                    if cat_days >= min_category_days:
+                        mset = cat_rows
+                        units = category_units.get(room_type) or max(
+                            1, total_units // max(len(room_types) - 1, 1)
+                        )
+                    else:
+                        mset = metrics
+                        units = category_units.get(room_type) or max(
+                            1, total_units // max(len(room_types) - 1, 1)
+                        )
+                        fallback_note = (
+                            f"Категория «{room_type}»: истории {cat_days} дн. "
+                            f"(нужно ≥{min_category_days}) — использована база объекта"
+                        )
                 else:
                     mset = metrics
                     units = total_units
-                results.append(
-                    forecast_day(
-                        target=target,
-                        as_of=as_of,
-                        scenario=scenario,
-                        metrics=mset,
-                        total_units=units,
-                        horizon_days=horizon_days,
-                        min_history_days=min_history_days,
-                        market_adj_pct=market_adj_pct,
-                        room_type=room_type,
-                        manual_events=manual_events,
-                        city_events=city_events,
-                        max_event_uplift_pct=max_event_uplift_pct,
-                    )
+                day = forecast_day(
+                    target=target,
+                    as_of=as_of,
+                    scenario=scenario,
+                    metrics=mset,
+                    total_units=units,
+                    horizon_days=horizon_days,
+                    min_history_days=min_history_days,
+                    market_adj_pct=market_adj_pct,
+                    room_type=room_type,
+                    manual_events=manual_events,
+                    city_events=city_events,
+                    max_event_uplift_pct=max_event_uplift_pct,
                 )
+                if fallback_note:
+                    day.factors.notes.insert(0, fallback_note)
+                results.append(day)
     return results
 
 
