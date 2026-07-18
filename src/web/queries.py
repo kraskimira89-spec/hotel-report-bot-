@@ -125,6 +125,13 @@ def fetch_dashboard_data() -> dict[str, Any]:
 
 def fetch_snapshot_rows(limit: int = 200) -> list[dict[str, Any]]:
     """История снимков цен с русскими названиями категорий."""
+    source_labels = {
+        "site": "сайт",
+        "api": "API",
+        "manual": "вручную",
+        "estimated": "оценка",
+        "fallback": "запасной",
+    }
     with db_session() as conn:
         rows = conn.execute(
             """
@@ -141,12 +148,16 @@ def fetch_snapshot_rows(limit: int = 200) -> list[dict[str, Any]]:
         item = dict(r)
         item["category_label"] = category_label(str(item.get("category") or ""), slug_map)
         item["snapshot_date"] = format_date_ru(item.get("snapshot_date"))
+        src = str(item.get("source") or "")
+        item["source_label"] = source_labels.get(src.lower(), src or "—")
         out.append(item)
     return out
 
 
 def fetch_snapshot_chart() -> list[dict[str, Any]]:
-    """Данные для графика цен по категориям (последние 14 дней)."""
+    """Данные для графика цен по категориям (последние точки)."""
+    from src.utils.category_labels import category_short_label
+
     with db_session() as conn:
         rows = conn.execute(
             """
@@ -162,11 +173,21 @@ def fetch_snapshot_chart() -> list[dict[str, Any]]:
     for r in rows:
         item = dict(r)
         label = category_label(str(item.get("category") or ""), slug_map)
+        short = category_short_label(str(item.get("category") or ""))
+        date_ru = format_date_ru(item.get("snapshot_date"))
+        # ДД.ММ для оси
+        date_short = date_ru[:5] if len(date_ru) >= 5 else date_ru
         item["category_label"] = label
-        item["category_short"] = (label[:9] + "…") if len(label) > 10 else label
-        item["snapshot_date"] = format_date_ru(item.get("snapshot_date"))
+        item["category_short"] = short
+        item["snapshot_date"] = date_ru
+        item["chart_label"] = f"{date_short} · {short}"
+        price = float(item.get("avg_price") or 0)
+        pct = int(price / 12000 * 100) if price else 4
+        item["bar_pct"] = max(4, min(100, pct))
         out.append(item)
-    return out
+    # На графике слева → направо: от старых к новым
+    out.reverse()
+    return out[-42:]
 
 
 def fetch_metrics_rows(days: int = 90) -> list[dict[str, Any]]:

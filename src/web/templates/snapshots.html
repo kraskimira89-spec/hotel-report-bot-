@@ -6,11 +6,14 @@
 {% if chart %}
 <div class="card">
     <h2>Динамика (последние точки)</h2>
-    <div class="chart-bars">
-    {% for row in chart[:28] %}
-        <div class="bar-wrap" title="{{ row.category_label }} {{ row.snapshot_date }}: {{ row.avg_price }}">
-            <div class="bar" style="height: {{ (row.avg_price / 10000 * 100)|int }}%"></div>
-            <span class="bar-label">{{ row.category_short }}</span>
+    <p class="muted">Подпись столбца: дата · категория. Наведите курсор — полная цена.</p>
+    <div class="chart-bars snapshots-chart">
+    {% for row in chart %}
+        <div class="bar-wrap" title="{{ row.category_label }} · {{ row.snapshot_date }}: {{ '%.0f'|format(row.avg_price) }} ₽">
+            <div class="bar-track">
+                <div class="bar" style="height: {{ row.bar_pct }}%"></div>
+            </div>
+            <span class="bar-label">{{ row.chart_label }}</span>
         </div>
     {% endfor %}
     </div>
@@ -27,7 +30,7 @@
             <td>{{ s.snapshot_date }}</td>
             <td>{{ s.category_label or s.category }}</td>
             <td>{{ s.price }} ₽</td>
-            <td>{{ s.source }}</td>
+            <td>{{ s.source_label or s.source }}</td>
             <td>{{ "да" if s.is_estimated else "нет" }}</td>
         </tr>
         {% endfor %}
@@ -37,4 +40,44 @@
     <p class="muted">Нет данных снимков цен.</p>
     {% endif %}
 </div>
+
+<style>
+.snapshots-chart {
+    height: 220px;
+    padding: 0.5rem 0.5rem 5.5rem;
+    gap: 10px;
+    align-items: flex-end;
+}
+.snapshots-chart .bar-wrap {
+    position: relative;
+    min-width: 44px;
+    height: 100%;
+    justify-content: flex-end;
+    flex: 0 0 auto;
+}
+.snapshots-chart .bar-track {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    width: 100%;
+    height: 140px;
+}
+.snapshots-chart .bar {
+    width: 28px;
+    min-height: 6px;
+}
+.snapshots-chart .bar-label {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%) rotate(-52deg);
+    transform-origin: top center;
+    white-space: nowrap;
+    font-size: 0.72rem;
+    line-height: 1.1;
+    color: var(--text);
+    max-width: none;
+    overflow: visible;
+}
+</style>
 {% endblock %}
