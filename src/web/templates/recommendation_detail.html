@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Рекомендация №{{ card.decision.id }} — 1apart{% endblock %}
+{% block content %}
+<p class="muted" style="margin-bottom:1rem">
+    <a href="/forecast">← К прогнозу</a>
+    ·
+    <a href="/forecast/recommendation/{{ card.decision.id }}/export.docx">Скачать Word (.docx)</a>
+</p>
+
+{% if card.low_confidence %}
+<div class="card" style="border-left:4px solid var(--err); background:var(--err-bg)">
+    <strong>Низкая достоверность прогноза.</strong>
+    Применяйте с осторожностью; предпочтителен повторный расчёт.
+</div>
+{% endif %}
+
+{% if card.snapshot_missing %}
+<div class="card" style="border-left:4px solid var(--warn); background:var(--warn-bg)">
+    Снимок на момент создания отсутствует — часть цифр может быть неполной.
+</div>
+{% endif %}
+
+{% if card.price_changed %}
+<div class="card" style="border-left:4px solid var(--warn); background:var(--warn-bg)">
+    Цена изменилась после создания рекомендации
+    (было {{ card.decision.current_price|int if card.decision.current_price else '—' }} ₽,
+    сейчас {{ card.live_price|int }} ₽).
+    Применение недоступно — выполните повторный расчёт прогноза.
+</div>
+{% endif %}
+
+{% if card.past_date %}
+<div class="card" style="border-left:4px solid var(--err); background:var(--err-bg)">
+    Дата проживания уже прошла — применение недоступно.
+</div>
+{% endif %}
+
+<div class="card">
+    <h1>Рекомендация №{{ card.decision.id }}</h1>
+    <p><strong>Дата проживания:</strong> {{ card.decision.date_label }}</p>
+    <p><strong>Категория:</strong> {{ card.decision.room_label }}</p>
+    <p><strong>Действие:</strong> {{ card.decision.action_label }}</p>
+    <p><strong>Текущая цена:</strong>
+        {% if card.decision.current_price %}{{ card.decision.current_price|int }} ₽{% else %}—{% endif %}
+    </p>
+    <p><strong>Рекомендованный диапазон:</strong>
+        {% if card.decision.rec_min is not none %}
+            {{ card.decision.rec_min|int }}–{{ card.decision.rec_max|int }} ₽
+        {% else %}—{% endif %}
+    </p>
+    <p><strong>Статус:</strong> {{ card.decision.status_label }}</p>
+    <p class="muted">Достоверность: {{ card.decision.confidence_label }}</p>
+</div>
+
+<div class="card">
+    <h2>Почему это рекомендовано</h2>
+    <ul>
+        {% for b in card.why.bullets %}
+        <li>{{ b }}</li>
+        {% endfor %}
+    </ul>
+    <h3>Рынок</h3>
+    <ul>
+        <li>Текущая:
+            {% if card.why.market.current_price %}{{ card.why.market.current_price|int }} ₽{% else %}—{% endif %}
+        </li>
+        <li>Медиана конкурентов:
+            {% if card.why.market.market_median %}{{ card.why.market.market_median|int }} ₽{% else %}—{% endif %}
+        </li>
+        <li>Vs рынок:
+            {% if card.why.market.market_gap_pct is not none %}
+                {{ '%+.1f'|format(card.why.market.market_gap_pct) }}%
+            {% else %}нет данных{% endif %}
+        </li>
+    </ul>
+    {% if card.why.events %}
+    <h3>События Томска</h3>
+    <ul>
+        {% for ev in card.why.events %}
+        <li>{{ ev.title }}
+            ({{ ev.start_at }}{% if ev.end_at and ev.end_at != ev.start_at %}–{{ ev.end_at }}{% endif %}
+            {% if ev.impact_score %}, impact {{ ev.impact_score|int }}{% endif %})
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Инструкция для менеджера</h2>
+    <ol>
+        {% for step in card.steps %}
+        <li>{{ step }}</li>
+        {% endfor %}
+    </ol>
+</div>
+
+<div class="card">
+    <h2>Контроль и откат</h2>
+    <p>{{ card.control.check_text }}</p>
+    <p>{{ card.control.goal_text }}</p>
+    <p>{{ card.control.rollback_text }}</p>
+</div>
+
+<div class="card">
+    <h2>Действия</h2>
+
+    <form method="post" action="/forecast/recommendation/{{ card.decision.id }}/comment" style="margin-bottom:1rem">
+        <label for="manager_comment">Комментарий менеджера</label><br>
+        <textarea id="manager_comment" name="manager_comment" rows="3" style="width:100%;max-width:40rem">{{ card.manager_comment }}</textarea>
+        <button type="submit" class="btn-small" style="margin-top:.5rem">Сохранить комментарий</button>
+    </form>
+
+    {% if card.actions.can_accept %}
+    <form method="post" action="/forecast/recommendation/{{ card.decision.id }}/accept" style="display:inline">
+        <input type="hidden" name="redirect_to" value="card">
+        <button type="submit" class="btn-small">Принять</button>
+    </form>
+    <form method="post" action="/forecast/recommendation/{{ card.decision.id }}/reject" style="display:inline">
+        <input type="hidden" name="redirect_to" value="card">
+        <button type="submit" class="btn-small">Отклонить</button>
+    </form>
+    <form method="post" action="/forecast/recommendation/{{ card.decision.id }}/defer" style="display:inline">
+        <input type="hidden" name="redirect_to" value="card">
+        <button type="submit" class="btn-small">Отложить</button>
+    </form>
+    {% endif %}
+
+    {% if card.actions.can_apply and card.decision.show_selected_price %}
+    <form method="post" action="/forecast/recommendation/{{ card.decision.id }}/apply" style="margin-top:1rem">
+        <label for="selected_price">Цена к применению (внутри диапазона)</label><br>
+        <input type="number" id="selected_price" name="selected_price"
+               value="{{ card.decision.selected_price|int if card.decision.selected_price is not none else '' }}"
+               min="{{ card.decision.rec_min|int }}" max="{{ card.decision.rec_max|int }}" step="1"
+               required>
+        <label for="applied_note" style="display:block;margin-top:.5rem">Заметка</label>
+        <input type="text" id="applied_note" name="applied_note" style="width:100%;max-width:40rem">
+        <button type="submit" class="btn-small" style="margin-top:.5rem">Отметить применённой</button>
+    </form>
+    {% elif card.actions.apply_blocked_reason and card.decision.status == 'accepted' %}
+    <p class="muted" style="margin-top:1rem">{{ card.actions.apply_blocked_reason }}</p>
+    {% elif card.actions.apply_blocked_reason and card.actions.can_accept %}
+    <p class="muted" style="margin-top:1rem">{{ card.actions.apply_blocked_reason }}</p>
+    {% endif %}
+
+    {% if card.actions.can_verify %}
+    <form method="post" action="/forecast/recommendation/{{ card.decision.id }}/verify" style="margin-top:1rem">
+        <label for="verification_result">Результат проверки</label><br>
+        <input type="text" id="verification_result" name="verification_result"
+               placeholder="например: pickup в норме" required style="width:100%;max-width:40rem">
+        <button type="submit" class="btn-small" style="margin-top:.5rem">Проверить результат</button>
+    </form>
+    {% endif %}
+
+    {% if card.actions.can_rollback %}
+    <form method="post" action="/forecast/recommendation/{{ card.decision.id }}/rollback" style="margin-top:1rem">
+        <label for="rollback_reason">Причина отката</label><br>
+        <input type="text" id="rollback_reason" name="rollback_reason" required style="width:100%;max-width:40rem">
+        <button type="submit" class="btn-small" style="margin-top:.5rem">Откатить</button>
+    </form>
+    {% endif %}
+
+    <p class="muted" style="margin-top:1.25rem">
+        Рекомендация требует ручного подтверждения, автоматическая смена цены не выполнялась.
+    </p>
+</div>
+{% endblock %}

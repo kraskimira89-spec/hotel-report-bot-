@@ -272,11 +272,83 @@ async def forecast_refresh(
     return RedirectResponse(url=f"/forecast{q}", status_code=status.HTTP_302_FOUND)
 
 
-def _forecast_reco_redirect(horizon_days: int, scenario: str, room_type: str) -> str:
+def _forecast_reco_redirect(
+    horizon_days: int,
+    scenario: str,
+    room_type: str,
+    *,
+    rec_id: int | None = None,
+    redirect_to: str = "",
+) -> str:
+    if redirect_to == "card" and rec_id is not None:
+        return f"/forecast/recommendation/{rec_id}"
     q = f"?horizon_days={horizon_days}&scenario={scenario}"
     if room_type:
         q += f"&room_type={room_type}"
     return f"/forecast{q}"
+
+
+def _actor_name() -> str:
+    return get_config().web.admin_username or "admin"
+
+
+@app.get("/forecast/recommendation/{rec_id}", response_class=HTMLResponse)
+async def forecast_recommendation_detail(request: Request, rec_id: int) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import get_price_recommendation_by_id, mark_recommendation_reviewed
+
+    existing = get_price_recommendation_by_id(rec_id)
+    if existing is None:
+        return HTMLResponse("Рекомендация не найдена", status_code=404)
+    if existing.status == "new":
+        mark_recommendation_reviewed(rec_id, _actor_name())
+        logger.info("Рекомендация %s просмотрена (%s)", rec_id, _actor_name())
+    card = queries.fetch_recommendation_card(rec_id)
+    if card is None:
+        return HTMLResponse("Рекомендация не найдена", status_code=404)
+    return templates.TemplateResponse(
+        "recommendation_detail.html",
+        {"request": request, "card": card, "page": "forecast"},
+    )
+
+
+@app.get("/forecast/recommendation/{rec_id}/export.docx")
+async def forecast_recommendation_export_docx(request: Request, rec_id: int) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.notifiers.docx_export import (
+        build_recommendation_docx,
+        recommendation_docx_filename,
+    )
+
+    card = queries.fetch_recommendation_card(rec_id)
+    if card is None:
+        return HTMLResponse("Рекомендация не найдена", status_code=404)
+    payload = build_recommendation_docx(card)
+    filename = recommendation_docx_filename(
+        int(card["decision"]["id"]),
+        date.fromisoformat(card["decision"]["target_date"]),
+        card["decision"]["room_label"],
+    )
+    # RFC 5987 для кириллицы в имени файла
+    from urllib.parse import quote
+
+    headers = {
+        "Content-Disposition": (
+            f"attachment; filename=\"rec_{rec_id}.docx\"; "
+            f"filename*=UTF-8''{quote(filename)}"
+        )
+    }
+    return Response(
+        content=payload,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ),
+        headers=headers,
+    )
 
 
 @app.post("/forecast/recommendation/{rec_id}/accept")
@@ -286,6 +358,7 @@ async def forecast_reco_accept(
     horizon_days: int = Form(default=7),
     scenario: str = Form(default="base"),
     room_type: str = Form(default=""),
+    redirect_to: str = Form(default=""),
 ) -> Response:
     redirect = _require_auth(request)
     if redirect:
@@ -293,8 +366,11 @@ async def forecast_reco_accept(
     from src.storage.db import update_price_recommendation_status
 
     update_price_recommendation_status(rec_id, "accepted")
+    logger.info("Рекомендация %s принята (%s)", rec_id, _actor_name())
     return RedirectResponse(
-        url=_forecast_reco_redirect(horizon_days, scenario, room_type),
+        url=_forecast_reco_redirect(
+            horizon_days, scenario, room_type, rec_id=rec_id, redirect_to=redirect_to
+        ),
         status_code=status.HTTP_302_FOUND,
     )
 
@@ -306,6 +382,7 @@ async def forecast_reco_reject(
     horizon_days: int = Form(default=7),
     scenario: str = Form(default="base"),
     room_type: str = Form(default=""),
+    redirect_to: str = Form(default=""),
 ) -> Response:
     redirect = _require_auth(request)
     if redirect:
@@ -313,8 +390,11 @@ async def forecast_reco_reject(
     from src.storage.db import update_price_recommendation_status
 
     update_price_recommendation_status(rec_id, "rejected")
+    logger.info("Рекомендация %s отклонена (%s)", rec_id, _actor_name())
     return RedirectResponse(
-        url=_forecast_reco_redirect(horizon_days, scenario, room_type),
+        url=_forecast_reco_redirect(
+            horizon_days, scenario, room_type, rec_id=rec_id, redirect_to=redirect_to
+        ),
         status_code=status.HTTP_302_FOUND,
     )
 
@@ -326,6 +406,7 @@ async def forecast_reco_defer(
     horizon_days: int = Form(default=7),
     scenario: str = Form(default="base"),
     room_type: str = Form(default=""),
+    redirect_to: str = Form(default=""),
 ) -> Response:
     redirect = _require_auth(request)
     if redirect:
@@ -333,8 +414,143 @@ async def forecast_reco_defer(
     from src.storage.db import update_price_recommendation_status
 
     update_price_recommendation_status(rec_id, "deferred")
+    logger.info("Рекомендация %s отложена (%s)", rec_id, _actor_name())
     return RedirectResponse(
-        url=_forecast_reco_redirect(horizon_days, scenario, room_type),
+        url=_forecast_reco_redirect(
+            horizon_days, scenario, room_type, rec_id=rec_id, redirect_to=redirect_to
+        ),
+        status_code=status.HTTP_302_FOUND,
+    )
+
+
+@app.post("/forecast/recommendation/{rec_id}/comment")
+async def forecast_reco_comment(
+    request: Request,
+    rec_id: int,
+    manager_comment: str = Form(default=""),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import update_recommendation_manager_comment
+
+    update_recommendation_manager_comment(rec_id, manager_comment.strip())
+    logger.info("Комментарий к рекомендации %s сохранён (%s)", rec_id, _actor_name())
+    return RedirectResponse(
+        url=f"/forecast/recommendation/{rec_id}",
+        status_code=status.HTTP_302_FOUND,
+    )
+
+
+@app.post("/forecast/recommendation/{rec_id}/apply")
+async def forecast_reco_apply(
+    request: Request,
+    rec_id: int,
+    selected_price: float = Form(...),
+    applied_note: str = Form(default=""),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import (
+        apply_price_recommendation,
+        get_price_recommendation_by_id,
+        get_price_snapshots_by_date,
+    )
+
+    rec = get_price_recommendation_by_id(rec_id)
+    if rec is None:
+        return HTMLResponse("Рекомендация не найдена", status_code=404)
+    if rec.target_date < date.today():
+        return HTMLResponse("Нельзя применить рекомендацию с прошедшей датой", status_code=400)
+    if rec.status != "accepted":
+        return HTMLResponse("Сначала примите рекомендацию", status_code=400)
+    if rec.recommended_price_min is None or rec.recommended_price_max is None:
+        return HTMLResponse("Нет допустимого диапазона цены", status_code=400)
+    if not (
+        rec.recommended_price_min <= selected_price <= rec.recommended_price_max
+    ):
+        return HTMLResponse("Цена вне рекомендованного диапазона", status_code=400)
+
+    snap = rec.recommendation_snapshot_json or {}
+    snap_price = snap.get("current_price", rec.current_price)
+    live = {
+        s.category: s.price for s in get_price_snapshots_by_date(date.today())
+    }.get(rec.room_type)
+    if (
+        live is not None
+        and snap_price is not None
+        and abs(float(live) - float(snap_price)) >= 1.0
+    ):
+        return HTMLResponse(
+            "Цена изменилась — нужен повторный расчёт",
+            status_code=400,
+        )
+
+    apply_price_recommendation(
+        rec_id,
+        selected_price=selected_price,
+        applied_by=_actor_name(),
+        applied_note=applied_note.strip() or None,
+    )
+    logger.info(
+        "Рекомендация %s отмечена применённой: %s ₽ (%s)",
+        rec_id,
+        selected_price,
+        _actor_name(),
+    )
+    return RedirectResponse(
+        url=f"/forecast/recommendation/{rec_id}",
+        status_code=status.HTTP_302_FOUND,
+    )
+
+
+@app.post("/forecast/recommendation/{rec_id}/verify")
+async def forecast_reco_verify(
+    request: Request,
+    rec_id: int,
+    verification_result: str = Form(...),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import get_price_recommendation_by_id, verify_price_recommendation
+
+    rec = get_price_recommendation_by_id(rec_id)
+    if rec is None:
+        return HTMLResponse("Рекомендация не найдена", status_code=404)
+    if rec.status != "applied":
+        return HTMLResponse("Проверка доступна только после применения", status_code=400)
+    verify_price_recommendation(rec_id, verification_result.strip())
+    logger.info("Рекомендация %s проверена (%s)", rec_id, _actor_name())
+    return RedirectResponse(
+        url=f"/forecast/recommendation/{rec_id}",
+        status_code=status.HTTP_302_FOUND,
+    )
+
+
+@app.post("/forecast/recommendation/{rec_id}/rollback")
+async def forecast_reco_rollback(
+    request: Request,
+    rec_id: int,
+    rollback_reason: str = Form(...),
+) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import get_price_recommendation_by_id, rollback_price_recommendation
+
+    rec = get_price_recommendation_by_id(rec_id)
+    if rec is None:
+        return HTMLResponse("Рекомендация не найдена", status_code=404)
+    if rec.status not in ("applied", "verified"):
+        return HTMLResponse("Откат недоступен для текущего статуса", status_code=400)
+    if not rollback_reason.strip():
+        return HTMLResponse("Укажите причину отката", status_code=400)
+    rollback_price_recommendation(rec_id, rollback_reason.strip())
+    logger.info("Рекомендация %s откат: %s (%s)", rec_id, rollback_reason, _actor_name())
+    return RedirectResponse(
+        url=f"/forecast/recommendation/{rec_id}",
         status_code=status.HTTP_302_FOUND,
     )
 

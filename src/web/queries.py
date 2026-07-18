@@ -842,6 +842,18 @@ _RECO_TYPE_LABELS = {
     "manual_review": "Ручная проверка",
 }
 
+_RECO_STATUS_LABELS = {
+    "new": "Новая",
+    "reviewed": "Просмотрена",
+    "accepted": "Принята",
+    "applied": "Применена",
+    "verified": "Проверена",
+    "rejected": "Отклонена",
+    "deferred": "Отложена",
+    "expired": "Истекла",
+    "rolled_back": "Откат",
+}
+
 
 def _room_type_label(slug: str) -> str:
     if not slug:
@@ -969,6 +981,7 @@ def fetch_forecast_bundle(
                 "confidence": r.confidence,
                 "confidence_label": _CONFIDENCE_LABELS.get(r.confidence, r.confidence),
                 "status": r.status,
+                "status_label": _RECO_STATUS_LABELS.get(r.status, r.status),
             }
         )
 
@@ -1052,6 +1065,171 @@ def fetch_forecast_bundle(
         "period_label": forecast_period_label(bundle),
     }
     return bundle
+
+
+def fetch_recommendation_card(rec_id: int) -> dict[str, Any] | None:
+    """Данные карточки внедрения рекомендации."""
+    from src.forecast.recommendation_instructions import (
+        STATUS_LABELS,
+        TYPE_LABELS,
+        build_control_block,
+        build_manager_steps,
+        can_show_apply_price,
+        format_date_ru,
+        format_price_rub,
+    )
+    from src.storage.db import get_price_recommendation_by_id, get_price_snapshots_by_date
+
+    cfg = get_config()
+    rec = get_price_recommendation_by_id(rec_id)
+    if rec is None:
+        return None
+
+    snap = rec.recommendation_snapshot_json or {}
+    snapshot_missing = not bool(rec.recommendation_snapshot_json)
+
+    live_price = None
+    today_snaps = {s.category: s.price for s in get_price_snapshots_by_date(date.today())}
+    if rec.room_type in today_snaps:
+        live_price = today_snaps[rec.room_type]
+    snap_price = snap.get("current_price", rec.current_price)
+    price_changed = (
+        live_price is not None
+        and snap_price is not None
+        and abs(float(live_price) - float(snap_price)) >= 1.0
+    )
+
+    past_date = rec.target_date < date.today()
+    blocked_status = rec.status in ("expired", "rejected", "rolled_back")
+    show_selected = can_show_apply_price(rec)
+    selected = rec.selected_price
+    if selected is None and show_selected and rec.recommended_price_min is not None:
+        if rec.recommended_price_max is not None:
+            selected = round(
+                (rec.recommended_price_min + rec.recommended_price_max) / 2, 0
+            )
+
+    can_accept = rec.status in ("new", "reviewed") and not past_date and not blocked_status
+    can_mark_applied = (
+        rec.status == "accepted"
+        and not past_date
+        and not price_changed
+        and show_selected
+        and rec.recommended_price_min is not None
+        and rec.recommended_price_max is not None
+    )
+    can_verify = rec.status == "applied"
+    can_rollback = rec.status in ("applied", "verified")
+
+    apply_blocked_reason = None
+    if past_date:
+        apply_blocked_reason = "Дата проживания уже прошла"
+    elif price_changed:
+        apply_blocked_reason = (
+            "Цена изменилась после создания рекомендации — нужен повторный расчёт"
+        )
+    elif rec.status not in ("accepted", "applied", "verified", "rolled_back") and not can_mark_applied:
+        if rec.status in ("new", "reviewed"):
+            apply_blocked_reason = "Сначала примите рекомендацию"
+        elif blocked_status:
+            apply_blocked_reason = "Рекомендация недоступна для применения"
+
+    room_label = _room_type_label(rec.room_type)
+    steps = build_manager_steps(rec, room_label=room_label, selected_price=selected)
+    control = build_control_block(rec, cfg.forecast, selected_price=selected)
+
+    occ = snap.get("occupancy_pct")
+    bullets: list[str] = []
+    if occ is not None:
+        bullets.append(f"Прогноз загрузки на дату: {occ}%")
+    conf = snap.get("confidence") or rec.confidence
+    bullets.append(
+        f"Достоверность: {_CONFIDENCE_LABELS.get(conf, conf)}"
+    )
+    if snap.get("pickup_3d") is not None:
+        bullets.append(f"Pickup за 3 дня: {snap['pickup_3d']}")
+    if snap.get("pickup_7d") is not None:
+        bullets.append(f"Pickup за 7 дней: {snap['pickup_7d']}")
+    if snap.get("free_units") is not None:
+        total_u = snap.get("total_units")
+        if total_u is not None:
+            bullets.append(f"Свободно: {snap['free_units']} из {total_u}")
+        else:
+            bullets.append(f"Свободных квартир: {snap['free_units']}")
+    if snap.get("weekday"):
+        bullets.append(f"День недели: {snap['weekday']}")
+    if snap.get("seasonal_coef") is not None:
+        bullets.append(f"Сезонный коэффициент: {snap['seasonal_coef']}")
+    if snap.get("is_public_holiday"):
+        bullets.append("Праздничный день / выходной в календаре событий")
+    if snap.get("as_of") or snap.get("model_version"):
+        bullets.append(
+            f"Расчёт: {snap.get('as_of', '—')}, модель {snap.get('model_version', '—')}"
+        )
+    if rec.reason:
+        bullets.append(f"Кратко: {rec.reason}")
+
+    if snapshot_missing:
+        bullets.insert(0, "Снимок отсутствует — показаны доступные поля записи")
+
+    return {
+        "id": rec.id,
+        "exported_at": date.today().strftime("%d.%m.%Y"),
+        "low_confidence": rec.confidence == "low",
+        "snapshot_missing": snapshot_missing,
+        "price_changed": price_changed,
+        "live_price": live_price,
+        "past_date": past_date,
+        "manager_comment": rec.manager_comment or "",
+        "decision": {
+            "id": rec.id,
+            "date_label": format_date_ru(rec.target_date),
+            "target_date": rec.target_date.isoformat(),
+            "room_type": rec.room_type,
+            "room_label": room_label,
+            "action": rec.recommendation_type,
+            "action_label": TYPE_LABELS.get(
+                rec.recommendation_type,
+                _RECO_TYPE_LABELS.get(rec.recommendation_type, rec.recommendation_type),
+            ),
+            "current_price": rec.current_price,
+            "rec_min": rec.recommended_price_min,
+            "rec_max": rec.recommended_price_max,
+            "selected_price": selected,
+            "show_selected_price": show_selected,
+            "status": rec.status,
+            "status_label": STATUS_LABELS.get(rec.status, rec.status),
+            "confidence": rec.confidence,
+            "confidence_label": _CONFIDENCE_LABELS.get(rec.confidence, rec.confidence),
+            "applied_price": rec.applied_price,
+            "applied_at": rec.applied_at.isoformat() if rec.applied_at else None,
+            "verified_at": rec.verified_at.isoformat() if rec.verified_at else None,
+            "verification_result": rec.verification_result,
+            "rollback_at": rec.rollback_at.isoformat() if rec.rollback_at else None,
+            "rollback_reason": rec.rollback_reason,
+        },
+        "why": {
+            "bullets": bullets,
+            "market": {
+                "current_price": snap.get("current_price", rec.current_price),
+                "market_median": snap.get("market_median"),
+                "market_gap_pct": snap.get("market_gap_pct"),
+            },
+            "events": snap.get("events") or [],
+        },
+        "steps": steps,
+        "control": control,
+        "actions": {
+            "can_accept": can_accept,
+            "can_reject": can_accept,
+            "can_defer": can_accept,
+            "can_apply": can_mark_applied,
+            "can_verify": can_verify,
+            "can_rollback": can_rollback,
+            "apply_blocked_reason": apply_blocked_reason,
+        },
+        "format_price": format_price_rub,
+    }
 
 
 _EVENT_CATEGORY_LABELS = {

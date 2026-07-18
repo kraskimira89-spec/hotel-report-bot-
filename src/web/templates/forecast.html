@@ -179,9 +179,11 @@
                 <td>{% if r.current_price %}{{ r.current_price|int }} ₽{% else %}—{% endif %}</td>
                 <td>{% if r.rec_min %}{{ r.rec_min|int }}–{{ r.rec_max|int }} ₽{% else %}—{% endif %}</td>
                 <td class="muted">{{ r.reason }}</td>
-                <td>{{ r.status }}</td>
+                <td>{{ r.status_label or r.status }}</td>
                 <td>
-                {% if r.status == 'new' %}
+                <a class="btn-small" href="/forecast/recommendation/{{ r.id }}">Подробнее</a>
+                <a class="btn-small" href="/forecast/recommendation/{{ r.id }}/export.docx">Word</a>
+                {% if r.status in ('new', 'reviewed') %}
                 <form method="post" action="/forecast/recommendation/{{ r.id }}/accept" style="display:inline">
                     <input type="hidden" name="horizon_days" value="{{ data.filters.horizon_days }}">
                     <input type="hidden" name="scenario" value="{{ data.filters.scenario }}">
