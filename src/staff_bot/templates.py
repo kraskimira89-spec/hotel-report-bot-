@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+BTN_START = "🚀 Начать"
 BTN_SUMMARY = "📊 Сводка на сегодня"
 BTN_RECO = "🔮 Прогноз и рекомендации"
 BTN_EVENTS = "📅 События Томска"
@@ -15,6 +16,8 @@ BTN_ACCEPT = "✅ Принять"
 TEXT_ALIASES: dict[str, str] = {
     "/start": "start",
     "start": "start",
+    "начать": "start",
+    BTN_START: "start",
     "/help": "help",
     "help": "help",
     BTN_HELP: "help",
@@ -43,7 +46,7 @@ def help_text(*, role: str) -> str:
     lines = [
         "Команды внутреннего бота 1apart:",
         "",
-        "/start — приветствие и меню",
+        f"{BTN_START} / /start — приветствие и меню",
         f"{BTN_SUMMARY} — загрузка, брони, выручка, ошибки",
     ]
     if role in ("owner", "manager"):
@@ -65,6 +68,7 @@ def help_text(*, role: str) -> str:
 
 def main_menu_buttons(*, role: str) -> list[list[dict[str, str]]]:
     rows: list[list[dict[str, str]]] = [
+        [{"type": "callback", "text": BTN_START, "payload": "cmd:start"}],
         [{"type": "callback", "text": BTN_SUMMARY, "payload": "cmd:summary"}],
     ]
     if role in ("owner", "manager"):

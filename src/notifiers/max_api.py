@@ -15,7 +15,19 @@ from src.utils.ssl_certs import get_max_api_verify
 logger = logging.getLogger(__name__)
 
 RETRYABLE_STATUS = {401, 403, 429, 500, 502, 503, 504}
-DEFAULT_UPDATE_TYPES = ("bot_started", "message_created", "bot_added")
+DEFAULT_UPDATE_TYPES = (
+    "bot_started",
+    "message_created",
+    "message_callback",
+    "bot_added",
+)
+
+# Команды бота (меню «/» и кнопка «Начать» в клиенте Max)
+DEFAULT_BOT_COMMANDS: list[dict[str, str]] = [
+    {"name": "start", "description": "Начать"},
+    {"name": "help", "description": "Справка"},
+    {"name": "stop", "description": "Отключить уведомления"},
+]
 
 
 class BotInfo(BaseModel):
@@ -112,6 +124,31 @@ class MaxApiClient:
         """GET /me — информация о боте."""
         data = self._request("GET", "/me").json()
         return BotInfo.model_validate(data)
+
+    def patch_me(
+        self,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        commands: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """PATCH /me — имя, описание, меню команд (кнопка «Начать»)."""
+        body: dict[str, Any] = {}
+        if name is not None:
+            body["name"] = name
+        if description is not None:
+            body["description"] = description
+        if commands is not None:
+            body["commands"] = commands
+        data = self._request("PATCH", "/me", json=body).json()
+        return data if isinstance(data, dict) else {"value": data}
+
+    def set_my_commands(
+        self,
+        commands: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """Зарегистрировать команды бота (start → «Начать» в клиенте)."""
+        return self.patch_me(commands=list(commands or DEFAULT_BOT_COMMANDS))
 
     def send_message(
         self,

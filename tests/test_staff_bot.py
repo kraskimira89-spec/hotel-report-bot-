@@ -131,6 +131,14 @@ def test_reply_start_has_menu(staff_db: Path) -> None:
     assert "Сергей" in reply["text"]
     assert reply["attachments"]
     assert reply["attachments"][0]["type"] == "inline_keyboard"
+    buttons = reply["attachments"][0]["payload"]["buttons"]
+    assert buttons[0][0]["text"] == "🚀 Начать"
+    assert buttons[0][0]["payload"] == "cmd:start"
+
+
+def test_resolve_nachat() -> None:
+    assert resolve_command("🚀 Начать") == "start"
+    assert resolve_command("начать") == "start"
 
 
 def test_reply_summary_and_detail(staff_db: Path) -> None:
