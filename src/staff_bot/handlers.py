@@ -10,10 +10,11 @@ from src.recommendations.render import render_instruction_card
 from src.staff_bot.templates import (
     BTN_ACCEPT,
     BTN_DETAIL_PREFIX,
+    first_connect_text,
     help_text,
     inline_keyboard,
     main_menu_buttons,
-    welcome_text,
+    onboarding_choice_buttons,
 )
 from src.storage.db import (
     get_city_events,
@@ -46,10 +47,25 @@ def _fmt_pct(value: float | None) -> str:
 
 
 def reply_start(staff: StaffUserRecord) -> dict[str, Any]:
-    text = welcome_text(staff.display_name)
+    return reply_first_connect(staff.display_name)
+
+
+def reply_first_connect(name: str = "") -> dict[str, Any]:
+    """Приветствие + вопрос: сводка сейчас или ждать 9:00."""
     return {
-        "text": text,
-        "attachments": inline_keyboard(main_menu_buttons(role=staff.role)),
+        "text": first_connect_text(name),
+        "attachments": inline_keyboard(onboarding_choice_buttons()),
+    }
+
+
+def reply_wait_until_9() -> dict[str, Any]:
+    return {
+        "text": (
+            "Хорошо! ⏰\n\n"
+            "Сводка по 1apart придёт около 9:00.\n"
+            "До связи!"
+        ),
+        "attachments": [],
     }
 
 

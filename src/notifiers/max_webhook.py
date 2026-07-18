@@ -78,14 +78,17 @@ def handle_max_webhook(payload: dict[str, Any]) -> dict[str, Any]:
             continue
 
         if upd.update_type == "message_callback":
-            if not cfg.staff_bot.enabled:
-                continue
             callback_id, cb_payload = extract_callback(upd.raw)
-            # cmd:start — всегда
-            if (cb_payload or "").strip() in ("cmd:start",) or cfg.staff_bot.enabled:
+            payload = (cb_payload or "").strip()
+            # start + onboarding-кнопки — всегда; остальное — при staff_bot.enabled
+            always = (
+                payload in ("cmd:start",)
+                or payload.startswith("onboarding:")
+            )
+            if always or cfg.staff_bot.enabled:
                 results.append(
                     dispatch_callback(
-                        cb_payload or "",
+                        payload,
                         user_id=upd.user_id,
                         chat_id=upd.chat_id,
                         display_name=display_name,

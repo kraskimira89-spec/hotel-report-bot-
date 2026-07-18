@@ -9,7 +9,7 @@ from src.config import AppConfig, get_config
 from src.notifiers.max_api import MaxApiClient, build_max_api_client
 from src.staff_bot import handlers
 from src.staff_bot.acl import DENIED_TEXT, check_access
-from src.staff_bot.templates import first_connect_text, resolve_command
+from src.staff_bot.templates import resolve_command
 from src.storage.db import save_staff_command_log
 from src.storage.models import StaffCommandLogRecord
 
@@ -61,48 +61,72 @@ def handle_first_connect(
     api: MaxApiClient | None = None,
     callback_id: str | None = None,
 ) -> dict[str, Any]:
-    """Первое подключение /start: всегда сообщаем про сводку в 9:00.
-
-    Сотрудникам с доступом — ещё меню. Остальным — только приветствие
-    (без «Доступ не предоставлен»).
-    """
+    """Первое подключение: про 9:00 + кнопки «сводка сейчас» / «ждать»."""
     cfg = config or get_config()
     client = api or build_max_api_client(cfg)
     if client is None:
         return {"ok": False, "reason": "no_max_token"}
 
+    # Всегда одно и то же приветствие с выбором (staff/гость)
+    reply = handlers.reply_first_connect(display_name)
+    _send(
+        client,
+        chat_id=chat_id,
+        user_id=user_id,
+        text=reply["text"],
+        attachments=reply.get("attachments") or None,
+    )
     access = check_access(user_id, "start", config=cfg)
-    if access.allowed and access.staff is not None:
-        staff = access.staff
-        if display_name and not staff.display_name:
-            staff = staff.model_copy(update={"display_name": display_name})
-        reply = handlers.reply_start(staff)
-        _send(
-            client,
-            chat_id=chat_id,
-            user_id=user_id,
-            text=reply["text"],
-            attachments=reply.get("attachments") or None,
-        )
-        _log(user_id, "start", "ok")
-        result = {"ok": True, "command": "start", "staff": True}
-    else:
-        # Гость / ещё не в allowlist — только info про 9:00
-        _send(
-            client,
-            chat_id=chat_id,
-            user_id=user_id,
-            text=first_connect_text(display_name),
-        )
-        _log(user_id, "start", "ok", "first_connect_guest")
-        result = {"ok": True, "command": "start", "staff": False}
-
+    _log(
+        user_id,
+        "start",
+        "ok",
+        "staff" if access.allowed else "first_connect_guest",
+    )
     if callback_id:
         try:
             client.answer_callback(callback_id, notification="Готово")
         except Exception as exc:  # noqa: BLE001
             logger.debug("answer_callback start: %s", exc)
-    return result
+    return {"ok": True, "command": "start", "staff": bool(access.allowed)}
+
+
+def handle_onboarding_choice(
+    choice: str,
+    *,
+    user_id: int | None,
+    chat_id: int | None,
+    config: AppConfig | None = None,
+    api: MaxApiClient | None = None,
+    callback_id: str | None = None,
+) -> dict[str, Any]:
+    """Обработка кнопок после приветствия."""
+    cfg = config or get_config()
+    client = api or build_max_api_client(cfg)
+    if client is None:
+        return {"ok": False, "reason": "no_max_token"}
+
+    if choice in ("wait_9", "wait_until_9"):
+        reply = handlers.reply_wait_until_9()
+        _send(client, chat_id=chat_id, user_id=user_id, text=reply["text"])
+        _log(user_id, "wait_until_9", "ok")
+        if callback_id:
+            try:
+                client.answer_callback(callback_id, notification="Ждём 9:00")
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("answer_callback wait: %s", exc)
+        return {"ok": True, "command": "wait_until_9"}
+
+    # send_last — последняя сводка из метрик
+    reply = handlers.reply_summary(config=cfg)
+    _send(client, chat_id=chat_id, user_id=user_id, text=reply["text"])
+    _log(user_id, "send_last_summary", "ok")
+    if callback_id:
+        try:
+            client.answer_callback(callback_id, notification="Сводка отправлена")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("answer_callback summary: %s", exc)
+    return {"ok": True, "command": "send_last_summary"}
 
 
 def handle_staff_command(
@@ -122,6 +146,16 @@ def handle_staff_command(
             user_id=user_id,
             chat_id=chat_id,
             display_name=display_name,
+            config=config,
+            api=api,
+            callback_id=callback_id,
+        )
+    if command in ("send_last_summary", "wait_until_9"):
+        choice = "send_last" if command == "send_last_summary" else "wait_9"
+        return handle_onboarding_choice(
+            choice,
+            user_id=user_id,
+            chat_id=chat_id,
             config=config,
             api=api,
             callback_id=callback_id,
@@ -244,6 +278,16 @@ def dispatch_callback(
     api: MaxApiClient | None = None,
 ) -> dict[str, Any]:
     raw = (payload or "").strip()
+    if raw.startswith("onboarding:"):
+        choice = raw.split(":", 1)[1]
+        return handle_onboarding_choice(
+            choice,
+            user_id=user_id,
+            chat_id=chat_id,
+            config=config,
+            api=api,
+            callback_id=callback_id,
+        )
     if raw.startswith("cmd:"):
         command = raw.split(":", 1)[1]
         return handle_staff_command(

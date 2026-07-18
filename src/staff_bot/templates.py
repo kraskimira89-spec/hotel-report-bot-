@@ -12,6 +12,8 @@ BTN_PROBLEMS = "⚠️ Проблемы и уведомления"
 BTN_HELP = "❓ Помощь"
 BTN_DETAIL_PREFIX = "Подробнее"
 BTN_ACCEPT = "✅ Принять"
+BTN_SEND_LAST = "📬 Скинь последнюю сводку"
+BTN_WAIT_9 = "⏰ Ждать до 9:00"
 
 TEXT_ALIASES: dict[str, str] = {
     "/start": "start",
@@ -24,6 +26,8 @@ TEXT_ALIASES: dict[str, str] = {
     "/stop": "stop",
     "stop": "stop",
     BTN_SUMMARY: "summary",
+    BTN_SEND_LAST: "send_last_summary",
+    BTN_WAIT_9: "wait_until_9",
     BTN_RECO: "recommendations",
     BTN_EVENTS: "events",
     BTN_PROBLEMS: "problems",
@@ -41,13 +45,21 @@ def first_connect_text(name: str = "") -> str:
         "Каждый день около 9:00 я буду присылать сводку "
         "по загрузке, бронированиям и важным уведомлениям "
         "по объекту 1apart.\n\n"
-        "Если вы сотрудник — откройте меню ниже или напишите /help."
+        "Выслать последнюю сводку сейчас или дождаться 9:00?"
     )
 
 
 def welcome_text(name: str) -> str:
-    """Приветствие для сотрудников с доступом (с меню)."""
-    return first_connect_text(name) + "\n\nВыберите действие:"
+    """Приветствие для сотрудников с доступом."""
+    return first_connect_text(name)
+
+
+def onboarding_choice_buttons() -> list[list[dict[str, str]]]:
+    """Кнопки после приветствия: сводка сейчас или ждать 9:00."""
+    return [
+        [{"type": "callback", "text": BTN_SEND_LAST, "payload": "onboarding:send_last"}],
+        [{"type": "callback", "text": BTN_WAIT_9, "payload": "onboarding:wait_9"}],
+    ]
 
 
 def help_text(*, role: str) -> str:

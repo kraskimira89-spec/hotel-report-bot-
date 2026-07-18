@@ -139,16 +139,21 @@ def test_reply_start_has_menu(staff_db: Path) -> None:
     assert staff is not None
     reply = reply_start(staff)
     assert "Сергей" in reply["text"]
+    assert "9:00" in reply["text"]
     assert reply["attachments"]
     assert reply["attachments"][0]["type"] == "inline_keyboard"
     buttons = reply["attachments"][0]["payload"]["buttons"]
-    assert buttons[0][0]["text"] == "🚀 Начать"
-    assert buttons[0][0]["payload"] == "cmd:start"
+    texts = [row[0]["text"] for row in buttons]
+    assert any("последнюю сводку" in t for t in texts)
+    assert any("9:00" in t for t in texts)
 
 
-def test_resolve_nachat() -> None:
-    assert resolve_command("🚀 Начать") == "start"
-    assert resolve_command("начать") == "start"
+def test_onboarding_buttons() -> None:
+    from src.staff_bot.templates import onboarding_choice_buttons
+
+    rows = onboarding_choice_buttons()
+    assert rows[0][0]["payload"] == "onboarding:send_last"
+    assert rows[1][0]["payload"] == "onboarding:wait_9"
 
 
 def test_reply_summary_and_detail(staff_db: Path) -> None:
