@@ -424,6 +424,39 @@ def get_metrics_for_date(
     return rows[0] if rows else None
 
 
+def count_category_metrics_for_date(report_date: date) -> int:
+    """Сколько записей category:* за дату."""
+    with db_session() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS c FROM metrics_daily
+            WHERE report_date = ? AND metric_type LIKE 'category:%'
+            """,
+            (_date_str(report_date),),
+        ).fetchone()
+    return int(row["c"] if row else 0)
+
+
+def resolve_errors_log(
+    *,
+    source: str,
+    error_type: str | None = None,
+    error_date: date | None = None,
+) -> int:
+    """Пометить нерешённые ошибки как resolved. Возвращает число строк."""
+    sql = "UPDATE errors_log SET resolved = 1 WHERE resolved = 0 AND source = ?"
+    params: list[object] = [source]
+    if error_type:
+        sql += " AND error_type = ?"
+        params.append(error_type)
+    if error_date is not None:
+        sql += " AND error_date = ?"
+        params.append(_date_str(error_date))
+    with db_session() as conn:
+        cur = conn.execute(sql, params)
+        return int(cur.rowcount or 0)
+
+
 def compare_metrics_to_date(
     reference_date: date,
     compare_date: date,

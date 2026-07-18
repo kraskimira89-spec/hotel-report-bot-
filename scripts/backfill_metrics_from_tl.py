@@ -28,6 +28,15 @@ def main() -> int:
         action="store_true",
         help="Только daily-метрики без категорий/WebPMS (быстрый сезон для прогноза)",
     )
+    parser.add_argument(
+        "--fill-categories",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Дописать category:* для дней, где уже есть daily "
+            "(включено по умолчанию; отключить: --no-fill-categories)"
+        ),
+    )
     args = parser.parse_args()
     setup_logging()
     reload_config()
@@ -37,14 +46,21 @@ def main() -> int:
     delay = 0.0 if args.fast and args.delay == 0.15 else args.delay
     if args.fast and args.delay == 0.15:
         delay = 0.0
+    fill_categories = bool(args.fill_categories) and not args.fast
     stats = backfill_metrics_history(
         days=args.days,
         force=args.force,
         delay_sec=delay,
         daily_only=args.fast,
+        fill_categories=fill_categories,
     )
     unique = len({m.report_date for m in get_metrics_daily(start, end)})
-    print("backfill:", stats, "fast=" + str(args.fast))
+    print(
+        "backfill:",
+        stats,
+        "fast=" + str(args.fast),
+        "fill_categories=" + str(fill_categories),
+    )
     print(f"unique_days_in_db={unique}")
     return 0
 
