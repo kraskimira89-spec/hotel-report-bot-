@@ -1042,6 +1042,8 @@ def get_competitor_category_prices(
 
 def _row_to_trend(row: sqlite3.Row) -> TrendRecord:
     published = row["published_at"]
+    if not published and "created_at" in row.keys() and row["created_at"]:
+        published = str(row["created_at"])[:10]
     return TrendRecord(
         id=row["id"],
         title=row["title"],

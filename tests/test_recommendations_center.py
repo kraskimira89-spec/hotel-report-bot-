@@ -15,6 +15,7 @@ from src.recommendations.render import render_instruction_card
 from src.recommendations.service import (
     build_external_trends_payload,
     build_system_recommendations,
+    build_trend_pilot_recommendations,
     refresh_recommendations_center,
     sync_price_recommendations,
 )
@@ -267,9 +268,59 @@ def test_external_trends_payload_from_db(client: TestClient) -> None:
     assert payload[0]["source_url"] == "https://example.com/trend"
     assert payload[0]["published_at"] == "2026-07-10"
     assert payload[0]["local_confirmation"] is False
+    assert payload[0]["evidence_level"] == "source_confirmed"
     empty = build_external_trends_payload(days=1)
-    # published 2026-07-10 may be outside 1 day window depending on today
     assert isinstance(empty, list)
+
+
+def test_trend_pilot_from_db_and_empty_skips(client: TestClient) -> None:
+    from src.storage.db import list_recommendations, save_trends
+
+    # Без трендов — пилотов нет
+    assert build_trend_pilot_recommendations() == 0
+
+    save_trends(
+        [
+            TrendRecord(
+                title="Бесконтактное заселение",
+                summary="Практика применяется в апарт-отелях Москвы.",
+                category="technology",
+                region="moscow",
+                source_url="https://example.com/checkin",
+                takeaway="пилот для Томска",
+                published_at=date.today() - timedelta(days=2),
+            ),
+            TrendRecord(
+                title="Локальный фестиваль",
+                summary="Томск",
+                category="events",
+                region="tomsk",
+                source_url="https://example.com/tomsk",
+                takeaway="локально",
+                published_at=date.today() - timedelta(days=1),
+            ),
+        ]
+    )
+    n = build_trend_pilot_recommendations()
+    assert n >= 1
+    rows = list_recommendations(source_module="trends")
+    assert any(r.recommendation_type == "trend_pilot" for r in rows)
+    # Локальный tomsk не создаёт trend_pilot (local_confirmation)
+    assert not any("Локальный фестиваль" in (r.title or "") for r in rows)
+    pilot = next(r for r in rows if r.recommendation_type == "trend_pilot")
+    assert "Томск" in (pilot.summary or "")
+    assert pilot.evidence_snapshot_json.get("local_confirmation") is False
+    assert "source_url" in (pilot.instruction_payload_json or {})
+
+
+def test_prompt_has_tomsk_trends_section() -> None:
+    from src.analytics.prompt_loader import clear_prompt_cache, load_prompt_file
+
+    clear_prompt_cache()
+    text = load_prompt_file("03_recommendations.md")
+    assert "Внешние тренды и адаптация для Томска" in text
+    assert "external_trends" in text
+    assert "малозатратный пилот" in text
 
 
 def test_render_card_blocks(client: TestClient) -> None:

@@ -583,28 +583,42 @@ def _rule_based_cards(ctx: dict[str, Any]) -> list[InsightCard]:
         )
 
     trends = ctx["trends"]
-    if trends:
-        top = trends[0]
+    external = ctx.get("external_trends") or []
+    if trends or external:
+        top = (external[0] if external else None) or trends[0]
+        region = top.get("region", "")
+        pub = top.get("published_at") or period
+        src_url = top.get("source_url") or ""
         cards.append(
             InsightCard(
                 topic="market_trends",
                 title=f"Тренд: {top['title'][:60]}",
-                summary=top.get("takeaway") or top.get("title", ""),
+                summary=(
+                    f"Уровень: {region or '—'} → гипотеза для Томска. "
+                    f"Факт по источнику от {pub}. "
+                    f"{top.get('takeaway') or top.get('summary') or top.get('title', '')}"
+                )[:400],
                 recommendations=[
-                    "Оценить применимость для 1apart на неделе",
-                    "Связать с тарифом или сервисом на сайте",
-                    "Обсудить на планёрке с управляющим",
+                    "Оценить применимость к 1apart: высокая / средняя / низкая",
+                    "Предложить малозатратный пилот, не менять тарифы без локальных данных",
+                    "Срок распространения в Томске требует проверки",
                 ],
                 severity="attention",
                 source="web",
                 period=period,
                 detail_payload={
-                    "trends": trends[:5],
+                    "external_trends": external[:5] or trends[:5],
                     "sources": [
-                        {"title": t["title"], "url": t.get("source_url"), "date": period}
-                        for t in trends[:5]
+                        {
+                            "title": t.get("title"),
+                            "url": t.get("source_url"),
+                            "date": t.get("published_at") or period,
+                            "region": t.get("region"),
+                        }
+                        for t in (external[:5] or trends[:5])
                         if t.get("source_url")
                     ],
+                    "source_url": src_url,
                 },
                 updated_at=now,
             )
@@ -614,12 +628,18 @@ def _rule_based_cards(ctx: dict[str, Any]) -> list[InsightCard]:
             InsightCard(
                 topic="market_trends",
                 title="Тренды рынка: сиды/сбор",
-                summary="Лента трендов пуста — загрузите сиды или дождитесь еженедельного сбора.",
-                recommendations=["Открыть /trends и обновить сиды", "Проверить RSS в market_news"],
+                summary=(
+                    "Лента трендов пуста — внешних практик нет. "
+                    "Не предлагать мировые/московские идеи без записей в БД."
+                ),
+                recommendations=[
+                    "Открыть /trends и обновить сиды",
+                    "Проверить RSS в market_news",
+                ],
                 severity="info",
                 source="web",
                 period=period,
-                detail_payload={},
+                detail_payload={"external_trends": []},
                 updated_at=now,
             )
         )
@@ -733,6 +753,18 @@ def _call_llm(
 ) -> InsightCard | None:
     """Один вызов OpenAI-compatible Chat Completions (YandexGPT / OpenAI)."""
     system_prompt, task_prompt = build_llm_prompt_parts("numeric")
+    external = context.get("external_trends")
+    if external is None:
+        external = []
+    trends_note = (
+        f"external_trends ({len(external)} шт., только из БД): "
+        f"{json.dumps(external, ensure_ascii=False)[:2000]}"
+    )
+    if not external:
+        trends_note += (
+            "\nСписок пуст — НЕ предлагай мировые/московские практики "
+            "«из знаний модели»."
+        )
     user_prompt = (
         f"{task_prompt}\n\n"
         "Дополнительно для этой карточки ленты: верни ТОЛЬКО JSON без markdown:\n"
@@ -740,6 +772,7 @@ def _call_llm(
         '"severity":"info|attention|action"}\n'
         f"Аббревиатуры: {ADR_RU}; {REVPAR_RU}; ALS (средний срок проживания).\n"
         f"Тема карточки: {topic}\n"
+        f"{trends_note}\n"
         f"Контекст (JSON): {json.dumps(context, ensure_ascii=False)[:3500]}"
     )
     url = base_url.rstrip("/") + "/chat/completions"
@@ -808,6 +841,8 @@ def generate_insights(period_days: int = 14, use_llm: bool = True) -> list[Insig
                 "als": ctx["als"],
                 "competitors": ctx["competitors"][:5],
                 "trends": ctx["trends"][:3],
+                # Всегда передаём список (даже пустой) — модель не должна выдумывать тренды
+                "external_trends": ctx.get("external_trends") or [],
             }
             card = _call_llm(
                 tid, slim, api_key, base_url, model, folder_id=folder_id
