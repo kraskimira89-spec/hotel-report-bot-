@@ -344,6 +344,10 @@ class ForecastConfig(BaseModel):
     use_competitors: bool = True
     refresh_cron: str = "30 9 * * *"
     manual_events: list[ForecastManualEvent] = Field(default_factory=list)
+    rollback_check_hours: int = 24
+    rollback_occupancy_below: float = 45.0
+    rollback_require_zero_bookings: bool = True
+    rollback_price_band_pct: float = 3.0
 
 
 class AppConfig(BaseModel):

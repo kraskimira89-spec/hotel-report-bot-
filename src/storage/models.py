@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 TRENDS_RETENTION_DAYS = 180
 INSIGHTS_RETENTION_DAYS = 90
@@ -545,6 +545,22 @@ MIGRATIONS_V13: list[str] = [
     "ALTER TABLE city_events ADD COLUMN category_source TEXT NOT NULL DEFAULT 'rules'",
 ]
 
+MIGRATIONS_V14: list[str] = [
+    "ALTER TABLE price_recommendations ADD COLUMN recommendation_snapshot_json TEXT",
+    "ALTER TABLE price_recommendations ADD COLUMN selected_price REAL",
+    "ALTER TABLE price_recommendations ADD COLUMN reviewed_at TEXT",
+    "ALTER TABLE price_recommendations ADD COLUMN reviewed_by TEXT",
+    "ALTER TABLE price_recommendations ADD COLUMN applied_at TEXT",
+    "ALTER TABLE price_recommendations ADD COLUMN applied_by TEXT",
+    "ALTER TABLE price_recommendations ADD COLUMN applied_price REAL",
+    "ALTER TABLE price_recommendations ADD COLUMN applied_note TEXT",
+    "ALTER TABLE price_recommendations ADD COLUMN verified_at TEXT",
+    "ALTER TABLE price_recommendations ADD COLUMN verification_result TEXT",
+    "ALTER TABLE price_recommendations ADD COLUMN rollback_at TEXT",
+    "ALTER TABLE price_recommendations ADD COLUMN rollback_reason TEXT",
+    "ALTER TABLE price_recommendations ADD COLUMN manager_comment TEXT",
+]
+
 
 class PriceSnapshotRecord(BaseModel):
     """Запись snapshot цены."""
@@ -756,6 +772,19 @@ class PriceRecommendationRecord(BaseModel):
     decided_at: datetime | None = None
     forecast_id: int | None = None
     horizon_days: int | None = None
+    recommendation_snapshot_json: dict | None = None
+    selected_price: float | None = None
+    reviewed_at: datetime | None = None
+    reviewed_by: str | None = None
+    applied_at: datetime | None = None
+    applied_by: str | None = None
+    applied_price: float | None = None
+    applied_note: str | None = None
+    verified_at: datetime | None = None
+    verification_result: str | None = None
+    rollback_at: datetime | None = None
+    rollback_reason: str | None = None
+    manager_comment: str | None = None
     id: int | None = None
 
 

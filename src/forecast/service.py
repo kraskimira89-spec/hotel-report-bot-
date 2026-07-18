@@ -214,6 +214,11 @@ def run_forecast_refresh(
                 if day.forecast_date.weekday() != 0:
                     continue
             price = snapshots.get(day.room_type)
+            units = category_units.get(day.room_type) or max(
+                1, total_units // max(len(room_types), 1)
+            )
+            known_pct = day.factors.known_booked_pct
+            free_units = max(0, int(round(units * (1 - known_pct / 100))))
             rec = build_price_recommendation(
                 forecast=day,
                 current_price=price,
@@ -225,6 +230,11 @@ def run_forecast_refresh(
                 max_change_pct=fc.max_price_change_pct,
                 use_competitors=fc.use_competitors,
                 approved_events=city_events,
+                free_units=free_units,
+                total_units=units,
+                model_version=MODEL_VERSION,
+                as_of=as_of,
+                horizon_days=horizon,
             )
             if rec:
                 key = (day.forecast_date.isoformat(), day.room_type, "base")

@@ -24,6 +24,7 @@ from src.storage.models import (
     MIGRATIONS_V11,
     MIGRATIONS_V12,
     MIGRATIONS_V13,
+    MIGRATIONS_V14,
     SCHEMA_VERSION,
     TABLES,
     TRENDS_RETENTION_DAYS,
@@ -190,6 +191,13 @@ def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
                     logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
     if current < 13:
         for ddl in MIGRATIONS_V13:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 14:
+        for ddl in MIGRATIONS_V14:
             try:
                 conn.execute(ddl)
             except sqlite3.OperationalError as exc:
@@ -1532,12 +1540,78 @@ def get_forecast_daily_id_map(run_id: int) -> dict[tuple[str, str, str], int]:
     }
 
 
+def _optional_dt_field(row: sqlite3.Row, key: str) -> datetime | None:
+    if key not in row.keys() or not row[key]:
+        return None
+    try:
+        return datetime.fromisoformat(str(row[key]))
+    except ValueError:
+        return None
+
+
+def _row_to_price_recommendation(row: sqlite3.Row) -> PriceRecommendationRecord:
+    import json
+
+    snapshot: dict | None = None
+    raw_snap = (
+        row["recommendation_snapshot_json"]
+        if "recommendation_snapshot_json" in row.keys()
+        else None
+    )
+    if raw_snap:
+        try:
+            snapshot = json.loads(raw_snap) if isinstance(raw_snap, str) else raw_snap
+        except (json.JSONDecodeError, TypeError):
+            snapshot = None
+
+    def _opt_float(key: str) -> float | None:
+        if key not in row.keys() or row[key] is None:
+            return None
+        return float(row[key])
+
+    def _opt_str(key: str) -> str | None:
+        if key not in row.keys() or row[key] is None:
+            return None
+        return str(row[key])
+
+    return PriceRecommendationRecord(
+        id=row["id"],
+        forecast_id=row["forecast_id"],
+        room_type=row["room_type"],
+        target_date=_parse_date(row["target_date"]),
+        current_price=row["current_price"],
+        recommended_price_min=row["recommended_price_min"],
+        recommended_price_max=row["recommended_price_max"],
+        recommendation_type=row["recommendation_type"],
+        reason=row["reason"],
+        confidence=row["confidence"],
+        status=row["status"],
+        decided_at=_optional_dt_field(row, "decided_at"),
+        horizon_days=row["horizon_days"] if "horizon_days" in row.keys() else None,
+        recommendation_snapshot_json=snapshot,
+        selected_price=_opt_float("selected_price"),
+        reviewed_at=_optional_dt_field(row, "reviewed_at"),
+        reviewed_by=_opt_str("reviewed_by"),
+        applied_at=_optional_dt_field(row, "applied_at"),
+        applied_by=_opt_str("applied_by"),
+        applied_price=_opt_float("applied_price"),
+        applied_note=_opt_str("applied_note"),
+        verified_at=_optional_dt_field(row, "verified_at"),
+        verification_result=_opt_str("verification_result"),
+        rollback_at=_optional_dt_field(row, "rollback_at"),
+        rollback_reason=_opt_str("rollback_reason"),
+        manager_comment=_opt_str("manager_comment"),
+    )
+
+
 def save_price_recommendations(
     records: list[PriceRecommendationRecord],
     horizon_days: int,
     as_of: date,
 ) -> int:
-    """Сохранить рекомендации; старые new за горизонт помечаем expired."""
+    """Сохранить рекомендации; старые new/reviewed за горизонт помечаем expired."""
+    import json
+
     if not records:
         return 0
     with db_session() as conn:
@@ -1545,7 +1619,7 @@ def save_price_recommendations(
             """
             UPDATE price_recommendations
             SET status = 'expired'
-            WHERE status = 'new' AND horizon_days = ?
+            WHERE status IN ('new', 'reviewed') AND horizon_days = ?
               AND target_date >= ? AND target_date <= ?
             """,
             (
@@ -1558,11 +1632,17 @@ def save_price_recommendations(
             INSERT INTO price_recommendations (
                 forecast_id, room_type, target_date, current_price,
                 recommended_price_min, recommended_price_max,
-                recommendation_type, reason, confidence, status, horizon_days
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                recommendation_type, reason, confidence, status, horizon_days,
+                recommendation_snapshot_json, selected_price
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         count = 0
         for item in records:
+            snap_json = None
+            if item.recommendation_snapshot_json is not None:
+                snap_json = json.dumps(
+                    item.recommendation_snapshot_json, ensure_ascii=False
+                )
             conn.execute(
                 sql,
                 (
@@ -1577,10 +1657,23 @@ def save_price_recommendations(
                     item.confidence,
                     item.status,
                     item.horizon_days or horizon_days,
+                    snap_json,
+                    item.selected_price,
                 ),
             )
             count += 1
     return count
+
+
+def get_price_recommendation_by_id(rec_id: int) -> PriceRecommendationRecord | None:
+    with db_session() as conn:
+        row = conn.execute(
+            "SELECT * FROM price_recommendations WHERE id = ?",
+            (rec_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return _row_to_price_recommendation(row)
 
 
 def get_price_recommendations(
@@ -1604,32 +1697,7 @@ def get_price_recommendations(
     params.append(limit)
     with db_session() as conn:
         rows = conn.execute(sql, params).fetchall()
-    out: list[PriceRecommendationRecord] = []
-    for row in rows:
-        decided = None
-        if row["decided_at"]:
-            try:
-                decided = datetime.fromisoformat(str(row["decided_at"]))
-            except ValueError:
-                decided = None
-        out.append(
-            PriceRecommendationRecord(
-                id=row["id"],
-                forecast_id=row["forecast_id"],
-                room_type=row["room_type"],
-                target_date=_parse_date(row["target_date"]),
-                current_price=row["current_price"],
-                recommended_price_min=row["recommended_price_min"],
-                recommended_price_max=row["recommended_price_max"],
-                recommendation_type=row["recommendation_type"],
-                reason=row["reason"],
-                confidence=row["confidence"],
-                status=row["status"],
-                decided_at=decided,
-                horizon_days=row["horizon_days"] if "horizon_days" in row.keys() else None,
-            )
-        )
-    return out
+    return [_row_to_price_recommendation(row) for row in rows]
 
 
 def update_price_recommendation_status(
@@ -1644,6 +1712,99 @@ def update_price_recommendation_status(
             WHERE id = ?
             """,
             (status, rec_id),
+        )
+        return cur.rowcount > 0
+
+
+def mark_recommendation_reviewed(rec_id: int, reviewed_by: str) -> bool:
+    """Перевести new → reviewed при первом открытии карточки."""
+    with db_session() as conn:
+        cur = conn.execute(
+            """
+            UPDATE price_recommendations
+            SET status = 'reviewed',
+                reviewed_at = datetime('now'),
+                reviewed_by = ?
+            WHERE id = ? AND status = 'new'
+            """,
+            (reviewed_by, rec_id),
+        )
+        return cur.rowcount > 0
+
+
+def update_recommendation_manager_comment(rec_id: int, comment: str) -> bool:
+    with db_session() as conn:
+        cur = conn.execute(
+            """
+            UPDATE price_recommendations
+            SET manager_comment = ?
+            WHERE id = ?
+            """,
+            (comment, rec_id),
+        )
+        return cur.rowcount > 0
+
+
+def apply_price_recommendation(
+    rec_id: int,
+    *,
+    selected_price: float,
+    applied_by: str,
+    applied_note: str | None = None,
+) -> bool:
+    """Отметить рекомендацию как применённую вручную (без смены цены в TL)."""
+    with db_session() as conn:
+        cur = conn.execute(
+            """
+            UPDATE price_recommendations
+            SET status = 'applied',
+                selected_price = ?,
+                applied_price = ?,
+                applied_at = datetime('now'),
+                applied_by = ?,
+                applied_note = ?,
+                decided_at = datetime('now')
+            WHERE id = ?
+            """,
+            (selected_price, selected_price, applied_by, applied_note, rec_id),
+        )
+        return cur.rowcount > 0
+
+
+def verify_price_recommendation(
+    rec_id: int,
+    verification_result: str,
+) -> bool:
+    with db_session() as conn:
+        cur = conn.execute(
+            """
+            UPDATE price_recommendations
+            SET status = 'verified',
+                verified_at = datetime('now'),
+                verification_result = ?,
+                decided_at = datetime('now')
+            WHERE id = ?
+            """,
+            (verification_result, rec_id),
+        )
+        return cur.rowcount > 0
+
+
+def rollback_price_recommendation(
+    rec_id: int,
+    rollback_reason: str,
+) -> bool:
+    with db_session() as conn:
+        cur = conn.execute(
+            """
+            UPDATE price_recommendations
+            SET status = 'rolled_back',
+                rollback_at = datetime('now'),
+                rollback_reason = ?,
+                decided_at = datetime('now')
+            WHERE id = ?
+            """,
+            (rollback_reason, rec_id),
         )
         return cur.rowcount > 0
 
