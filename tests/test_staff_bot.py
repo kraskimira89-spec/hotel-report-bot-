@@ -59,7 +59,17 @@ def _cfg(*employees: StaffEmployeeConfig, dry_run: bool = True) -> AppConfig:
 def test_welcome_text() -> None:
     text = welcome_text("Екатерина")
     assert "Екатерина" in text
-    assert "внутренний бот 1apart" in text
+    assert "1apart" in text
+    assert "9:00" in text
+
+
+def test_first_connect_text() -> None:
+    from src.staff_bot.templates import first_connect_text
+
+    text = first_connect_text("Иван")
+    assert "9:00" in text
+    assert "сводку" in text.lower() or "сводка" in text.lower() or "присылать" in text
+    assert "1apart" in text
 
 
 def test_resolve_command() -> None:

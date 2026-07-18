@@ -9,7 +9,7 @@ from src.config import AppConfig, get_config
 from src.notifiers.max_api import MaxApiClient, build_max_api_client
 from src.staff_bot import handlers
 from src.staff_bot.acl import DENIED_TEXT, check_access
-from src.staff_bot.templates import resolve_command
+from src.staff_bot.templates import first_connect_text, resolve_command
 from src.storage.db import save_staff_command_log
 from src.storage.models import StaffCommandLogRecord
 
@@ -27,10 +27,11 @@ def _send(
     kwargs: dict[str, Any] = {"format": "markdown"}
     if attachments:
         kwargs["attachments"] = attachments
-    if chat_id is not None:
-        api.send_message(text, chat_id=chat_id, **kwargs)
-    elif user_id is not None:
+    # В личном диалоге Max надёжнее user_id; chat_id — запасной
+    if user_id is not None:
         api.send_message(text, user_id=user_id, **kwargs)
+    elif chat_id is not None:
+        api.send_message(text, chat_id=chat_id, **kwargs)
     else:
         logger.warning("staff_bot: нет chat_id/user_id для ответа")
 
@@ -51,6 +52,59 @@ def _log(user_id: int | None, command: str, status: str, detail: str | None = No
         logger.debug("staff_command_log: %s", exc)
 
 
+def handle_first_connect(
+    *,
+    user_id: int | None,
+    chat_id: int | None,
+    display_name: str = "",
+    config: AppConfig | None = None,
+    api: MaxApiClient | None = None,
+    callback_id: str | None = None,
+) -> dict[str, Any]:
+    """Первое подключение /start: всегда сообщаем про сводку в 9:00.
+
+    Сотрудникам с доступом — ещё меню. Остальным — только приветствие
+    (без «Доступ не предоставлен»).
+    """
+    cfg = config or get_config()
+    client = api or build_max_api_client(cfg)
+    if client is None:
+        return {"ok": False, "reason": "no_max_token"}
+
+    access = check_access(user_id, "start", config=cfg)
+    if access.allowed and access.staff is not None:
+        staff = access.staff
+        if display_name and not staff.display_name:
+            staff = staff.model_copy(update={"display_name": display_name})
+        reply = handlers.reply_start(staff)
+        _send(
+            client,
+            chat_id=chat_id,
+            user_id=user_id,
+            text=reply["text"],
+            attachments=reply.get("attachments") or None,
+        )
+        _log(user_id, "start", "ok")
+        result = {"ok": True, "command": "start", "staff": True}
+    else:
+        # Гость / ещё не в allowlist — только info про 9:00
+        _send(
+            client,
+            chat_id=chat_id,
+            user_id=user_id,
+            text=first_connect_text(display_name),
+        )
+        _log(user_id, "start", "ok", "first_connect_guest")
+        result = {"ok": True, "command": "start", "staff": False}
+
+    if callback_id:
+        try:
+            client.answer_callback(callback_id, notification="Готово")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("answer_callback start: %s", exc)
+    return result
+
+
 def handle_staff_command(
     *,
     command: str,
@@ -63,6 +117,16 @@ def handle_staff_command(
     payload_extra: str | None = None,
 ) -> dict[str, Any]:
     """Обработать команду/кнопку. Возвращает статус для webhook."""
+    if command == "start":
+        return handle_first_connect(
+            user_id=user_id,
+            chat_id=chat_id,
+            display_name=display_name,
+            config=config,
+            api=api,
+            callback_id=callback_id,
+        )
+
     cfg = config or get_config()
     client = api or build_max_api_client(cfg)
     if client is None:
@@ -86,9 +150,7 @@ def handle_staff_command(
         staff = staff.model_copy(update={"display_name": display_name})
 
     try:
-        if command == "start":
-            reply = handlers.reply_start(staff)
-        elif command == "help":
+        if command == "help":
             reply = handlers.reply_help(staff)
         elif command == "stop":
             reply = handlers.reply_stop(staff)

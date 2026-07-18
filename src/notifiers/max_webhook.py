@@ -45,49 +45,54 @@ def handle_max_webhook(payload: dict[str, Any]) -> dict[str, Any]:
         display_name = extract_display_name(upd.raw)
 
         if upd.update_type == "bot_started":
-            if cfg.staff_bot.enabled:
-                results.append(
-                    handle_staff_command(
-                        command="start",
-                        user_id=upd.user_id,
-                        chat_id=upd.chat_id,
-                        display_name=display_name,
-                        config=cfg,
-                    )
+            # Первое подключение: всегда отвечаем (сводка в 9:00)
+            results.append(
+                handle_staff_command(
+                    command="start",
+                    user_id=upd.user_id,
+                    chat_id=upd.chat_id,
+                    display_name=display_name,
+                    config=cfg,
                 )
+            )
             continue
 
         if upd.update_type == "message_created":
-            if not cfg.staff_bot.enabled:
-                continue
             text = extract_message_text(upd.raw)
             if not text.strip():
                 continue
-            result = dispatch_text(
-                text,
-                user_id=upd.user_id,
-                chat_id=upd.chat_id,
-                display_name=display_name,
-                config=cfg,
-            )
-            if result:
-                results.append(result)
+            # /start и «Начать» обрабатываем всегда
+            from src.staff_bot.templates import resolve_command
+
+            cmd = resolve_command(text)
+            if cmd == "start" or cfg.staff_bot.enabled:
+                result = dispatch_text(
+                    text,
+                    user_id=upd.user_id,
+                    chat_id=upd.chat_id,
+                    display_name=display_name,
+                    config=cfg,
+                )
+                if result:
+                    results.append(result)
             continue
 
         if upd.update_type == "message_callback":
             if not cfg.staff_bot.enabled:
                 continue
             callback_id, cb_payload = extract_callback(upd.raw)
-            results.append(
-                dispatch_callback(
-                    cb_payload or "",
-                    user_id=upd.user_id,
-                    chat_id=upd.chat_id,
-                    display_name=display_name,
-                    callback_id=callback_id,
-                    config=cfg,
+            # cmd:start — всегда
+            if (cb_payload or "").strip() in ("cmd:start",) or cfg.staff_bot.enabled:
+                results.append(
+                    dispatch_callback(
+                        cb_payload or "",
+                        user_id=upd.user_id,
+                        chat_id=upd.chat_id,
+                        display_name=display_name,
+                        callback_id=callback_id,
+                        config=cfg,
+                    )
                 )
-            )
             continue
 
     if chat_ids:

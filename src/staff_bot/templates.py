@@ -31,15 +31,23 @@ TEXT_ALIASES: dict[str, str] = {
 }
 
 
-def welcome_text(name: str) -> str:
-    display = (name or "").strip() or "коллега"
+def first_connect_text(name: str = "") -> str:
+    """Сообщение при первом подключении / кнопке «Начать»."""
+    display = (name or "").strip()
+    hello = f"Здравствуйте, {display}! 👋" if display else "Здравствуйте! 👋"
     return (
-        f"Здравствуйте, {display}! 👋\n"
-        "Это внутренний бот 1apart.\n\n"
-        "Я помогаю контролировать загрузку, бронирования,\n"
-        "рекомендации, события и технические уведомления.\n\n"
-        "Выберите действие:"
+        f"{hello}\n\n"
+        "Это бот апарт-отеля 1apart.\n\n"
+        "Каждый день около 9:00 я буду присылать сводку "
+        "по загрузке, бронированиям и важным уведомлениям "
+        "по объекту 1apart.\n\n"
+        "Если вы сотрудник — откройте меню ниже или напишите /help."
     )
+
+
+def welcome_text(name: str) -> str:
+    """Приветствие для сотрудников с доступом (с меню)."""
+    return first_connect_text(name) + "\n\nВыберите действие:"
 
 
 def help_text(*, role: str) -> str:
