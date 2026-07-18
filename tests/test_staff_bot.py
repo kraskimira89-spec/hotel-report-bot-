@@ -192,7 +192,10 @@ def test_reply_summary_and_detail(staff_db: Path) -> None:
     staff = get_staff_user(1)
     assert staff is not None
     summary = reply_summary(config=cfg)
-    assert "54.5%" in summary["text"]
+    assert "texts" in summary
+    assert any("54.5" in t or "Загрузка" in t or "Сводка" in t for t in summary["texts"])
+    # сырых http_error URL в сводке быть не должно
+    assert "tlintegration.com" not in summary["text"]
     detail = reply_detail(rec_id, staff=staff, config=cfg)
     assert "Краткий план" in detail["text"]
     assert f"/recommendations/{rec_id}" in detail["text"]

@@ -94,30 +94,70 @@ def reply_stop(staff: StaffUserRecord) -> dict[str, Any]:
 
 
 def reply_summary(*, config: AppConfig | None = None) -> dict[str, Any]:
+    """Последняя сводка в формате утреннего Max (несколько частей)."""
+    cfg = config or get_config()
+    texts = build_last_summary_texts(config=cfg)
+    return {"text": texts[0] if texts else "Сводка недоступна.", "texts": texts, "attachments": []}
+
+
+def build_last_summary_texts(*, config: AppConfig | None = None) -> list[str]:
+    """Сводка из БД (быстро), без live-API и без сырых http_error."""
+    from src.metrics.occupancy import traffic_light
+    from src.storage.db import db_session, get_competitor_prices_latest
+
     cfg = config or get_config()
     today = date.today()
     metrics = get_metrics_for_date(today, "daily")
     if metrics is None:
         metrics = get_metrics_for_date(today - timedelta(days=1), "daily")
-    errors = get_errors_log(resolved=False, limit=5)
     if metrics is None:
-        body = "Сводка: данных за сегодня/вчера пока нет."
+        return ["Сводка: данных за сегодня/вчера пока нет."]
+
+    report_date = metrics.report_date
+    occ = metrics.occupancy_pct or 0.0
+    light = traffic_light(occ, cfg.traffic_light)
+
+    section_occ = [
+        f"📊 *Сводка за {report_date.strftime('%d.%m.%Y')}*",
+        f"*Загрузка:* {light} {occ:.1f}%",
+        "",
+        f"Брони: {metrics.bookings_count if metrics.bookings_count is not None else '—'}",
+        f"Выручка: {_fmt_money(metrics.revenue)}",
+        f"ADR: {_fmt_money(metrics.adr)} · RevPAR: {_fmt_money(metrics.revpar)}",
+    ]
+
+    with db_session() as conn:
+        cat_rows = conn.execute(
+            """
+            SELECT metric_type, occupancy_pct FROM metrics_daily
+            WHERE report_date = ? AND metric_type LIKE 'category:%'
+            ORDER BY metric_type
+            """,
+            (report_date.isoformat(),),
+        ).fetchall()
+    if cat_rows:
+        section_occ.append("")
+        section_occ.append("*Загрузка по категориям:*")
+        for row in cat_rows:
+            label = str(row["metric_type"]).replace("category:", "", 1)
+            section_occ.append(f"• {label}: {_fmt_pct(row['occupancy_pct'])}")
+
+    parts = ["\n".join(section_occ)]
+
+    competitors = get_competitor_prices_latest()
+    if competitors:
+        for comp in competitors:
+            price = (
+                f"{comp.price_from:,.0f}".replace(",", " ") + " ₽"
+                if comp.price_from is not None
+                else "—"
+            )
+            parts.append(f"*Конкурент:* {comp.competitor_name}\nот {price}")
     else:
-        body = (
-            f"📊 Сводка на {metrics.report_date.isoformat()}\n\n"
-            f"Загрузка: {_fmt_pct(metrics.occupancy_pct)}\n"
-            f"Брони: {metrics.bookings_count if metrics.bookings_count is not None else '—'}\n"
-            f"Выручка: {_fmt_money(metrics.revenue)}\n"
-            f"ADR: {_fmt_money(metrics.adr)} · RevPAR: {_fmt_money(metrics.revpar)}"
-        )
-    if errors:
-        body += f"\n\n⚠️ Открытых ошибок: {len(errors)}"
-        for err in errors[:3]:
-            body += f"\n• [{err.source}] {err.error_type}: {err.message[:120]}"
-    else:
-        body += "\n\n✅ Критичных открытых ошибок нет."
-    body += f"\n\nПодробнее: {_admin_url('/analytics', cfg)}"
-    return {"text": body, "attachments": []}
+        parts.append("*Конкуренты*\n- нет данных")
+
+    parts.append(f"Подробнее: {_admin_url('/analytics', cfg)}")
+    return parts
 
 
 def reply_recommendations(
@@ -272,9 +312,9 @@ def reply_problems(*, config: AppConfig | None = None) -> dict[str, Any]:
         }
     lines = ["⚠️ Проблемы и уведомления:\n"]
     for err in errors[:8]:
+        msg = err.message.split(" for url ")[0][:140]
         lines.append(
-            f"• {err.error_date.isoformat()} [{err.source}] "
-            f"{err.error_type}: {err.message[:140]}"
+            f"• {err.error_date.isoformat()} [{err.source}] {err.error_type}: {msg}"
         )
     lines.append(f"\nЛоги: {_admin_url('/logs', cfg)}")
     return {"text": "\n".join(lines), "attachments": []}

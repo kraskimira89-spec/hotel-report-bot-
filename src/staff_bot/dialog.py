@@ -131,7 +131,9 @@ def handle_onboarding_choice(
             return {"ok": True, "command": "wait_until_9"}
 
         reply = handlers.reply_summary(config=cfg)
-        _send(client, chat_id=chat_id, user_id=user_id, text=reply["text"])
+        texts = reply.get("texts") or [reply["text"]]
+        for part in texts:
+            _send(client, chat_id=chat_id, user_id=user_id, text=part)
         _log(user_id, "send_last_summary", "ok")
         if callback_id:
             try:
