@@ -17,4 +17,12 @@ https://www.figma.com/design/S0IJIBNuaaHXNcMzqZ5E5i
 ## Связанные файлы
 
 - pptx: `TravelLine_партнёрское_предложение_v2.pptx`
+- локально: `docs/presentations/travelline/summer/` (PNG + PPTX/PDF)
 - предыдущий Slides: https://www.figma.com/slides/02I45R9LymsNiGm6w8NFAo
+
+## Локальное сохранение (2026-07-22)
+
+Сохранено в `docs/presentations/travelline/summer/`:
+- PNG `01_Cover`…`07_TravelLine_Value` — из Figma
+- PNG `08_Webinar`…`12_Closing` — из PPTX v2 (лимит Figma MCP Starter)
+- `TravelLine_Summer_Data_Momentum.pptx` / `.pdf`
