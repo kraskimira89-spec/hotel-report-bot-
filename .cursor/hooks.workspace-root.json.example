@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "command": "python hotel-report-bot/.cursor/hooks/post_task_commit.py",
+        "timeout": 120
+      },
+      {
+        "command": "python hotel-report-bot/.cursor/hooks/post_task_deploy.py",
+        "timeout": 960
+      }
+    ]
+  }
+}

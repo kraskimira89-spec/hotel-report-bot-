@@ -19,6 +19,8 @@ import tempfile
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
+_LOG_DIR = _ROOT / "logs"
+_LOG_FILE = _LOG_DIR / "post_task_commit.log"
 
 _DENY_NAMES = {
     ".env",
@@ -26,12 +28,13 @@ _DENY_NAMES = {
     "service_account.json",
     "mcp.json",
 }
-_DENY_SUFFIXES = {".env", ".db", ".pem", ".key", ".p12", ".pfx"}
+_DENY_SUFFIXES = {".env", ".db", ".pem", ".key", ".p12", ".pfx", ".pptx", ".mp4", ".mov", ".avi"}
 _DENY_PARTS = {".venv", "node_modules", "__pycache__", ".git"}
 _DENY_PREFIXES = (
     "data/",
     "logs/",
     "config/primeval-rain-",
+    "docs/presentations/",
 )
 _DENY_SUBSTRINGS = (
     "credentials",
@@ -51,6 +54,34 @@ def _git(*args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
         errors="replace",
         check=check,
     )
+
+
+def _log(message: str) -> None:
+    """Пишет в stderr и logs/post_task_commit.log."""
+    line = message.rstrip()
+    print(line, file=sys.stderr)
+    try:
+        _LOG_DIR.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime
+
+        stamp = datetime.now().isoformat(timespec="seconds")
+        with _LOG_FILE.open("a", encoding="utf-8") as fh:
+            fh.write(f"{stamp} {line}\n")
+    except OSError:
+        pass
+
+
+def _git_add_paths(paths: list[str]) -> list[str]:
+    """git add по одному файлу; пропускает проблемные pathspec (Windows + кириллица)."""
+    added: list[str] = []
+    for path in paths:
+        proc = _git("add", "--", path)
+        if proc.returncode == 0:
+            added.append(path)
+            continue
+        err = (proc.stderr or proc.stdout or "").strip()
+        _log(f"post_task_commit: skip add {path!r}: {err[:120]}")
+    return added
 
 
 def _enabled() -> bool:
@@ -191,15 +222,15 @@ def main() -> int:
 
     dry_run = "--dry-run" in sys.argv
     if not _enabled():
-        print("post_task_commit: отключён (CURSOR_AUTO_COMMIT=0)", file=sys.stderr)
+        _log("post_task_commit: отключён (CURSOR_AUTO_COMMIT=0)")
         return 0
 
     if not (_ROOT / ".git").exists() and _git("rev-parse", "--is-inside-work-tree").returncode != 0:
-        print("post_task_commit: не git-репозиторий", file=sys.stderr)
+        _log(f"post_task_commit: не git-репозиторий ({_ROOT})")
         return 0
 
     if _busy():
-        print("post_task_commit: пропуск — идёт merge/rebase", file=sys.stderr)
+        _log("post_task_commit: пропуск — идёт merge/rebase")
         return 0
 
     paths = _porcelain_paths()
@@ -214,9 +245,9 @@ def main() -> int:
         print(msg)
         return 0
 
-    add = _git("add", "--", *paths)
-    if add.returncode != 0:
-        print(add.stderr or add.stdout, file=sys.stderr)
+    added = _git_add_paths(paths)
+    if not added:
+        _log("post_task_commit: git add не добавил ни одного файла")
         return 0
 
     # Повторная проверка: не закоммитить пустое
@@ -261,7 +292,7 @@ def main() -> int:
 
     short = _git("rev-parse", "--short", "HEAD").stdout.strip()
     subject = re.sub(r"\s+", " ", msg.splitlines()[0]).strip()
-    print(f"post_task_commit: {short} {subject}")
+    _log(f"post_task_commit: {short} {subject}")
     _maybe_push()
     return 0
 
