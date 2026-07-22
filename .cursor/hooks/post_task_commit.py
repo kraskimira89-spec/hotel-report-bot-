@@ -139,6 +139,12 @@ def _porcelain_paths() -> list[str]:
 
 def _subject(paths: list[str]) -> str:
     joined = " ".join(paths).lower()
+    if "weekly" in joined or "industry_trends" in joined or "email_sender" in joined:
+        return "feat: weekly email v2"
+    if "post_task_commit" in joined or "auto_commit" in joined or "hooks.json" in joined:
+        return "chore: автокоммит и Cursor hooks"
+    if "scheduler" in joined:
+        return "feat: обновление планировщика"
     if "src/events" in joined or "events.html" in joined or "events_" in joined:
         return "feat: обновление модуля событий"
     if "forecast" in joined:

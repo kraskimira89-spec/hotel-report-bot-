@@ -1,24 +1,27 @@
 ---
-description: Git — коммит по запросу или через hook, ветки этапов
+description: Git — автокоммит после каждого задания, ветки этапов
 alwaysApply: true
 ---
 
-# Git: коммит и push
+# Git: автокоммит после задания
 
-## Кто коммитит
+## Обязательное правило
 
-1. **По явной просьбе пользователя** («commit», «закоммить», «commit + push») — агент делает `git add` / `commit` / `push`.
-2. **Автоматически** — хук Cursor `stop` → `post_task_commit.py` (без участия агента).
+После **каждого выполненного задания** агент **сам** делает commit + push:
 
-Агент **не** коммитит сам после этапа, если пользователь не просил.
+```bash
+python scripts/auto_commit_after_task.py
+```
 
-- Отключить автокоммит: `CURSOR_AUTO_COMMIT=0`
-- Отключить autopush: `CURSOR_AUTO_PUSH=0`
+Дополнительно: хук Cursor `stop` → `.cursor/hooks/post_task_commit.py`.
 
-## Когда коммитить (по запросу)
+- Отключить коммит: `CURSOR_AUTO_COMMIT=0`
+- Отключить push: `CURSOR_AUTO_PUSH=0`
 
-- Этап завершён: `pytest` и `ruff check` проходят.
-- Один коммит на логический блок изменений.
+## Когда коммитить
+
+- Задача завершена, релевантные `pytest` / `ruff check` проходят.
+- Один коммит на задание (subject формирует hook).
 
 ## Ветка
 
@@ -31,17 +34,17 @@ etap-1 … etap-11
 
 ## Сообщение коммита
 
+Hook выбирает `feat:` / `docs:` / `test:` по путям. Для этапов вручную:
+
 ```text
 Этап N: краткое описание.
 ```
 
-или `feat:` / `fix:` для точечных задач.
-
 ## Не коммитить
 
-`.env`, `config/settings.yaml`, `*.db`, `service_account.json`, `.venv/`, крупные бинарники (pptx/mp4) без явной просьбы.
+`.env`, `config/settings.yaml`, `*.db`, `service_account.json`, `.venv/`, `docs/presentations/` (pptx/mp4).
 
 ## После коммита
 
-1. `git push` — если пользователь просил push или сработал hook.
+1. Hook делает `git push` на текущую ветку.
 2. PR — **только по явной просьбе**.

@@ -3,11 +3,11 @@
   "hooks": {
     "stop": [
       {
-        "command": "python .cursor/hooks/post_task_commit.py",
+        "command": "python -u .cursor/hooks/post_task_commit.py",
         "timeout": 120
       },
       {
-        "command": "python .cursor/hooks/post_task_deploy.py",
+        "command": "python -u .cursor/hooks/post_task_deploy.py",
         "timeout": 960
       }
     ]
