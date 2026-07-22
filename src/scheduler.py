@@ -234,6 +234,12 @@ def job_weekly_email(
         except Exception as exc:
             logger.warning("recommendations refresh before weekly email: %s", exc)
         try:
+            from src.events.service import run_events_pipeline
+
+            run_events_pipeline()
+        except Exception as exc:
+            logger.warning("events refresh before weekly email: %s", exc)
+        try:
             from src.data_sources.industry_trends import enrich_pending_trends
 
             enrich_pending_trends(use_llm=cfg.market_news.enrich_with_llm)
