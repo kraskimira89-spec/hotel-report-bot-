@@ -20,9 +20,10 @@ https://www.figma.com/design/S0IJIBNuaaHXNcMzqZ5E5i
 - локально: `docs/presentations/travelline/summer/` (PNG + PPTX/PDF)
 - предыдущий Slides: https://www.figma.com/slides/02I45R9LymsNiGm6w8NFAo
 
-## Локальное сохранение (2026-07-22)
+## Стили PPTX (2026-07-22)
 
-Сохранено в `docs/presentations/travelline/summer/`:
-- PNG `01_Cover`…`07_TravelLine_Value` — из Figma
-- PNG `08_Webinar`…`12_Closing` — из PPTX v2 (лимит Figma MCP Starter)
-- `TravelLine_Summer_Data_Momentum.pptx` / `.pdf`
+В `TravelLine_Summer_Data_Momentum.pptx` применены из `figma-design-spec.md`:
+типографика, сетка 16:9, компоненты (TitleBar/Card/Arrow/Footer).
+Цвета спеки **не** применялись — оставлена палитра Summer.
+Сборка: `scripts/build_travelline_presentation_v2.py`.
+

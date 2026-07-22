@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""TravelLine партнёрское предложение v2 — 12 слайдов, светлый B2B-стиль."""
+"""TravelLine партнёрское предложение v2 — 12 слайдов.
+
+Стили (типографика, сетка, компоненты) — из figma-design-spec.md.
+Цвета — Summer Data Momentum (не из спеки).
+"""
 
 from __future__ import annotations
 
@@ -13,25 +17,34 @@ from pptx.util import Inches, Pt
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "docs" / "presentations" / "travelline"
+SUMMER_DIR = OUT_DIR / "summer"
 OUTPUT_PPTX = OUT_DIR / "TravelLine_партнёрское_предложение_v2.pptx"
 OUTPUT_PDF = OUT_DIR / "TravelLine_партнёрское_предложение_v2.pdf"
+OUTPUT_SUMMER_PPTX = SUMMER_DIR / "TravelLine_Summer_Data_Momentum.pptx"
+OUTPUT_SUMMER_PDF = SUMMER_DIR / "TravelLine_Summer_Data_Momentum.pdf"
 
 ORG = "1apart · аналитика для объектов размещения"
 CONTACT = "Сергей Богдановский · bogdanchik2@yandex.ru · +7 909 195-04-08"
 YEAR = "2026"
 
-# --- сетка 16:9 ---
+# --- сетка 16:9 (figma-design-spec.md, px→in при 1920×1080) ---
+# Slide 1920×1080 → 13.333×7.5 in
+# Margin 79px → 0.55 in | Content Y 208px → 1.45 in
+# Title zone max 151px → 1.05 in | Gap title→content 40px → 0.28 in
+# Gap cards 26px → 0.18 in | Footer Y 1018px → 7.05 in
 SW = Inches(13.333)
 SH = Inches(7.5)
 M = Inches(0.55)
 CW = SW - M * 2
 Y_TITLE = M
-Y_CONTENT = Inches(1.45)
-GAP_TITLE = Inches(0.28)
+H_TITLE = Inches(1.05)
+Y_CONTENT = Inches(1.45)  # = title zone end − overlap + gap; контент не выше
 GAP_CARD = Inches(0.18)
 Y_FOOTER = Inches(7.05)
+BAR_W = Inches(6 * 13.333 / 1920)  # 6px accent bar как в Figma
+CARD_RADIUS = 0.08  # ~12px на 1920
 
-# --- палитра Summer Data Momentum ---
+# --- палитра Summer Data Momentum (цвета НЕ из figma-design-spec) ---
 BG_LIGHT = RGBColor(0xF7, 0xFB, 0xFF)
 BG_DARK = RGBColor(0x16, 0x78, 0xE8)  # титул/финал: синий градиент-база
 TEXT = RGBColor(0x16, 0x25, 0x3A)
@@ -45,13 +58,18 @@ SUN = RGBColor(0xFF, 0xC8, 0x4A)
 LIGHT_BLUE = RGBColor(0xEA, 0xF5, 0xFF)
 LIGHT_MINT = RGBColor(0xE8, 0xFA, 0xF5)
 LIGHT_YELLOW = RGBColor(0xFF, 0xF7, 0xDE)
+HIGHLIGHT = LIGHT_BLUE
+HIGHLIGHT_GREEN = LIGHT_MINT
 FONT = "Arial"
 
-F_TITLE = 32
-F_SUB = 19
-F_BODY = 16
-F_KPI = 26
-F_FOOT = 11
+# --- типографика (figma-design-spec) ---
+F_TITLE_L = 34  # Title/L — обложка, финал
+F_TITLE_M = 32  # Title/M — заголовки слайдов
+F_SUB = 19      # Subtitle
+F_BODY = 16     # Body
+F_KPI = 26      # KPI
+F_FOOT = 11     # Footer
+F_TITLE = F_TITLE_M  # alias для title bar
 
 NOTES: list[str] = [
     # 1
@@ -119,6 +137,10 @@ def _rect(slide, left, top, width, height, fill: RGBColor, *, line: RGBColor | N
     sh = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
     sh.fill.solid()
     sh.fill.fore_color.rgb = fill
+    try:
+        sh.adjustments[0] = CARD_RADIUS
+    except Exception:
+        pass
     if line:
         sh.line.color.rgb = line
     else:
@@ -177,28 +199,34 @@ def _multiline(
 
 
 def _footer(slide, n: int, *, dark: bool = False) -> None:
-    c = MUTED if not dark else RGBColor(0xA8, 0xB8, 0xC8)
+    """Slide/Footer — org + номер слайда."""
+    c = MUTED if not dark else RGBColor(0xA8, 0xC8, 0xE8)
     _text(slide, M, Y_FOOTER, Inches(8), Inches(0.2), ORG, size=F_FOOT, color=c)
     _text(slide, Inches(12.2), Y_FOOTER, Inches(0.6), Inches(0.2), str(n), size=F_FOOT, color=c, align=PP_ALIGN.RIGHT)
 
 
 def _slide_title_bar(slide, title: str, *, dark: bool = False) -> None:
+    """Slide/TitleBar — Title/M, зона ≤ 1.05 in."""
     tc = WHITE if dark else TEXT
-    _text(slide, M, Y_TITLE, CW, Inches(0.85), title, size=F_TITLE, bold=True, color=tc)
+    _text(slide, M, Y_TITLE, CW, H_TITLE, title, size=F_TITLE_M, bold=True, color=tc)
 
 
 def _hcard(slide, left, top, width, height, title: str, body: str, *, accent: RGBColor = ACCENT) -> None:
+    """Slide/Card — rounded + left accent bar + Subtitle + Body."""
     _rect(slide, left, top, width, height, CARD)
-    bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, Inches(0.06), height)
+    bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, BAR_W, height)
     bar.fill.solid()
     bar.fill.fore_color.rgb = accent
     bar.line.fill.background()
     pad = Inches(0.14)
-    _text(slide, left + Inches(0.18), top + pad, width - Inches(0.22), Inches(0.35), title, size=F_SUB, bold=True, color=ACCENT)
-    _text(slide, left + Inches(0.18), top + Inches(0.48), width - Inches(0.22), height - Inches(0.55), body, size=F_BODY, color=TEXT)
+    tx = left + Inches(0.18)
+    tw = width - Inches(0.22)
+    _text(slide, tx, top + pad, tw, Inches(0.35), title, size=F_SUB, bold=True, color=accent)
+    _text(slide, tx, top + Inches(0.48), tw, height - Inches(0.55), body, size=F_BODY, color=TEXT)
 
 
 def _arrow(slide, left, top, width=Inches(0.35)) -> None:
+    """Slide/Arrow — chevron между карточками."""
     sh = slide.shapes.add_shape(MSO_SHAPE.RIGHT_ARROW, left, top, width, Inches(0.22))
     sh.fill.solid()
     sh.fill.fore_color.rgb = ACCENT2
@@ -215,12 +243,12 @@ def s01_title(prs: Presentation) -> None:
     for i in range(6):
         ln = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, M + i * Inches(2.0), Inches(5.8), Inches(1.6), Inches(0.02))
         ln.fill.solid()
-        ln.fill.fore_color.rgb = RGBColor(0x24, 0x6B, 0xCE)
+        ln.fill.fore_color.rgb = SUN
         ln.line.fill.background()
     _text(
         s, M, Inches(1.0), CW, Inches(1.6),
         "От данных TravelLine —\nк ежедневным решениям владельца",
-        size=34, bold=True, color=WHITE,
+        size=F_TITLE_L, bold=True, color=WHITE,
     )
     _text(
         s, M, Inches(2.75), CW, Inches(0.9),
@@ -236,7 +264,7 @@ def s02_problem(prs: Presentation) -> None:
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s, BG_LIGHT)
     _slide_title_bar(s, "Данные есть. Времени на своевременные решения — мало.")
-    y = Y_CONTENT + GAP_TITLE
+    y = Y_CONTENT
     cards = [
         ("Ручной контроль", "Таблицы, бронирования, цены и отчёты в разных местах."),
         ("Решения с опозданием", "Цена и спрос меняются каждый day."),
@@ -256,7 +284,7 @@ def s03_solution(prs: Presentation) -> None:
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s, BG_LIGHT)
     _slide_title_bar(s, "Аналитический слой, который усиливает данные TravelLine")
-    y = Y_CONTENT + GAP_TITLE
+    y = Y_CONTENT
     cx = M + CW / 2
     steps = [
         "TravelLine + PMS + сигналы рынка",
@@ -267,7 +295,7 @@ def s03_solution(prs: Presentation) -> None:
     box_h = Inches(0.52)
     sy = y
     for i, txt in enumerate(steps):
-        _rect(s, cx - box_w / 2, sy, box_w, box_h, RGBColor(0xE8, 0xF0, 0xFA), line=ACCENT)
+        _rect(s, cx - box_w / 2, sy, box_w, box_h, HIGHLIGHT, line=ACCENT)
         _text(s, cx - box_w / 2 + Inches(0.12), sy + Inches(0.1), box_w - Inches(0.24), box_h, txt, size=F_BODY, bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
         sy += box_h + Inches(0.08)
         if i < 2:
@@ -290,7 +318,7 @@ def s04_owner(prs: Presentation) -> None:
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s, BG_LIGHT)
     _slide_title_bar(s, "Не ещё один отчёт. А понятный план действий.")
-    y = Y_CONTENT + GAP_TITLE
+    y = Y_CONTENT
     steps = [
         ("1. Сигнал", "Растёт pickup, есть событие, цена ниже рынка."),
         ("2. Рекомендация", "Проверить цену конкретной категории."),
@@ -317,7 +345,7 @@ def s05_forecast(prs: Presentation) -> None:
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s, BG_LIGHT)
     _slide_title_bar(s, "Спрос можно увидеть раньше, чем он попадёт в отчёт")
-    y = Y_CONTENT + GAP_TITLE
+    y = Y_CONTENT
     half = (CW - Inches(0.22)) / 2
     _rect(s, M, y, half, Inches(3.35), CARD)
     _text(s, M + Inches(0.18), y + Inches(0.15), half - Inches(0.3), Inches(0.4), "Прогноз на 7 / 14 / 30 / 180 дней", size=F_SUB, bold=True, color=ACCENT)
@@ -356,8 +384,8 @@ def s06_economics(prs: Presentation) -> None:
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s, BG_LIGHT)
     _slide_title_bar(s, "Ценность измеряется в сохранённом времени и качестве решений")
-    y = Y_CONTENT + GAP_TITLE
-    _rect(s, M, y, CW, Inches(1.05), RGBColor(0xE8, 0xF0, 0xFA), line=ACCENT)
+    y = Y_CONTENT
+    _rect(s, M, y, CW, Inches(1.05), HIGHLIGHT, line=ACCENT)
     _text(
         s, M + Inches(0.2), y + Inches(0.12), CW - Inches(0.4), Inches(0.85),
         "Экономия часов в месяц =\nежедневный ручной контроль + еженедельные отчёты + поиск и сверка данных",
@@ -373,7 +401,7 @@ def s06_economics(prs: Presentation) -> None:
     _text(
         s, M, y2 + Inches(1.45), CW, Inches(0.45),
         "Финансовый эффект и рост выручки оцениваются отдельно по результатам пилота, без предварительных гарантий.",
-        size=13, color=MUTED,
+        size=F_FOOT, color=MUTED,
     )
     _footer(s, 6)
     _note(s, NOTES[5])
@@ -383,7 +411,7 @@ def s07_tl_value(prs: Presentation) -> None:
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s, BG_LIGHT)
     _slide_title_bar(s, "Дополнительная ценность для экосистемы TravelLine")
-    y = Y_CONTENT + GAP_TITLE
+    y = Y_CONTENT
     items = [
         ("Понятнее данные", "Владелец быстрее понимает ситуацию."),
         ("Больше регулярности", "Показатели превращаются в рабочие решения."),
@@ -406,7 +434,7 @@ def s08_webinar(prs: Presentation) -> None:
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s, BG_LIGHT)
     _slide_title_bar(s, "Начать можно с вебинара для клиентов TravelLine")
-    y = Y_CONTENT + GAP_TITLE
+    y = Y_CONTENT
     timeline = [
         ("10 мин", "проблема владельца"),
         ("15 мин", "демонстрация сценариев"),
@@ -423,7 +451,7 @@ def s08_webinar(prs: Presentation) -> None:
         if i < 3:
             _arrow(s, x + tw + Inches(0.02), y + Inches(0.45), GAP_CARD)
     y2 = y + th + Inches(0.28)
-    _rect(s, M, y2, CW, Inches(1.55), RGBColor(0xE8, 0xF8, 0xF4), line=ACCENT2)
+    _rect(s, M, y2, CW, Inches(1.55), HIGHLIGHT_GREEN, line=ACCENT2)
     _text(s, M + Inches(0.18), y2 + Inches(0.12), Inches(1.5), Inches(0.3), "Цели:", size=F_SUB, bold=True, color=ACCENT2)
     _multiline(
         s, M + Inches(0.18), y2 + Inches(0.45), CW - Inches(0.36), Inches(1.0),
@@ -440,7 +468,7 @@ def s09_pilot(prs: Presentation) -> None:
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s, BG_LIGHT)
     _slide_title_bar(s, "Контролируемый пилот вместо большого риска")
-    y = Y_CONTENT + GAP_TITLE
+    y = Y_CONTENT
     rows = [
         ("TravelLine", "согласование API и подбор пилотных объектов"),
         ("Разработчик", "настройка, поддержка, аналитика результатов"),
@@ -453,7 +481,7 @@ def s09_pilot(prs: Presentation) -> None:
         _text(s, M + Inches(0.15), yy + Inches(0.18), Inches(2.2), rh, role, size=F_SUB, bold=True, color=ACCENT)
         _text(s, M + Inches(2.5), yy + Inches(0.18), CW - Inches(2.7), rh, resp, size=F_BODY, color=TEXT)
     y2 = y + 3 * (rh + GAP_CARD) + Inches(0.05)
-    _rect(s, M, y2, CW, Inches(0.85), RGBColor(0xE8, 0xF0, 0xFA), line=ACCENT)
+    _rect(s, M, y2, CW, Inches(0.85), HIGHLIGHT, line=ACCENT)
     _text(
         s, M + Inches(0.18), y2 + Inches(0.15), CW - Inches(0.36), Inches(0.6),
         "Результат пилота: подтверждённая ценность, спрос, экономика и модель масштабирования.",
@@ -467,7 +495,7 @@ def s10_prospects(prs: Presentation) -> None:
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s, BG_LIGHT)
     _slide_title_bar(s, "От пилота — к долгосрочному продукту")
-    y = Y_CONTENT + GAP_TITLE
+    y = Y_CONTENT
     stages = [
         ("1. Пилот", "Проверка сценариев и спроса."),
         ("2. Продукт", "Дополнительный модуль или marketplace-интеграция."),
@@ -493,7 +521,7 @@ def s11_plan90(prs: Presentation) -> None:
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _bg(s, BG_LIGHT)
     _slide_title_bar(s, "План на 90 дней")
-    y = Y_CONTENT + GAP_TITLE
+    y = Y_CONTENT
     blocks = [
         ("0–30 дней", "Согласование, вебинар, набор пилотных объектов."),
         ("31–60 дней", "Подключение, baseline показателей, обучение."),
@@ -508,7 +536,7 @@ def s11_plan90(prs: Presentation) -> None:
         num.fill.solid()
         num.fill.fore_color.rgb = ACCENT
         num.line.fill.background()
-        _text(s, x + Inches(0.15), y + Inches(0.18), Inches(0.45), Inches(0.4), str(i + 1), size=20, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        _text(s, x + Inches(0.15), y + Inches(0.18), Inches(0.45), Inches(0.4), str(i + 1), size=F_SUB, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
         _text(s, x + Inches(0.15), y + Inches(0.72), bw - Inches(0.3), Inches(0.45), head, size=F_SUB, bold=True, color=ACCENT)
         _text(s, x + Inches(0.15), y + Inches(1.2), bw - Inches(0.3), bh - Inches(1.35), txt, size=F_BODY, color=TEXT)
     _footer(s, 11)
@@ -521,12 +549,12 @@ def s12_final(prs: Presentation) -> None:
     _text(
         s, M, Inches(1.15), CW, Inches(0.9),
         "Предлагаем проверить ценность вместе",
-        size=34, bold=True, color=WHITE,
+        size=F_TITLE_L, bold=True, color=WHITE,
     )
     _text(
         s, M, Inches(2.15), CW, Inches(1.4),
         "Не просто показать отчёт,\nа измерить, помогает ли решение\nвладельцу быстрее действовать по данным.",
-        size=F_SUB, color=RGBColor(0xA8, 0xB8, 0xC8),
+        size=F_SUB, color=RGBColor(0xA8, 0xC8, 0xE8),
     )
     _text(
         s, M, Inches(3.85), CW, Inches(0.7),
@@ -560,7 +588,10 @@ def export_pdf(pptx_path: Path, pdf_path: Path) -> bool:
 
 
 def main() -> None:
+    import shutil
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    SUMMER_DIR.mkdir(parents=True, exist_ok=True)
     prs = Presentation()
     prs.slide_width = SW
     prs.slide_height = SH
@@ -578,7 +609,11 @@ def main() -> None:
     s12_final(prs)
     prs.save(str(OUTPUT_PPTX))
     print(f"OK PPTX: {OUTPUT_PPTX} ({len(prs.slides)} slides)")
-    export_pdf(OUTPUT_PPTX, OUTPUT_PDF)
+    shutil.copy2(OUTPUT_PPTX, OUTPUT_SUMMER_PPTX)
+    print(f"OK PPTX summer: {OUTPUT_SUMMER_PPTX}")
+    if export_pdf(OUTPUT_PPTX, OUTPUT_PDF):
+        shutil.copy2(OUTPUT_PDF, OUTPUT_SUMMER_PDF)
+        print(f"OK PDF summer: {OUTPUT_SUMMER_PDF}")
 
 
 if __name__ == "__main__":
