@@ -1,4 +1,4 @@
-"""Планировщик задач APScheduler (Europe/Moscow)."""
+"""Планировщик задач APScheduler (Europe/Tomsk)."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def job_price_snapshot(
     report_date: date | None = None,
     run_date: date | None = None,
 ) -> None:
-    """Ежедневный snapshot цен (09:00 MSK).
+    """Ежедневный snapshot цен (09:00 Tomsk).
 
     report_date — дата, за которую собираются данные.
     run_date — дата фактического запуска задачи.
@@ -77,6 +77,28 @@ def job_price_snapshot(
         run_date,
         report_date,
         lambda: run_daily_reconciliation(report_date),
+    )
+
+
+def job_summary_travelline_reconcile(
+    report_date: date | None = None,
+    run_date: date | None = None,
+) -> None:
+    """Сверка сводки Max vs TravelLine (09:12 Tomsk, этап 11 dry-run)."""
+    from src.data_sources.summary_reconcile import run_summary_travelline_reconcile
+
+    run_date = run_date or _msk_now().date()
+    report_date = report_date or run_date
+    logger.info(
+        "Задача summary_travelline_reconcile: report_date=%s, dry_run=%s",
+        report_date,
+        get_config().dry_run,
+    )
+    _run_job(
+        "summary_travelline_reconcile",
+        run_date,
+        report_date,
+        lambda: run_summary_travelline_reconcile(report_date),
     )
 
 
@@ -154,7 +176,7 @@ def job_daily_summary(
     report_date: date | None = None,
     run_date: date | None = None,
 ) -> None:
-    """Ежедневная сводка в Max (09:05 MSK)."""
+    """Ежедневная сводка в Max (09:05 Tomsk)."""
     run_date = run_date or _msk_now().date()
     report_date = report_date or run_date
     logger.info(
@@ -179,7 +201,8 @@ def job_weekly_email(
     period_start: date | None = None,
     period_end: date | None = None,
 ) -> None:
-    """Еженедельный HTML-отчёт на email (пн 08:00 MSK)."""
+    """Еженедельный HTML-отчёт v2 на email (пн 08:00 Tomsk)."""
+    cfg = get_config()
     run_date = run_date or _msk_now().date()
     report_date = report_date or run_date
     period_end = period_end or (report_date - timedelta(days=1))
@@ -196,24 +219,41 @@ def job_weekly_email(
     ):
         logger.info("Email-отчёт за %s..%s уже отправлен, пропуск", period_start, period_end)
         return
-    _run_job(
-        "weekly_email",
-        run_date,
-        report_date,
-        lambda: send_weekly_report(
+
+    def _run() -> None:
+        try:
+            from src.forecast.service import run_forecast_refresh
+
+            run_forecast_refresh(horizons=[14])
+        except Exception as exc:
+            logger.warning("forecast refresh before weekly email: %s", exc)
+        try:
+            from src.recommendations.service import refresh_recommendations_center
+
+            refresh_recommendations_center()
+        except Exception as exc:
+            logger.warning("recommendations refresh before weekly email: %s", exc)
+        try:
+            from src.data_sources.industry_trends import enrich_pending_trends
+
+            enrich_pending_trends(use_llm=cfg.market_news.enrich_with_llm)
+        except Exception as exc:
+            logger.warning("trends enrich before weekly email: %s", exc)
+        send_weekly_report(
             report_date=report_date,
             run_date=run_date,
             period_start=period_start,
             period_end=period_end,
-        ),
-    )
+        )
+
+    _run_job("weekly_email", run_date, report_date, _run)
 
 
 def job_weekly_trends(
     run_date: date | None = None,
     report_date: date | None = None,
 ) -> None:
-    """Еженедельный сбор трендов рынка (пн 07:00 MSK)."""
+    """Еженедельный сбор трендов рынка (пн 07:00 Tomsk)."""
     run_date = run_date or _msk_now().date()
     report_date = report_date or run_date
     logger.info(
@@ -372,6 +412,7 @@ def create_scheduler() -> BackgroundScheduler:
     competitors_kw = _parse_cron(cfg.scheduler.competitor_prices_cron)
     mail_cron = getattr(cfg.scheduler, "mail_inbox_cron", "45 9 * * *")
     mail_kw = _parse_cron(mail_cron)
+    reconcile_kw = _parse_cron(cfg.scheduler.summary_reconcile_cron)
     forecast_cron = getattr(cfg.forecast, "refresh_cron", "30 9 * * *")
     forecast_kw = _parse_cron(forecast_cron)
     # refresh_hour — основной час; collect_cron может переопределить полное расписание
@@ -391,6 +432,12 @@ def create_scheduler() -> BackgroundScheduler:
         CronTrigger(timezone=tz, **summary_kw),
         id="daily_summary",
         name="Сводка Max",
+    )
+    scheduler.add_job(
+        job_summary_travelline_reconcile,
+        CronTrigger(timezone=tz, **reconcile_kw),
+        id="summary_travelline_reconcile",
+        name="Сверка сводки/TL",
     )
     scheduler.add_job(
         job_weekly_email,

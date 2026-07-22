@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 19
 
 TRENDS_RETENTION_DAYS = 180
 INSIGHTS_RETENTION_DAYS = 90
@@ -691,6 +691,42 @@ MIGRATIONS_V17: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_staff_command_log_created ON staff_command_log(created_at)",
 ]
 
+MIGRATIONS_V18: list[str] = [
+    "ALTER TABLE reports_log ADD COLUMN recipient_count INTEGER",
+    "ALTER TABLE reports_log ADD COLUMN data_quality TEXT",
+    "ALTER TABLE reports_log ADD COLUMN html_snapshot_path TEXT",
+    "ALTER TABLE reports_log ADD COLUMN plain_text_snapshot TEXT",
+    "ALTER TABLE reports_log ADD COLUMN error_message TEXT",
+]
+
+MIGRATIONS_V19: list[str] = [
+    "ALTER TABLE trends ADD COLUMN source_name TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE trends ADD COLUMN evidence_level TEXT NOT NULL DEFAULT 'industry_media'",
+    "ALTER TABLE trends ADD COLUMN relevance_score REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE trends ADD COLUMN local_applicability TEXT NOT NULL DEFAULT 'medium'",
+    "ALTER TABLE trends ADD COLUMN trend_type TEXT NOT NULL DEFAULT 'fact'",
+    "ALTER TABLE trends ADD COLUMN recommended_pilot TEXT",
+    "ALTER TABLE trends ADD COLUMN status TEXT NOT NULL DEFAULT 'candidate'",
+    "ALTER TABLE trends ADD COLUMN ai_fact TEXT",
+    "ALTER TABLE trends ADD COLUMN ai_applicability TEXT",
+    "ALTER TABLE trends ADD COLUMN ai_risk_opportunity TEXT",
+    "ALTER TABLE trends ADD COLUMN ai_safe_step TEXT",
+    "ALTER TABLE trends ADD COLUMN included_in_email_at TEXT",
+    "ALTER TABLE trends ADD COLUMN content_hash TEXT",
+    """
+    CREATE TABLE IF NOT EXISTS trend_email_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trend_id INTEGER NOT NULL,
+        report_date TEXT NOT NULL,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_trend_email_log_trend ON trend_email_log(trend_id)",
+    "CREATE INDEX IF NOT EXISTS idx_trends_status ON trends(status)",
+]
+
 
 class PriceSnapshotRecord(BaseModel):
     """Запись snapshot цены."""
@@ -756,6 +792,11 @@ class ReportLogRecord(BaseModel):
     message: str | None = None
     period_start: date | None = None
     period_end: date | None = None
+    recipient_count: int | None = None
+    data_quality: str | None = None
+    html_snapshot_path: str | None = None
+    plain_text_snapshot: str | None = None
+    error_message: str | None = None
     id: int | None = None
 
 
@@ -844,6 +885,19 @@ class TrendRecord(BaseModel):
     takeaway: str
     published_at: date | None = None
     is_idea_of_week: bool = False
+    source_name: str = ""
+    evidence_level: str = "industry_media"
+    relevance_score: float = 0.0
+    local_applicability: str = "medium"
+    trend_type: str = "fact"
+    recommended_pilot: str | None = None
+    status: str = "candidate"
+    ai_fact: str | None = None
+    ai_applicability: str | None = None
+    ai_risk_opportunity: str | None = None
+    ai_safe_step: str | None = None
+    included_in_email_at: date | None = None
+    content_hash: str | None = None
     id: int | None = None
 
 

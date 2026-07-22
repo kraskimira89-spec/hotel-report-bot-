@@ -26,11 +26,11 @@ class PropertyConfig(BaseModel):
 
     total_units: int = 44
     categories: int = 6
-    timezone: str = "Europe/Moscow"
+    timezone: str = "Europe/Tomsk"
 
 
 class SchedulerConfig(BaseModel):
-    """Расписание задач (cron, Europe/Moscow)."""
+    """Расписание задач (cron, Europe/Tomsk)."""
 
     price_snapshot_cron: str = "0 9 * * *"
     daily_summary_cron: str = "5 9 * * *"
@@ -38,6 +38,7 @@ class SchedulerConfig(BaseModel):
     weekly_trends_cron: str = "0 7 * * 1"
     competitor_prices_cron: str = "30 9 * * 1"  # пн 09:30 — автосбор цен (Playwright)
     mail_inbox_cron: str = "45 9 * * *"  # ежедневно после snapshot / аналитики
+    summary_reconcile_cron: str = "12 9 * * *"  # сверка сводки vs TL после Max
 
 
 class DeployConfig(BaseModel):
@@ -132,6 +133,11 @@ class MarketNewsConfig(BaseModel):
 
     enabled: bool = True
     max_items: int = 5
+    max_email_items: int = 3
+    max_age_days: int = 30
+    dedup_weeks: int = 4
+    min_relevance_for_email: float = 60.0
+    enrich_with_llm: bool = False
     sources: list[str] = Field(default_factory=list)
     regions: list[str] = Field(default_factory=lambda: ["ru", "world"])
     # Основная категория для «Идеи недели» (обратная совместимость).
@@ -233,6 +239,7 @@ class EmailConfig(BaseModel):
     to_addresses: list[str] = Field(default_factory=list)
     test_addresses: list[str] = Field(default_factory=list)
     subject_prefix: str = "[1apart] Еженедельный отчёт"
+    use_llm: bool = False
 
 
 class SheetsConfig(BaseModel):

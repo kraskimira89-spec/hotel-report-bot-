@@ -28,6 +28,8 @@ from src.storage.models import (
     MIGRATIONS_V15,
     MIGRATIONS_V16,
     MIGRATIONS_V17,
+    MIGRATIONS_V18,
+    MIGRATIONS_V19,
     SCHEMA_VERSION,
     TABLES,
     TRENDS_RETENTION_DAYS,
@@ -225,6 +227,22 @@ def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
                     logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
     if current < 17:
         for ddl in MIGRATIONS_V17:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                msg = str(exc).lower()
+                if "duplicate column name" not in msg and "already exists" not in msg:
+                    logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 18:
+        for ddl in MIGRATIONS_V18:
+            try:
+                conn.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                msg = str(exc).lower()
+                if "duplicate column name" not in msg and "already exists" not in msg:
+                    logger.debug("Миграция пропущена: %s (%s)", ddl, exc)
+    if current < 19:
+        for ddl in MIGRATIONS_V19:
             try:
                 conn.execute(ddl)
             except sqlite3.OperationalError as exc:
@@ -693,8 +711,10 @@ def save_report_log(
     sql = """
         INSERT INTO reports_log (
             report_type, report_date, run_date, period_start, period_end,
-            status, dry_run, preview, message
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            status, dry_run, preview, message,
+            recipient_count, data_quality, html_snapshot_path,
+            plain_text_snapshot, error_message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     params = (
         record.report_type,
@@ -706,6 +726,11 @@ def save_report_log(
         int(record.dry_run),
         record.preview,
         record.message,
+        record.recipient_count,
+        record.data_quality,
+        record.html_snapshot_path,
+        record.plain_text_snapshot,
+        record.error_message,
     )
 
     if conn is not None:
@@ -717,15 +742,8 @@ def save_report_log(
         return int(cur.lastrowid or 0)
 
 
-def get_report_log(report_id: int) -> ReportLogRecord | None:
-    """Получить запись журнала отчётов по id."""
-    with db_session() as conn:
-        row = conn.execute(
-            "SELECT * FROM reports_log WHERE id = ?",
-            (report_id,),
-        ).fetchone()
-    if row is None:
-        return None
+def _report_log_from_row(row: sqlite3.Row) -> ReportLogRecord:
+    keys = row.keys()
     return ReportLogRecord(
         id=row["id"],
         report_type=row["report_type"],
@@ -737,7 +755,24 @@ def get_report_log(report_id: int) -> ReportLogRecord | None:
         dry_run=bool(row["dry_run"]),
         preview=row["preview"],
         message=row["message"],
+        recipient_count=row["recipient_count"] if "recipient_count" in keys else None,
+        data_quality=row["data_quality"] if "data_quality" in keys else None,
+        html_snapshot_path=row["html_snapshot_path"] if "html_snapshot_path" in keys else None,
+        plain_text_snapshot=row["plain_text_snapshot"] if "plain_text_snapshot" in keys else None,
+        error_message=row["error_message"] if "error_message" in keys else None,
     )
+
+
+def get_report_log(report_id: int) -> ReportLogRecord | None:
+    """Получить запись журнала отчётов по id."""
+    with db_session() as conn:
+        row = conn.execute(
+            "SELECT * FROM reports_log WHERE id = ?",
+            (report_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return _report_log_from_row(row)
 
 
 def get_reports_log(limit: int = 50) -> list[ReportLogRecord]:
@@ -747,21 +782,7 @@ def get_reports_log(limit: int = 50) -> list[ReportLogRecord]:
             "SELECT * FROM reports_log ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
-    return [
-        ReportLogRecord(
-            id=row["id"],
-            report_type=row["report_type"],
-            report_date=_parse_date(row["report_date"]),
-            run_date=_parse_date(row["run_date"]),
-            period_start=_parse_date(row["period_start"]) if row["period_start"] else None,
-            period_end=_parse_date(row["period_end"]) if row["period_end"] else None,
-            status=row["status"],
-            dry_run=bool(row["dry_run"]),
-            preview=row["preview"],
-            message=row["message"],
-        )
-        for row in rows
-    ]
+    return [_report_log_from_row(row) for row in rows]
 
 
 def report_log_exists(
@@ -1088,6 +1109,8 @@ def _row_to_trend(row: sqlite3.Row) -> TrendRecord:
     published = row["published_at"]
     if not published and "created_at" in row.keys() and row["created_at"]:
         published = str(row["created_at"])[:10]
+    keys = row.keys()
+    included = row["included_in_email_at"] if "included_in_email_at" in keys else None
     return TrendRecord(
         id=row["id"],
         title=row["title"],
@@ -1098,6 +1121,19 @@ def _row_to_trend(row: sqlite3.Row) -> TrendRecord:
         takeaway=row["takeaway"],
         published_at=_parse_date(published) if published else None,
         is_idea_of_week=bool(row["is_idea_of_week"]),
+        source_name=row["source_name"] if "source_name" in keys else "",
+        evidence_level=row["evidence_level"] if "evidence_level" in keys else "industry_media",
+        relevance_score=float(row["relevance_score"] or 0) if "relevance_score" in keys else 0.0,
+        local_applicability=row["local_applicability"] if "local_applicability" in keys else "medium",
+        trend_type=row["trend_type"] if "trend_type" in keys else "fact",
+        recommended_pilot=row["recommended_pilot"] if "recommended_pilot" in keys else None,
+        status=row["status"] if "status" in keys else "candidate",
+        ai_fact=row["ai_fact"] if "ai_fact" in keys else None,
+        ai_applicability=row["ai_applicability"] if "ai_applicability" in keys else None,
+        ai_risk_opportunity=row["ai_risk_opportunity"] if "ai_risk_opportunity" in keys else None,
+        ai_safe_step=row["ai_safe_step"] if "ai_safe_step" in keys else None,
+        included_in_email_at=_parse_date(included) if included else None,
+        content_hash=row["content_hash"] if "content_hash" in keys else None,
     )
 
 
@@ -1113,8 +1149,11 @@ def save_trends(
     sql = """
         INSERT INTO trends (
             title, summary, category, region, source_url,
-            published_at, takeaway, is_idea_of_week
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            published_at, takeaway, is_idea_of_week,
+            source_name, evidence_level, relevance_score,
+            local_applicability, trend_type, recommended_pilot,
+            status, content_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
     def _save(connection: sqlite3.Connection) -> int:
@@ -1131,6 +1170,14 @@ def save_trends(
                     _date_str(item.published_at) if item.published_at else None,
                     item.takeaway,
                     int(item.is_idea_of_week),
+                    item.source_name,
+                    item.evidence_level,
+                    item.relevance_score,
+                    item.local_applicability,
+                    item.trend_type,
+                    item.recommended_pilot,
+                    item.status,
+                    item.content_hash,
                 ),
             )
             count += 1
@@ -1166,6 +1213,112 @@ def get_trends_records(
     with db_session() as conn:
         rows = conn.execute(sql, params).fetchall()
     return [_row_to_trend(row) for row in rows]
+
+
+def get_trend_by_id(trend_id: int) -> TrendRecord | None:
+    with db_session() as conn:
+        row = conn.execute("SELECT * FROM trends WHERE id = ?", (trend_id,)).fetchone()
+    if row is None:
+        return None
+    return _row_to_trend(row)
+
+
+def get_approved_trends_for_email(
+    *,
+    max_age_days: int = 30,
+    min_relevance: float = 60.0,
+    dedup_days: int = 28,
+    limit: int = 3,
+) -> list[TrendRecord]:
+    """Отбор approved-трендов для weekly email."""
+    cutoff = _date_str(date.today() - timedelta(days=max_age_days))
+    dedup_cutoff = _date_str(date.today() - timedelta(days=dedup_days))
+    sql = """
+        SELECT t.* FROM trends t
+        WHERE t.status = 'approved'
+          AND t.relevance_score >= ?
+          AND COALESCE(t.published_at, date(t.created_at)) >= ?
+          AND t.source_url IS NOT NULL AND t.source_url != ''
+          AND t.id NOT IN (
+              SELECT trend_id FROM trend_email_log
+              WHERE date(created_at) >= ?
+          )
+        ORDER BY
+          CASE t.local_applicability
+            WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+          CASE t.region
+            WHEN 'tomsk' THEN 0 WHEN 'siberia' THEN 1 WHEN 'russia' THEN 2
+            WHEN 'moscow' THEN 3 WHEN 'spb' THEN 3 ELSE 4 END,
+          t.relevance_score DESC,
+          COALESCE(t.published_at, date(t.created_at)) DESC
+        LIMIT ?
+    """
+    with db_session() as conn:
+        rows = conn.execute(
+            sql,
+            (min_relevance, cutoff, dedup_cutoff, limit),
+        ).fetchall()
+    return [_row_to_trend(row) for row in rows]
+
+
+def log_trends_in_email(
+    trend_ids: list[int],
+    report_date: date,
+    period_start: date,
+    period_end: date,
+) -> None:
+    """Записать факт включения тренда в email (dedup)."""
+    if not trend_ids:
+        return
+    now = date.today().isoformat()
+    with db_session() as conn:
+        for tid in trend_ids:
+            conn.execute(
+                """
+                INSERT INTO trend_email_log (
+                    trend_id, report_date, period_start, period_end
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (tid, _date_str(report_date), _date_str(period_start), _date_str(period_end)),
+            )
+            conn.execute(
+                "UPDATE trends SET included_in_email_at = ? WHERE id = ?",
+                (now, tid),
+            )
+
+
+def update_trend_status(trend_id: int, status: str) -> bool:
+    with db_session() as conn:
+        cur = conn.execute(
+            "UPDATE trends SET status = ? WHERE id = ?",
+            (status, trend_id),
+        )
+        return cur.rowcount > 0
+
+
+def update_trend_ai_fields(
+    trend_id: int,
+    *,
+    ai_fact: str | None = None,
+    ai_applicability: str | None = None,
+    ai_risk_opportunity: str | None = None,
+    ai_safe_step: str | None = None,
+    relevance_score: float | None = None,
+) -> bool:
+    with db_session() as conn:
+        cur = conn.execute(
+            """
+            UPDATE trends SET
+                ai_fact = COALESCE(?, ai_fact),
+                ai_applicability = COALESCE(?, ai_applicability),
+                ai_risk_opportunity = COALESCE(?, ai_risk_opportunity),
+                ai_safe_step = COALESCE(?, ai_safe_step),
+                relevance_score = COALESCE(?, relevance_score)
+            WHERE id = ?
+            """,
+            (ai_fact, ai_applicability, ai_risk_opportunity, ai_safe_step, relevance_score, trend_id),
+        )
+        return cur.rowcount > 0
 
 
 def get_trend_idea_of_week() -> TrendRecord | None:

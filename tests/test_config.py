@@ -47,7 +47,7 @@ def test_get_config_loads_defaults() -> None:
     data = _load_yaml(_project_root() / "config" / "settings.example.yaml")
     cfg = AppConfig.model_validate(data)
     assert cfg.property.total_units == 44
-    assert cfg.property.timezone == "Europe/Moscow"
+    assert cfg.property.timezone == "Europe/Tomsk"
     assert cfg.dry_run is True
 
 
@@ -58,6 +58,7 @@ def test_get_config_scheduler_cron(
     cfg = get_config()
     assert cfg.scheduler.price_snapshot_cron == "0 9 * * *"
     assert cfg.scheduler.daily_summary_cron == "5 9 * * *"
+    assert cfg.scheduler.summary_reconcile_cron == "12 9 * * *"
     assert cfg.scheduler.weekly_email_cron == "0 8 * * 1"
 
 

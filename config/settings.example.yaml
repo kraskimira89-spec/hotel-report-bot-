@@ -2,7 +2,7 @@ dry_run: true
 property:
   total_units: 44
   categories: 6
-  timezone: Europe/Moscow
+  timezone: Europe/Tomsk
 scheduler:
   price_snapshot_cron: 0 9 * * *
   daily_summary_cron: 5 9 * * *
@@ -10,6 +10,7 @@ scheduler:
   weekly_trends_cron: 0 7 * * 1
   competitor_prices_cron: 30 9 * * 1
   mail_inbox_cron: 45 9 * * *
+  summary_reconcile_cron: 12 9 * * *
 mail_inbox:
   enabled: false
   lookback_days: 7
@@ -263,6 +264,11 @@ competitor_category_map:
 market_news:
   enabled: true
   max_items: 5
+  max_email_items: 3
+  max_age_days: 30
+  dedup_weeks: 4
+  min_relevance_for_email: 60
+  enrich_with_llm: false
   regions:
   - ru
   - world
@@ -328,6 +334,7 @@ email:
   test_addresses:
   - test@1apart.ru
   subject_prefix: '[1apart] Еженедельный отчёт'
+  use_llm: false
 sheets:
   spreadsheet_id: 1tCPA1HeT5y48zvP3Gj9VG0Gpj9an0BG37Zn1_X69ehQ
   spreadsheet_title: Апарт отель для Сергея

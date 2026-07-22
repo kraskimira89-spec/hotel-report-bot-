@@ -16,6 +16,7 @@ ruff
 mypy
 qrcode
 python-docx
+python-pptx
 # runtime-зависимости FastAPI (сессии, формы) — не Playwright
 python-multipart
 itsdangerous

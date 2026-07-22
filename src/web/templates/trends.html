@@ -67,14 +67,38 @@
     {% for item in data.trends %}
     <div class="trend-item">
         <span class="badge badge-yellow">{{ item.category }}</span>
+        <span class="badge {% if item.status == 'approved' %}badge-green{% elif item.status == 'archived' %}badge-gray{% else %}badge-yellow{% endif %}">{{ item.status or 'candidate' }}</span>
+        {% if item.relevance_score %}<span class="badge">score {{ item.relevance_score }}</span>{% endif %}
+        {% if item.evidence_level %}<span class="muted">{{ item.evidence_level }}</span>{% endif %}
         <span class="muted">{{ item.region_label }}</span>
+        {% if item.is_leading_trend %}<span class="badge badge-blue">опережающий тренд</span>{% endif %}
         <h3>{{ item.title }}</h3>
         <p>{{ item.summary }}</p>
         <p class="takeaway"><strong>Что это значит для нас:</strong> {{ item.takeaway }}</p>
+        {% if item.recommended_pilot %}
+        <p class="muted"><strong>Пилот:</strong> {{ item.recommended_pilot }}</p>
+        {% endif %}
         <p class="muted">
             <a href="{{ item.source_url }}" target="_blank" rel="noopener">Источник</a>
             {% if item.published_at %} · {{ item.published_at }}{% endif %}
         </p>
+        {% if item.id %}
+        <div class="trend-actions">
+            {% if item.status != 'approved' %}
+            <form method="post" action="/trends/{{ item.id }}/approve" style="display:inline">
+                <button type="submit">✅ Одобрить</button>
+            </form>
+            {% endif %}
+            {% if item.status != 'archived' %}
+            <form method="post" action="/trends/{{ item.id }}/reject" style="display:inline">
+                <button type="submit">🚫 Отклонить</button>
+            </form>
+            {% endif %}
+            <form method="post" action="/trends/{{ item.id }}/create-pilot-rec" style="display:inline">
+                <button type="submit">🧪 Создать пилот-рекомендацию</button>
+            </form>
+        </div>
+        {% endif %}
     </div>
     {% endfor %}
     {% else %}

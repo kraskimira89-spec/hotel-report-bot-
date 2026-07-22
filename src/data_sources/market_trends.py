@@ -340,6 +340,12 @@ def seed_trends_if_empty() -> int:
 
 
 def _trend_item_to_record(item: TrendItem) -> TrendRecord:
+    from src.data_sources.industry_trends import (
+        content_hash,
+        score_trend_relevance,
+        source_name_from_url,
+    )
+
     return TrendRecord(
         title=item.title,
         summary=item.summary,
@@ -349,6 +355,20 @@ def _trend_item_to_record(item: TrendItem) -> TrendRecord:
         published_at=item.published_at,
         takeaway=item.takeaway,
         is_idea_of_week=item.is_idea_of_week,
+        source_name=source_name_from_url(item.source_url),
+        content_hash=content_hash(item.title, item.source_url),
+        relevance_score=score_trend_relevance(
+            TrendRecord(
+                title=item.title,
+                summary=item.summary,
+                category=item.category,
+                region=item.region,
+                source_url=item.source_url,
+                takeaway=item.takeaway,
+                published_at=item.published_at,
+            )
+        ),
+        status="candidate",
     )
 
 

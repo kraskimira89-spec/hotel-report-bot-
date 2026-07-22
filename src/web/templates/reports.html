@@ -2,10 +2,13 @@
 {% block title %}Отчёты — hotel-report-bot{% endblock %}
 {% block content %}
 <h1>Журнал отчётов</h1>
+<form method="post" action="/reports/send-test" style="margin-bottom:12px">
+    <button type="submit" class="btn-small">Тестовый weekly email (dry-run)</button>
+</form>
 <div class="card">
     {% if reports %}
     <table>
-        <thead><tr><th>ID</th><th>Тип</th><th>Дата отчёта</th><th>Период</th><th>Статус</th><th>Тестовый режим</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>Тип</th><th>Дата отчёта</th><th>Период</th><th>Статус</th><th>Качество</th><th>Тестовый режим</th><th></th></tr></thead>
         <tbody>
         {% for r in reports %}
         <tr>
@@ -14,8 +17,12 @@
             <td>{{ r.report_date|date_ru }}</td>
             <td>{% if r.period_start %}{{ r.period_start|date_ru }} — {{ r.period_end|date_ru }}{% else %}—{% endif %}</td>
             <td>{{ r.status }}</td>
+            <td>{{ r.data_quality or "—" }}</td>
             <td>{{ "да" if r.dry_run else "нет" }}</td>
             <td>
+                {% if r.html_snapshot_path %}
+                <a href="/reports/{{ r.id }}/preview" target="_blank" class="btn-small">Превью</a>
+                {% endif %}
                 <form method="post" action="/reports/{{ r.id }}/resend" style="display:inline">
                     <button type="submit" class="btn-small">Повторить</button>
                 </form>

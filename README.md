@@ -5,7 +5,7 @@
 ## Возможности
 
 - **Ежедневно:** сбор загрузки, броней и цен → сводка со светофором (🟢🟡🔴) в мессенджер Max
-- **Еженедельно:** HTML-отчёт (Occupancy, ADR, RevPAR, ALS, каналы, повторные гости) → email
+- **Еженедельно:** HTML-отчёт v2 (9 блоков: KPI, прогноз 14д, рекомендации, тренды отрасли, LLM-резюме) → email, пн 08:00 Tomsk
 - **Веб-админка:** история snapshot цен, метрик, логов; переключатель dry-run
 
 ## Быстрый старт
@@ -58,6 +58,10 @@ docker compose -f docker/docker-compose.yml up --build
 
 1. **Dry-run 1–2 недели**: `dry_run=true`, сводки → тестовый чат/почта.
 2. **Сверка цифр**: Occupancy/ADR/RevPAR/каналы vs отчёт TravelLine «Доходность и загрузка».
+   ```bash
+   python scripts/reconcile_summary_travelline.py --date YYYY-MM-DD
+   ```
+   JSON: `data/reconcile/reconcile_YYYY-MM-DD.json` (авто 09:12 MSK, cron `summary_reconcile_cron`).
 3. **Пороги светофора**: скорректировать `traffic_light.*` по факту.
 4. **Сценарии отказа**:
    - расхождение источников → предупреждение и запись в `errors_log`;
@@ -77,7 +81,7 @@ docker compose -f docker/docker-compose.yml up --build
 - [x] **Этап 3** — snapshot цен (BeautifulSoup) + анти-блок
 - [x] **Этап 4** — SQLite, миграции, retention 90 дней
 - [x] **Этап 5** — Max Bot + dry-run
-- [x] **Этап 6** — email-отчёт (HTML)
+- [x] **Этап 6** — email-отчёт v2 (HTML 640px, 9 блоков, preview/test-send, trend moderation)
 - [x] **Этап 7** — TravelLine API (цены, доход, каналы, гости)
 - [x] **Этап 8** — веб-админка (полный функционал)
 - [x] **Этап 9** — планировщик + Docker
@@ -94,7 +98,7 @@ src/
 ├── notifiers/          # Max Bot, email
 ├── storage/            # SQLite
 ├── web/                # FastAPI + Jinja2
-├── scheduler.py        # APScheduler (MSK)
+├── scheduler.py        # APScheduler (Europe/Tomsk)
 └── main.py             # точка входа
 ```
 

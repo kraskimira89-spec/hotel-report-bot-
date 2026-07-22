@@ -7,6 +7,7 @@ from statistics import mean
 from typing import Any
 
 from src.config import get_config
+from src.data_sources.industry_trends import INDUSTRY_CATEGORIES, region_label
 from src.data_sources.market_trends import (
     TREND_CATEGORIES,
     build_market_trends,
@@ -691,11 +692,18 @@ def get_trends(
             "summary": r.summary,
             "category": r.category,
             "region": r.region,
-            "region_label": "🇷🇺 Россия" if r.region == "ru" else "🌍 Мир",
+            "region_label": region_label(r.region),
             "source_url": r.source_url,
+            "source_name": r.source_name or r.source_url,
             "published_at": r.published_at.isoformat() if r.published_at else None,
             "takeaway": r.takeaway,
             "is_idea_of_week": r.is_idea_of_week,
+            "status": r.status,
+            "relevance_score": r.relevance_score,
+            "evidence_level": r.evidence_level,
+            "local_applicability": r.local_applicability,
+            "recommended_pilot": r.recommended_pilot,
+            "is_leading_trend": r.region in ("moscow", "spb", "world"),
         }
         for r in records
     ]
@@ -760,7 +768,7 @@ def fetch_trends_bundle(
         "prev_start": format_date_ru(prev_start),
         "prev_end": format_date_ru(prev_end),
         "aggregates": aggregates,
-        "categories": TREND_CATEGORIES,
+        "categories": INDUSTRY_CATEGORIES or TREND_CATEGORIES,
         "filters": {
             "region": region or "",
             "category": category or "",

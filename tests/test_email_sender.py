@@ -48,10 +48,39 @@ def smtp_env(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+from src.notifiers.weekly.models import ExecutiveSummary, KpiCard
+
+
 def _sample_report(*, estimated: bool = False) -> WeeklyReportData:
     return WeeklyReportData(
         period_start=date(2026, 6, 30),
         period_end=date(2026, 7, 6),
+        executive_summary=ExecutiveSummary(
+            headline="Загрузка 68%",
+            main_action="Проверить цены",
+            confidence_label="средняя",
+        ),
+        kpi_cards=[
+            KpiCard(
+                label="Загрузка",
+                value="68.0%",
+                delta="+8.0 п.п.",
+                status="🟢",
+            ),
+            KpiCard(
+                label="ADR",
+                value="5 000 ₽",
+                status="🟡",
+                is_estimated=estimated,
+                note="Оценочно" if estimated else "",
+            ),
+            KpiCard(
+                label="RevPAR",
+                value="3 400 ₽",
+                status="🟡",
+                is_estimated=estimated,
+            ),
+        ],
         occupancy_by_type=[
             OccupancyTypeRow(room_type="1-комн. 23", occupancy_pct=75.0),
         ],
@@ -85,27 +114,23 @@ def _sample_report(*, estimated: bool = False) -> WeeklyReportData:
 
 def test_build_weekly_report_html_sections() -> None:
     html = build_weekly_report_html(_sample_report())
-    assert "Еженедельный отчёт 1apart" in html
-    assert "Загрузка" in html
-    assert "Ключевые метрики" in html
-    assert "Тренды рынка" in html
-    assert "Конкуренты" in html
+    assert "1apart · Итоги недели" in html
+    assert "Ключевые показатели" in html
+    assert "Главное за неделю" in html
     assert "1-комн. 23" in html
-    assert "Апартаменты Петровские" in html
 
 
 def test_build_weekly_report_html_estimated_marker() -> None:
     html = build_weekly_report_html(_sample_report(estimated=True))
-    assert "оценочный" in html
-    assert 'class="estimated"' in html
+    assert "Оценочно" in html
 
 
 def test_build_weekly_report_plain_key_figures() -> None:
     plain = build_weekly_report_plain(_sample_report(estimated=True))
-    assert "ADR (средняя цена номера за сутки): 5 000 руб. (оценочный)" in plain
-    assert "RevPAR (доход на доступный номер): 3 400 руб. (оценочный)" in plain
-    assert "Прямые: 55.0%" in plain
-    assert "Спрос стабилен" in plain
+    assert "ADR" in plain
+    assert "5 000" in plain
+    assert "[Оценочно]" in plain
+    assert "68.0%" in plain
 
 
 def test_send_html_report_dry_run_uses_test_addresses(

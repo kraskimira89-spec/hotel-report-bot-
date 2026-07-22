@@ -1114,6 +1114,66 @@ async def logs_page(request: Request) -> Response:
     )
 
 
+@app.get("/reports/{report_id}/preview")
+async def report_preview(request: Request, report_id: int) -> Response:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    record = get_report_log(report_id)
+    if record is None or not record.html_snapshot_path:
+        return RedirectResponse(url="/reports", status_code=status.HTTP_302_FOUND)
+    path = Path(record.html_snapshot_path)
+    if not path.is_file():
+        return RedirectResponse(url="/reports", status_code=status.HTTP_302_FOUND)
+    return FileResponse(path, media_type="text/html")
+
+
+@app.post("/reports/send-test")
+async def send_test_weekly_report(request: Request) -> RedirectResponse:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    cfg = get_config()
+    try:
+        send_weekly_report(config=cfg.model_copy(update={"dry_run": True}))
+    except Exception as exc:
+        logger.exception("Test weekly email: %s", exc)
+    return RedirectResponse(url="/reports", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/trends/{trend_id}/approve")
+async def approve_trend_route(request: Request, trend_id: int) -> RedirectResponse:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import update_trend_status
+
+    update_trend_status(trend_id, "approved")
+    return RedirectResponse(url="/trends", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/trends/{trend_id}/reject")
+async def reject_trend_route(request: Request, trend_id: int) -> RedirectResponse:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.storage.db import update_trend_status
+
+    update_trend_status(trend_id, "archived")
+    return RedirectResponse(url="/trends", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/trends/{trend_id}/create-pilot-rec")
+async def create_trend_pilot_rec_route(request: Request, trend_id: int) -> RedirectResponse:
+    redirect = _require_auth(request)
+    if redirect:
+        return redirect
+    from src.data_sources.industry_trends import create_trend_pilot_recommendation
+
+    create_trend_pilot_recommendation(trend_id)
+    return RedirectResponse(url="/trends", status_code=status.HTTP_302_FOUND)
+
+
 @app.get("/reports", response_class=HTMLResponse)
 async def reports_page(request: Request) -> Response:
     redirect = _require_auth(request)

@@ -47,6 +47,9 @@ def trends_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_fetch_market_trends_with_mock_rss(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SETTINGS_PATH", "config/settings.example.yaml")
+    reload_config()
+
     class FakeResponse:
         status_code = 200
         text = RSS_SAMPLE
